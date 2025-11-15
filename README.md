@@ -28,7 +28,7 @@ bun run dev
 - Bun
 - Next.js
 - React
-- Css
+- Tailwind CSS
 - PostgerSQL
 - S3 maybe?
 
