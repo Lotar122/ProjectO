@@ -3,6 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --sb-width: 10px;
+  --sb-thumb: rgba(255, 255, 255, 0.95);
+  --sb-track: transparent;
 }
 
 @theme inline {
@@ -23,4 +26,41 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* -------------------------------
+   Chrome / Edge / Safari (Blink/WebKit)
+   full control via ::-webkit-scrollbar
+   ------------------------------- */
+*::-webkit-scrollbar {
+  width: var(--sb-width);
+  height: var(--sb-width);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--sb-track);
+  margin: 6px; /* optional: gives the thumb some breathing room */
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border-radius: 999px;
+  min-height: 28px;          /* keeps the thumb usable */
+  box-shadow: 0 0 0 3px transparent; /* keeps layout stable if you add borders */
+  background-clip: padding-box;
+}
+
+/* corner (for two-axis scrolling) */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* -------------------------------
+   Firefox: limited control — use thin + color
+   (cannot set border-radius on the thumb directly)
+   ------------------------------- */
+* {
+  scrollbar-width: thin; /* auto / thin / none */
+  scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
