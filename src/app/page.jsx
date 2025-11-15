@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
  
 let ordersArray = [
@@ -18,6 +18,8 @@ const App = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [newOrder, setNewOrder] = useState({ patient: '', type: '', notes: '' });
+  const orderFilterRef = useRef(null);
+  const orderSearchRef = useRef(null);
  
   // useEffect(() => {
   //   // Simulate loading
@@ -46,7 +48,7 @@ const App = () => {
 	e.preventDefault();
 	if (newOrder.patient && newOrder.type) {
 	  const order = {
-		id: `ORD-${String(orders.length + 1).padStart(3, '0')}`,
+		id: `ORD-${String(ordersArray.length + 1).padStart(3, '0')}`,
 		patient: newOrder.patient,
 		type: newOrder.type,
 		status: 'pending',
@@ -77,12 +79,12 @@ const App = () => {
   const searchOrdersByStatus = (status) => {
 	if(status === "All Status")
 	{
-		ordersToBeDisplayed = structuredClone(ordersArray);
-		setOrders(ordersToBeDisplayed);
 		return;
 	}
-	ordersToBeDisplayed = [];
-	ordersArray.forEach((val) => {if(val.status.toLowerCase().includes(status.toLowerCase().replace(' ', '-'))) {ordersToBeDisplayed.push(val)}});
+	let newOrdersToBeDisplayed = [];
+	ordersToBeDisplayed.forEach((val) => {if(val.status.toLowerCase().includes(status.toLowerCase().replace(' ', '-'))) {newOrdersToBeDisplayed.push(val)}});
+
+	ordersToBeDisplayed = structuredClone(newOrdersToBeDisplayed);
 
 	setOrders(ordersToBeDisplayed);
   };
@@ -331,14 +333,18 @@ const App = () => {
 				<div className="flex-1 relative">
 				  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
 				  <input
-				  	onChange={(e) => searchOrdersByString(e.target.value)}
+				  	ref={orderSearchRef}
+				  	onChange={(e) => {searchOrdersByString(e.target.value); searchOrdersByStatus(orderFilterRef.current.value);}}
 					type="text"
 					placeholder="Search orders..."
 					className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
 				  />
 				</div>
 				<div className="flex gap-2">
-				  <select onChange={(e) => searchOrdersByStatus(e.target.value)} className="px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white">
+				  <select 
+				  	onChange={(e) => {searchOrdersByString(orderSearchRef.current.value); searchOrdersByStatus(e.target.value);}} 
+					ref={orderFilterRef} 
+					className="px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white">
 					<option className="bg-gray-900">All Status</option>
 					<option className="bg-gray-900">Pending</option>
 					<option className="bg-gray-900">In Progress</option>
