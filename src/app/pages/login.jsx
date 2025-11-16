@@ -4,6 +4,7 @@ import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogI
 import { useEffect, useState } from "react";
 
 import Loading from "./loading"
+import Error from "./error"
 
 export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLoggedIn, handleLogin, loginForm, setLoginForm, showPassword})
 {
@@ -11,7 +12,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 
 	useEffect(() => {
 		async function load() {
-		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/api", {method: "GET", credentials: "include"});
+		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/browser", {method: "GET", credentials: "include", redirect: "manual"});
 		setData(res);
 		}
 		load();
@@ -31,11 +32,9 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		load();
 	}, []);
 	
-	if(!data) return <Loading />;
+	if(!data) return <Error />;
 
-	console.log(data);
-
-
+	const flow = data;
 
     return (
 		  <div className="min-h-screen flex items-center justify-center p-4">
