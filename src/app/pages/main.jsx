@@ -46,14 +46,7 @@ export default function Main()
 		<div className="min-h-screen bg-black"> 
 			{currentPage === 'login' && 
 				(<Login
-				currentPage={currentPage}
-				setCurrentPage={setCurrentPage}
-				isLoggedIn={isLoggedIn}
-				setIsLoggedIn={setIsLoggedIn}
-				handleLogin={handleLogin}
-				loginForm={loginForm}
-				setLoginForm={setLoginForm}
-				showPassword={showPassword}
+					setCurrentPage={setCurrentPage}
 				/>)
 			}
 
