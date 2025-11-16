@@ -2,73 +2,33 @@
 
 import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
-import Loading from "./loading";
 import Error from "./error";
 
-export default function Login({ currentpage, setCurrentPage, isLoggedIn, setIsLoggedIn }) {
+export default function Login({ currentpage, setCurrentPage }) {
   const [flow, setFlow] = useState(null);
   const [loginForm, setLoginForm] = useState({ identifier: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
-  const kratosUrl = "https://orto.lotar122.dev/kratos/public";
 
-  // Fetch the browser flow JSON on mount
+  const kratos = "https://orto.lotar122.dev/kratos/public";
+
+  // Fetch BROWSER flow
   useEffect(() => {
     async function loadFlow() {
-      try {
-        const res = await fetch(`${kratosUrl}/self-service/login/browser`, {
-          credentials: "include",
-        });
-        const data = await res.json();
-        setFlow(data);
-      } catch (err) {
-        console.error(err);
-        setFlow(null);
-      }
+      const res = await fetch(`${kratos}/self-service/login/browser`, {
+        credentials: "include",
+      });
+
+      const json = await res.json();
+      setFlow(json);
     }
     loadFlow();
   }, []);
 
-  if (flow === null) return <Error />;
+  if (!flow) return <Error />;
 
-  const csrfToken = flow.ui.nodes.find((n) => n.attributes.name === "csrf_token")?.attributes.value;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setErrorMessage(null);
-
-    const body = {
-      method: "password",
-      csrf_token: csrfToken,
-      identifier: loginForm.identifier,
-      password: loginForm.password,
-    };
-
-    try {
-      const res = await fetch(`${kratosUrl}/self-service/login?flow=${flow.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "include",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        // Kratos returns errors inside the flow object
-        const msg = data.ui?.messages?.map((m) => m.text).join(" ") || "Login failed";
-        setErrorMessage(msg);
-        console.error("Login failed:", data);
-      } else {
-        console.log("Login success:", data);
-        setIsLoggedIn(true);
-        // Optionally: redirect user to dashboard
-      }
-    } catch (err) {
-      console.error(err);
-      setErrorMessage("Network error during login");
-    }
-  };
+  const csrf = flow.ui.nodes.find(
+    (n) => n.attributes.name === "csrf_token"
+  )?.attributes.value;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -78,42 +38,59 @@ export default function Login({ currentpage, setCurrentPage, isLoggedIn, setIsLo
           <p className="text-gray-400">Sign in to your orthodontic dashboard</p>
         </div>
 
-        {errorMessage && (
-          <div className="bg-red-600 text-white p-2 rounded mb-4 text-sm">{errorMessage}</div>
-        )}
+        {/** 🚀 REAL WORK HAPPENS HERE */}
+        <form
+          action={flow.ui.action}     // Kratos-provided POST URL
+          method={flow.ui.method}     // Usually "POST"
+          className="space-y-6"
+        >
+          <input type="hidden" name="csrf_token" value={csrf} />
+          <input type="hidden" name="method" value="password" />
 
-        <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Email Address</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Email Address
+            </label>
             <input
               type="email"
               name="identifier"
               value={loginForm.identifier}
-              onChange={(e) => setLoginForm({ ...loginForm, identifier: e.target.value })}
-              className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+              onChange={(e) =>
+                setLoginForm({ ...loginForm, identifier: e.target.value })
+              }
+              className="w-full px-4 py-3 border border-gray-700 rounded-lg bg-black text-white"
               placeholder="Enter your email"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Password
+            </label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
                 name="password"
                 value={loginForm.password}
-                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white pr-12"
+                onChange={(e) =>
+                  setLoginForm({ ...loginForm, password: e.target.value })
+                }
+                className="w-full px-4 py-3 border border-gray-700 rounded-lg bg-black text-white pr-12"
                 placeholder="Enter your password"
                 required
               />
+
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
               </button>
             </div>
           </div>
