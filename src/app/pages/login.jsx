@@ -34,7 +34,32 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 				<p className="text-gray-400">Sign in to your orthodontic dashboard</p>
 			  </div>
  
-			  <form onSubmit={(e) => {console.log("On Submit.");}} className="space-y-6">
+			  <form onSubmit={async (e) => {
+				e.preventDefault(); 
+				const body = {
+					method: "password",
+					csrf_token: flow.ui.nodes.find(n => n.attributes.name === "csrf_token").attributes.value,
+					identifier: loginForm.email,
+					password: loginForm.password
+					};
+
+					const res = await fetch(`${kratosUrl}?flow=${flow.id}`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json"
+					},
+					body: JSON.stringify(body),
+					credentials: "include"
+					});
+
+					if (!res.ok) {
+					const err = await res.json();
+					console.error("Login failed:", err);
+					} else {
+					const data = await res.json();
+					console.log("Login success:", data);
+					}
+			  }} className="space-y-6">
 				<div>
 				  <label className="block text-sm font-medium text-gray-300 mb-2">
 					Email Address
