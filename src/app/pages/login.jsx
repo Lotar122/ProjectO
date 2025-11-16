@@ -1,45 +1,77 @@
-"use client";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
 
-import { useEffect, useState } from "react";
+const KratosLogin = () => {
+  const [flow, setFlow] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
 
-export default function Login(a, b, c, d, e, f, g) {
-  const [flowId, setFlowId] = useState("");
+  const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public"; // Kratos public endpoint
+
+  // Initialize login flow
+  const initFlow = async () => {
+    try {
+      const res = await axios.get(`${kratosPublicUrl}/self-service/login/api`);
+      setFlow(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to fetch login flow.");
+    }
+  };
 
   useEffect(() => {
-    // Fetch a new login flow ID from Kratos
-    // This is OK because it's just a GET and browser will handle it
-    fetch("https://orto.lotar122.dev/kratos/public/self-service/login/browser")
-      .then((res) => res.json())
-      .then((data) => {
-        setFlowId(data.id);
-      })
-      .catch((err) => {
-        console.error("Failed to initialize login flow:", err);
-      });
+    initFlow();
   }, []);
 
-  if (!flowId) {
-    return <div>Loading...</div>;
-  }
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!flow) return;
+
+    try {
+      await axios.post(flow.ui.action, {
+        method: "password",
+        identifier: email,
+        password: password,
+        csrf_token:
+          flow.ui.nodes.find((n) => n.attributes.name === "csrf_token")
+            ?.attributes.value,
+      });
+      alert("Login successful!");
+      setError(null);
+    } catch (err) {
+      setError(err.response?.data?.error || "Login failed.");
+    }
+  };
+
+  if (!flow) return <div>Loading...</div>;
 
   return (
-    <form
-      action={`https://orto.lotar122.dev/kratos/public/self-service/login?flow=${flowId}`}
-      method="POST"
-    >
-      <input
-        type="email"
-        name="identifier"
-        placeholder="Email"
-        required
-      />
-      <input
-        type="password"
-        name="password"
-        placeholder="Password"
-        required
-      />
-      <button type="submit">Login</button>
-    </form>
+    <div>
+      <h2>Login</h2>
+      {error && <p style={{ color: "red" }}>{error}</p>}
+      <form onSubmit={handleLogin}>
+        <div>
+          <label>Email:</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </div>
+        <div>
+          <label>Password:</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </div>
+        <button type="submit">Login</button>
+      </form>
+    </div>
   );
-}
+};
+
+export default KratosLogin;
