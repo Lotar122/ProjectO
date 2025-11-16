@@ -13,7 +13,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 	useEffect(() => {
 		async function load() {
 		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/browser", {method: "GET", credentials: "include", redirect: "manual"});
-		setData(res);
+		if(res.status == 200) setData(res);
 		}
 		load();
 	}, []);
@@ -25,7 +25,6 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		async function load() {
 		let res = null;
 		if(data) res = await fetch(`https://orto.lotar122.dev:4433/kratos/public/self-service/login/flows?id=${flowID}`, {credentials: "include"}).then(r => r.json());
-		setData(res);
 		}
 		load();
 	}, []);
