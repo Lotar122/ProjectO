@@ -43,7 +43,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 					password: loginForm.password
 					};
 
-					const res = await fetch(`${kratosUrl}?flow=${flow.id}`, {
+					const res = await fetch(`https://orto.lotar122.dev/kratos/public/self-service/login?flow=${flow.id}`, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json"
