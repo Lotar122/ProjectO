@@ -8,7 +8,7 @@ export default function Login(a, b, c, d, e, f, g) {
   useEffect(() => {
     // Fetch a new login flow ID from Kratos
     // This is OK because it's just a GET and browser will handle it
-    fetch("/kratos/public/self-service/login")
+    fetch("https://orto.lotar122.dev/kratos/public/self-service/login")
       .then((res) => res.json())
       .then((data) => {
         setFlowId(data.id);
@@ -24,7 +24,7 @@ export default function Login(a, b, c, d, e, f, g) {
 
   return (
     <form
-      action={`/kratos/public/self-service/login?flow=${flowId}`}
+      action={`https://orto.lotar122.dev/kratos/public/self-service/login?flow=${flowId}`}
       method="POST"
     >
       <input
