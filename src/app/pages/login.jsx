@@ -11,7 +11,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 
 	useEffect(() => {
 		async function load() {
-		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/browser", {method: "GET", credentials: "include"});
+		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/api", {method: "GET", credentials: "include"});
 		setData(res);
 		}
 		load();
