@@ -17,7 +17,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		}
 		load();
 	}, []);
-	
+
 	console.log(data);
 	
 	if(!data) return <Error />;
@@ -34,7 +34,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 				<p className="text-gray-400">Sign in to your orthodontic dashboard</p>
 			  </div>
  
-			  <form action={flow.ui.action} method="POST" className="space-y-6">
+			  <form onSubmit={(e) => {console.log("On Submit.");}} className="space-y-6">
 				<div>
 				  <label className="block text-sm font-medium text-gray-300 mb-2">
 					Email Address
