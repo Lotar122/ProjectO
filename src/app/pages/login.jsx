@@ -1,7 +1,42 @@
+"use client";
+
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
+import { useEffect, useState } from "react";
+
+import Loading from "./loading"
 
 export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLoggedIn, handleLogin, loginForm, setLoginForm, showPassword})
 {
+	const [data, setData] = useState(null);
+
+	useEffect(() => {
+		async function load() {
+		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/browser", {method: "GET", credentials: "include"});
+		setData(res);
+		}
+		load();
+	}, []);
+
+	if (!data) return Loading();
+
+	setData(null);
+
+	console.log(data);
+
+	const flowID = new URL(data.url).searchParams.get("flow");
+
+	useEffect(() => {
+		async function load() {
+		const res = await fetch(`https://orto.lotar122.dev:4433/auth/login/flows?id=${flowID}`, {credentials: "include"}).then(r => r.json());
+		setData(res);
+		}
+		load();
+	}, []);
+	
+	if(!data) return Loading();
+
+	console.log(data);
+
     return (
 		  <div className="min-h-screen flex items-center justify-center p-4">
 			<div className="bg-gray-900 rounded-2xl shadow-2xl p-8 w-full max-w-md border border-gray-800">
@@ -10,7 +45,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 				<p className="text-gray-400">Sign in to your orthodontic dashboard</p>
 			  </div>
  
-			  <form onSubmit={handleLogin} className="space-y-6">
+			  <form action={flow.ui.action} method="POST" className="space-y-6">
 				<div>
 				  <label className="block text-sm font-medium text-gray-300 mb-2">
 					Email Address
