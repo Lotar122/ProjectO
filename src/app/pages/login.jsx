@@ -19,7 +19,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 
 	if (!data)
 	{
-		useEffect(null);
+		useEffect(function(){});
 		return <Loading />;
 	}
 
