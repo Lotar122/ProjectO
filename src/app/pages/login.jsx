@@ -25,7 +25,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 	useEffect(() => {
 		async function load() {
 		let res = null;
-		if(data) res = await fetch(`https://orto.lotar122.dev:4433/auth/login/flows?id=${flowID}`, {credentials: "include"}).then(r => r.json());
+		if(data) res = await fetch(`https://orto.lotar122.dev:4433/kratos/public/self-service/login/flows?id=${flowID}`, {credentials: "include"}).then(r => r.json());
 		setData(res);
 		}
 		load();
@@ -34,6 +34,8 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 	if(!data) return <Loading />;
 
 	console.log(data);
+
+
 
     return (
 		  <div className="min-h-screen flex items-center justify-center p-4">
