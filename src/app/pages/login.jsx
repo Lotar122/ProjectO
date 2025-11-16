@@ -18,8 +18,6 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		load();
 	}, []);
 
-	console.log(data);
-
 	let flowID = null;
 	if(data) flowID = new URL(data.url).searchParams.get("flow");
 
@@ -35,6 +33,8 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 	if(!data) return <Error />;
 
 	const flow = data;
+
+	console.log(flow);
 
     return (
 		  <div className="min-h-screen flex items-center justify-center p-4">
