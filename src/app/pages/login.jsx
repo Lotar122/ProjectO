@@ -19,15 +19,15 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 
 	if (!data)
 	{
-		useEffect(function(){});
+		useEffect(function(){return null});
 		return <Loading />;
 	}
-
-	setData(null);
 
 	console.log(data);
 
 	const flowID = new URL(data.url).searchParams.get("flow");
+
+	setData(null);
 
 	useEffect(() => {
 		async function load() {
