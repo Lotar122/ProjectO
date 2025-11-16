@@ -14,11 +14,10 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		async function load() {
 		const res = await fetch("https://orto.lotar122.dev/kratos/public/self-service/login/browser", {method: "GET", credentials: "include", redirect: "manual"});
 		if(res.status == 200) setData(res);
+		console.log(res);
 		}
 		load();
 	}, []);
-
-	console.log(data);
 
 	let flowID = null;
 	if(data) flowID = new URL(data.url).searchParams.get("flow");
