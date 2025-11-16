@@ -17,21 +17,15 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		load();
 	}, []);
 
-	if (!data)
-	{
-		useEffect(function(){});
-		return <Loading />;
-	}
-
 	console.log(data);
 
-	const flowID = new URL(data.url).searchParams.get("flow");
-
-	setData(null);
+	let flowID = null;
+	if(data) flowID = new URL(data.url).searchParams.get("flow");
 
 	useEffect(() => {
 		async function load() {
-		const res = await fetch(`https://orto.lotar122.dev:4433/auth/login/flows?id=${flowID}`, {credentials: "include"}).then(r => r.json());
+		let res = null;
+		if(data) res = await fetch(`https://orto.lotar122.dev:4433/auth/login/flows?id=${flowID}`, {credentials: "include"}).then(r => r.json());
 		setData(res);
 		}
 		load();
