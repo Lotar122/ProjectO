@@ -20,7 +20,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 	if (!data)
 	{
 		useEffect(null);
-		return Loading();
+		return <Loading />;
 	}
 
 	setData(null);
@@ -37,7 +37,7 @@ export default function Login({currentpage, setCurrentPage, isLoggedIn, setIsLog
 		load();
 	}, []);
 	
-	if(!data) return Loading();
+	if(!data) return <Loading />;
 
 	console.log(data);
 
