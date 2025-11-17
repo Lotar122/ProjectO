@@ -30,7 +30,6 @@ async function verifySession() {
   //try {
     const res = await fetch(`${KRATOS_ADMIN_URL}/sessions/${sessionId}`, {
       headers: {
-        "Authorization": `Bearer ${KRATOS_ADMIN_TOKEN}`,
         "Content-Type": "application/json",
       },
       cache: "no-store",
