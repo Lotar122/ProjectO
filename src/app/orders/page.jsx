@@ -16,28 +16,21 @@ let ordersArray = [
 ];
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
-const KRATOS_ADMIN_URL = "http://localhost:4434/kratos/admin";
-
 async function verifySession() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("ory_kratos_session");
   console.log("Cookie.", sessionCookie);
-
   if (!sessionCookie) return false;
 
-  const sessionId = sessionCookie.value;
+  const KRATOS_PUBLIC_URL = "https://orto.lotar122.dev/kratos/public/";
 
   //try {
-    const res = await fetch(`http://localhost:4434/sessions/${sessionId}`, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
+    const res = await fetch(`${KRATOS_PUBLIC_URL}/sessions/whoami`, {
+      headers: { Cookie: `ory_kratos_session=${sessionCookie}` },
+      cache: "no-store", // important in App Router to avoid caching session
     });
-
     console.log(res);
-
-    return res.ok; // true if session exists
+    return res.ok;
   //} catch {
     return false;
   //}
