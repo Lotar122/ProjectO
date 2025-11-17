@@ -1,7 +1,7 @@
 import React from "react";
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
 
-export default function Orders({currentPage, setCurrentPage, handleLogout, orders, setOrders, ordersArray, ordersToBeDisplayed, orderFilterRef, orderSearchRef, newOrder, setNewOrder})
+export default function Page({currentPage, setCurrentPage, handleLogout, orders, setOrders, ordersArray, ordersToBeDisplayed, orderFilterRef, orderSearchRef, newOrder, setNewOrder})
 {
     const getStatusColor = (status) => {
 		switch (status) {
