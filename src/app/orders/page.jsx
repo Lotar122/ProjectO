@@ -16,7 +16,7 @@ export default async function ProtectedPage({}) {
 
     const res = await axios.get(`${kratosUrl}/sessions/whoami`, {
       headers: {
-        cookie: cookieHeader,
+        cookie: `${cookieHeader.name}=${cookieHeader.value}`,
       },
       withCredentials: false,
     });
