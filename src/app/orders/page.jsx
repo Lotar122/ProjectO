@@ -3,7 +3,8 @@ import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogI
 
 import Orders from "./orders";
 
-import cookie from "cookie";
+//import cookie from "cookie";
+import { cookies } from "next/headers";
 
 let ordersArray = [
 	{ id: 'ORD-001', patient: 'John Smith', type: 'Invisalign Full', status: 'completed', date: '2023-05-15', progress: 100 },
@@ -14,7 +15,7 @@ let ordersArray = [
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
 async function verifySession() {
-  const cookieStore = cookie();
+  const cookieStore = cookies();
   const sessionCookie = cookieStore.get("ory_kratos_session");
   console.log("Cookie.");
   if (!sessionCookie) return false;
