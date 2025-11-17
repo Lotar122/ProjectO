@@ -22,8 +22,10 @@ async function verifySession() {
   console.log("Cookie.", sessionCookie);
   if (!sessionCookie) return false;
 
+  const KRATOS_PUBLIC_URL = "https://orto.lotar122.dev/kratos/public/";
+
   //try {
-    const res = await fetch(`${process.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
+    const res = await fetch(`${KRATOS_PUBLIC_URL}/sessions/whoami`, {
       headers: { Cookie: `ory_kratos_session=${sessionCookie}` },
       cache: "no-store", // important in App Router to avoid caching session
     });
