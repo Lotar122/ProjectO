@@ -10,7 +10,7 @@ export default async function ProtectedPage({}) {
 
   let loggedIn = false;
   //try {
-    const kratosUrl = process.env.KRATOS_PUBLIC_URL || 'http://localhost:4433';
+    const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
 
     const res = await axios.get(`${kratosUrl}/sessions/whoami`, {
       headers: {
