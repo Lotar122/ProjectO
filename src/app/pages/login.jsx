@@ -3,15 +3,11 @@ import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "./loading";
 
-import { useRouter } from "next/navigation";
-
 const KratosLogin = ({ setCurrentPage }) => {
   const [flow, setFlow] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
-
-  const router = useRouter();
 
   const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
 
@@ -55,11 +51,7 @@ const KratosLogin = ({ setCurrentPage }) => {
     e.preventDefault();
     if (!flow) return;
 	session = await checkSession();
-	if(session) 
-	{
-		router.push("/orders");
-		return;
-	}
+	if(session) return;
 
     try {
       // Get CSRF token from the flow nodes
@@ -78,15 +70,13 @@ const KratosLogin = ({ setCurrentPage }) => {
 
       console.log("Login successful:", res.data);
       setError(null);
-	  return (<h1>Logged in.</h1>);
-      // TODO: redirect or handle successful login
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || "Login failed.");
     }
   };
 
-  if(session?.active) return (<h1>Logged in.</h1>);
+  if(session?.active) window.history.pushState("/orders");
 
   if (!flow) return <Loading />;
 
