@@ -1,3 +1,5 @@
+"use server";
+
 // app/protected/page.tsx
 import { cookies } from 'next/headers';
 import axios from 'axios';
