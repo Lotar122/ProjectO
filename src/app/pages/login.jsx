@@ -3,6 +3,8 @@ import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "./loading";
 
+let session = null;
+
 const KratosLogin = ({ setCurrentPage }) => {
   const [flow, setFlow] = useState(null);
   const [email, setEmail] = useState("");
@@ -26,8 +28,6 @@ const KratosLogin = ({ setCurrentPage }) => {
     throw err;
   }
 }
-
-  let session = null;
 
   // Initialize browser login flow
   const initFlow = async () => {
