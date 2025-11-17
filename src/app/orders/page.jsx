@@ -22,16 +22,16 @@ async function verifySession() {
   console.log("Cookie.", sessionCookie);
   if (!sessionCookie) return false;
 
-  try {
+  //try {
     const res = await fetch(`${process.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
       headers: { Cookie: `ory_kratos_session=${sessionCookie}` },
       cache: "no-store", // important in App Router to avoid caching session
     });
     console.log(res);
     return res.ok;
-  } catch {
+  //} catch {
     return false;
-  }
+  //}
 }
 
 export default async function Page() {
