@@ -12,6 +12,8 @@ export default async function ProtectedPage({}) {
   //try {
     const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
 
+    console.log(cookieHeader);
+
     const res = await axios.get(`${kratosUrl}/sessions/whoami`, {
       headers: {
         cookie: cookieHeader,
