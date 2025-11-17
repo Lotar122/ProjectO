@@ -25,6 +25,7 @@ async function verifySession(cookieHeader) {
       headers: { Cookie: `ory_kratos_session=${sessionCookie}` },
       cache: "no-store", // important in App Router to avoid caching session
     });
+    console.log(res);
     return res.ok;
   } catch {
     return false;
