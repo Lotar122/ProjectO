@@ -17,7 +17,7 @@ let ordersArray = [
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
 async function verifySession() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("ory_kratos_session");
   console.log("Cookie.");
   if (!sessionCookie) return false;
