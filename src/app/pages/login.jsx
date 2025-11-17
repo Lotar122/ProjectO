@@ -31,9 +31,11 @@ const KratosLogin = ({ setCurrentPage }) => {
   }
 }
 
+  let session = null;
+
   // Initialize browser login flow
   const initFlow = async () => {
-	const session = await checkSession();
+	session = await checkSession();
 	if(session) return;
     try {
       const res = await axios.get(`${kratosPublicUrl}/self-service/login/browser?refresh=true`, {
@@ -52,7 +54,7 @@ const KratosLogin = ({ setCurrentPage }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!flow) return;
-	const session = await checkSession();
+	session = await checkSession();
 	if(session) 
 	{
 		router.push("/orders");
