@@ -14,7 +14,7 @@ const KratosLogin = ({ setCurrentPage }) => {
   // Initialize browser login flow
   const initFlow = async () => {
     try {
-      const res = await axios.get(`${kratosPublicUrl}/self-service/login/browser`, {
+      const res = await axios.get(`${kratosPublicUrl}/self-service/login/browser?refresh=true`, {
         withCredentials: true, // Must include cookies for browser flow
       });
       setFlow(res.data);
