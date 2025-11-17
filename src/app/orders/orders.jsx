@@ -16,26 +16,8 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
   const handleLogout = async () => {
     try {
       const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
-
-      console.log(document.cookie
-          .split('; ')
-          .find(row => row.startsWith('ory_kratos_csrf_token='))
-          ?.split('=')[1]);
-
-      // Send POST to logout, include credentials
-      await axios.post(
-        `${kratosUrl}/self-service/logout`,
-        {
-          csrf_token: 
-          document.cookie
-          .split('; ')
-          .find(row => row.startsWith('ory_kratos_csrf_token='))
-          ?.split('=')[1],
-        },
-        { withCredentials: true } // include cookies
-      );
-
-      redirect("/");
+      const returnTo = window.location.origin; // redirect back to app
+      window.location.href = `${kratosUrl}/self-service/logout/browser?return_to=${encodeURIComponent(returnTo)}`;
     } catch (err) {
       console.error('Logout failed', err);
     }
