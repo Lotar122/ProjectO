@@ -3,13 +3,12 @@ import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "./loading";
 
-let session = null;
-
 const KratosLogin = ({ setCurrentPage }) => {
   const [flow, setFlow] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
+  const [session, setSession] = useState(null);
 
   const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
 
@@ -31,7 +30,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 
   // Initialize browser login flow
   const initFlow = async () => {
-	session = await checkSession();
+	setSession(await checkSession());
 	if(session) return;
     try {
       const res = await axios.get(`${kratosPublicUrl}/self-service/login/browser?refresh=true`, {
@@ -50,7 +49,6 @@ const KratosLogin = ({ setCurrentPage }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!flow) return;
-	session = await checkSession();
 	if(session) return;
 
     try {
