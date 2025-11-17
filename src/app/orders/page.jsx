@@ -18,6 +18,7 @@ async function verifySession(cookieHeader) {
 
   const cookies = cookie.parse(cookieHeader);
   const sessionCookie = cookies["ory_kratos_session"];
+  console.log("No cookie.");
   if (!sessionCookie) return false;
 
   try {
