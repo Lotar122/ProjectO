@@ -78,7 +78,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 
       console.log("Login successful:", res.data);
       setError(null);
-	  return (<h1>Logged in.</h1>)
+	  return (<h1>Logged in.</h1>);
       // TODO: redirect or handle successful login
     } catch (err) {
       console.error(err);
@@ -86,7 +86,7 @@ const KratosLogin = ({ setCurrentPage }) => {
     }
   };
 
-  if(session) return (<h1>Logged in.</h1>);
+  if(session?.active) return (<h1>Logged in.</h1>);
 
   if (!flow) return <Loading />;
 
