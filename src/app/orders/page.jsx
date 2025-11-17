@@ -16,7 +16,7 @@ let ordersArray = [
 ];
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
-const KRATOS_ADMIN_URL = "http://localhost:4434/";
+const KRATOS_ADMIN_URL = "http://localhost:4434/kratos/admin";
 
 async function verifySession() {
   const cookieStore = await cookies();
