@@ -10,6 +10,7 @@ const KratosLogin = ({ setCurrentPage }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [session, setSession] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
 
@@ -69,18 +70,16 @@ const KratosLogin = ({ setCurrentPage }) => {
 
       console.log("Login successful:", res.data);
       setError(null);
+      setIsLoggedIn(true);
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || "Login failed.");
     }
   };
 
-  if(session) 
-  {
-    redirect('/orders');
-  }
+  if(session?.active) setIsLoggedIn(true);
 
-  if(!error)
+  if(isLoggedIn)
   {
     redirect('/orders');
   }
