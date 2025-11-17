@@ -9,7 +9,7 @@ export default async function ProtectedPage({}) {
   cookieHeader = cookieHeader.toString();
 
   let loggedIn = false;
-  try {
+  //try {
     const kratosUrl = process.env.KRATOS_PUBLIC_URL || 'http://localhost:4433';
 
     const res = await axios.get(`${kratosUrl}/sessions/whoami`, {
@@ -22,9 +22,9 @@ export default async function ProtectedPage({}) {
     if (res.data && res.data.active) {
       loggedIn = true;
     }
-  } catch (err) {
-    loggedIn = false;
-  }
+  //} catch (err) {
+    //loggedIn = false;
+  //}
 
   return (
     <div>
