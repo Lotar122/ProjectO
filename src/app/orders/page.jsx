@@ -28,7 +28,7 @@ async function verifySession() {
   const sessionId = sessionCookie.value;
 
   //try {
-    const res = await fetch(`${KRATOS_ADMIN_URL}/sessions/${sessionId}`, {
+    const res = await fetch(`http://localhost:4434/kratos/admin/sessions/${sessionId}`, {
       headers: {
         "Content-Type": "application/json",
       },
