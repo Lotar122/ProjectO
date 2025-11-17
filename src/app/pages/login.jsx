@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "./loading";
-import { redirect } from "next/dist/server/api-utils";
+import { redirect } from "next/navigation";
 
 const KratosLogin = ({ setCurrentPage }) => {
   const [flow, setFlow] = useState(null);
@@ -77,7 +77,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 
   if(session) 
   {
-    redirect("/orders");
+    redirect('/orders');
   }
 
   if (!flow) return <Loading />;
