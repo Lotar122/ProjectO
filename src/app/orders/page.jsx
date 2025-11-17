@@ -20,7 +20,8 @@ const KRATOS_ADMIN_URL = "http://localhost:4434/";
 
 async function verifySession() {
   const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("ory_kratos_session"); // { name, value } or undefined
+  const sessionCookie = cookieStore.get("ory_kratos_session");
+  console.log("Cookie.", sessionCookie);
 
   if (!sessionCookie) return false;
 
