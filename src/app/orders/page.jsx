@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 import axios from 'axios';
 
 export default async function ProtectedPage({}) {
-  const cookieHeader = await cookies(); // get cookies from request
+  let cookieHeader = await cookies(); // get cookies from request
   cookieHeader = cookieHeader.toString();
 
   let loggedIn = false;
