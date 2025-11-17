@@ -16,7 +16,7 @@ export default async function ProtectedPage({}) {
       headers: {
         cookie: cookieHeader,
       },
-      withCredentials: true,
+      withCredentials: false,
     });
     console.log(res, cookieHeader);
 
