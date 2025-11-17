@@ -69,6 +69,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 
       console.log("Login successful:", res.data);
       setError(null);
+      redirect('/orders');
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || "Login failed.");
