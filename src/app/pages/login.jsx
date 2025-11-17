@@ -11,6 +11,8 @@ const KratosLogin = ({ setCurrentPage }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
 
+  const router = useRouter();
+
   const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
 
   async function checkSession() {
@@ -53,7 +55,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 	const session = await checkSession();
 	if(session) 
 	{
-		useRouter().push("/orders");
+		router.push("/orders");
 		return;
 	}
 
