@@ -16,28 +16,29 @@ let ordersArray = [
 ];
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
-async function verifySession() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("ory_kratos_session");
-  console.log("Cookie.", sessionCookie);
-  if (!sessionCookie) return false;
+const KRATOS_ADMIN_URL = "http://localhost:4434/";
 
-  const KRATOS_PUBLIC_URL = "https://orto.lotar122.dev/kratos/public/";
+async function verifySession(sessionId) {
+  if (!sessionId) return false;
 
-  //try {
-    const res = await fetch(`${KRATOS_PUBLIC_URL}/sessions/whoami`, {
-      headers: { Cookie: `ory_kratos_session=${sessionCookie}` },
-      cache: "no-store", // important in App Router to avoid caching session
+  try {
+    const res = await fetch(`${KRATOS_ADMIN_URL}/sessions/${sessionId}`, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
     });
-    console.log(res);
-    return res.ok;
-  //} catch {
+
+    return res.ok; // true if session exists
+  } catch {
     return false;
-  //}
+  }
 }
 
-export default async function Page() {
-  const loggedIn = await verifySession();
+export default async function Page({ searchParams }) {
+  const sessionId = searchParams?.session; // e.g., /protected?session=<session_id>
+
+  const loggedIn = await verifySession(sessionId);
 
   if (!loggedIn) {
     // Redirect from a Server Component
