@@ -1,7 +1,9 @@
 import React from "react";
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
 
-import Orders from "./orders"
+import Orders from "./orders";
+
+import cookie from "cookie";
 
 let ordersArray = [
 	{ id: 'ORD-001', patient: 'John Smith', type: 'Invisalign Full', status: 'completed', date: '2023-05-15', progress: 100 },
@@ -11,9 +13,37 @@ let ordersArray = [
 ];
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
-export default function Page()
-{
-	return (
-		<Orders ordersArray={ordersArray} ordersToBeDisplayed={ordersToBeDisplayed} />
-	);
+async function verifySession(cookieHeader) {
+  if (!cookieHeader) return false;
+
+  const cookies = cookie.parse(cookieHeader);
+  const sessionCookie = cookies["ory_kratos_session"];
+  if (!sessionCookie) return false;
+
+  try {
+    const res = await fetch(`${process.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
+      headers: { Cookie: `ory_kratos_session=${sessionCookie}` },
+      cache: "no-store", // important in App Router to avoid caching session
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export default async function Page() {
+  const loggedIn = await verifySession(globalThis.__NEXT_REQUEST_HEADERS?.cookie);
+
+  if (!loggedIn) {
+    // Redirect from a Server Component
+    return (
+      <>
+        <meta httpEquiv="refresh" content="0;url=/" />
+      </>
+    );
+  }
+
+  return (
+	<Orders ordersArray={ordersArray} ordersToBeDisplayed={ordersToBeDisplayed} />
+  );
 }

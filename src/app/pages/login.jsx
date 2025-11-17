@@ -12,13 +12,13 @@ const KratosLogin = ({ setCurrentPage }) => {
   const [session, setSession] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
+  const KRATOS_PUBLIC_URL = "https://orto.lotar122.dev/kratos/public/";
 
   const router = useRouter();
 
   async function checkSession() {
   try {
-    const res = await axios.get(`${kratosPublicUrl}/sessions/whoami`, {
+    const res = await axios.get(`${KRATOS_PUBLIC_URL}/sessions/whoami`, {
       withCredentials: true, // send cookies
     });
     console.log("Session exists:", res.data);
@@ -37,7 +37,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 	setSession(await checkSession());
 	if(session) return;
     try {
-      const res = await axios.get(`${kratosPublicUrl}/self-service/login/browser?refresh=true`, {
+      const res = await axios.get(`${KRATOS_PUBLIC_URL}/self-service/login/browser?refresh=true`, {
         withCredentials: true, // Must include cookies for browser flow
       });
       setFlow(res.data);
