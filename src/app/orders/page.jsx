@@ -38,7 +38,8 @@ export default async function Page() {
     // Redirect from a Server Component
     return (
       <>
-        <meta httpEquiv="refresh" content="0;url=/" />
+        {/* {<meta httpEquiv="refresh" content="0;url=/" />} */}
+        <h1>Access denied.</h1>
       </>
     );
   }
