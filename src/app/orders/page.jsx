@@ -19,11 +19,17 @@ let ordersToBeDisplayed = structuredClone(ordersArray);
 const KRATOS_ADMIN_URL = "http://localhost:4434/";
 
 async function verifySession(sessionId) {
-  if (!sessionId) return false;
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("ory_kratos_session"); // { name, value } or undefined
+
+  if (!sessionCookie) return false;
+
+  const sessionId = sessionCookie.value;
 
   try {
     const res = await fetch(`${KRATOS_ADMIN_URL}/sessions/${sessionId}`, {
       headers: {
+        "Authorization": `Bearer ${KRATOS_ADMIN_TOKEN}`,
         "Content-Type": "application/json",
       },
       cache: "no-store",
@@ -35,10 +41,8 @@ async function verifySession(sessionId) {
   }
 }
 
-export default async function Page({ searchParams }) {
-  const sessionId = searchParams?.session; // e.g., /protected?session=<session_id>
-
-  const loggedIn = await verifySession(sessionId);
+export default async function Page() {
+  const loggedIn = await verifySession();
 
   if (!loggedIn) {
     // Redirect from a Server Component
