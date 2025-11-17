@@ -91,7 +91,7 @@ const KratosLogin = ({ setCurrentPage }) => {
     if(session?.active) setIsLoggedIn(true);
   }, [session]);
 
-  if (!flow) return <Loading />;
+  if (!flow || session) return <Loading />;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

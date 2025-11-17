@@ -10,20 +10,22 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
     const [newOrder, setNewOrder] = useState({ patient: '', type: '', notes: '' });
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
-
-    const handleLogin = (e) => {
-	e.preventDefault();
-	// Simple validation
-	if (loginForm.email && loginForm.password) {
-	  setIsLoggedIn(true);
-	  console.log(`Credentials\n Login: ${loginForm.email}, Password: ${loginForm.password}`);
-	  setCurrentPage('orders');
-	}
-  };
  
-  const handleLogout = () => {
-	setIsLoggedIn(false);
-	setCurrentPage('landing');
+  const handleLogout = async () => {
+    try {
+      const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
+
+      // Send POST to logout, include credentials
+      await axios.post(
+        `${kratosUrl}/self-service/logout`,
+        {},
+        { withCredentials: true } // include cookies
+      );
+
+      redirect("/");
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
   };
 
     const getStatusColor = (status) => {
