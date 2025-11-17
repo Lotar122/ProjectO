@@ -18,6 +18,7 @@ export default async function ProtectedPage({}) {
       },
       withCredentials: true,
     });
+    console.log(res, cookieHeader);
 
     if (res.data && res.data.active) {
       loggedIn = true;
