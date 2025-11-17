@@ -3,6 +3,8 @@ import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "./loading";
 
+import { useRouter } from "next/navigation";
+
 const KratosLogin = ({ setCurrentPage }) => {
   const [flow, setFlow] = useState(null);
   const [email, setEmail] = useState("");
@@ -11,8 +13,26 @@ const KratosLogin = ({ setCurrentPage }) => {
 
   const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
 
+  async function checkSession() {
+  try {
+    const res = await axios.get(`${kratosPublicUrl}/sessions/whoami`, {
+      withCredentials: true, // send cookies
+    });
+    console.log("Session exists:", res.data);
+    return res.data;
+  } catch (err) {
+    if (err.response?.status === 401) {
+      console.log("No active session");
+      return null;
+    }
+    throw err;
+  }
+}
+
   // Initialize browser login flow
   const initFlow = async () => {
+	const session = await checkSession();
+	if(session) return;
     try {
       const res = await axios.get(`${kratosPublicUrl}/self-service/login/browser?refresh=true`, {
         withCredentials: true, // Must include cookies for browser flow
@@ -30,6 +50,12 @@ const KratosLogin = ({ setCurrentPage }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!flow) return;
+	const session = await checkSession();
+	if(session) 
+	{
+		useRouter().push("/orders");
+		return;
+	}
 
     try {
       // Get CSRF token from the flow nodes
