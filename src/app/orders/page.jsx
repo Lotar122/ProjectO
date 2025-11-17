@@ -13,12 +13,10 @@ let ordersArray = [
 ];
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
-async function verifySession(cookieHeader) {
-  if (!cookieHeader) return false;
-
-  const cookies = cookie.parse(cookieHeader);
-  const sessionCookie = cookies["ory_kratos_session"];
-  console.log("No cookie.");
+async function verifySession() {
+  const cookieStore = cookies();
+  const sessionCookie = cookieStore.get("ory_kratos_session");
+  console.log("Cookie.");
   if (!sessionCookie) return false;
 
   try {
@@ -34,7 +32,7 @@ async function verifySession(cookieHeader) {
 }
 
 export default async function Page() {
-  const loggedIn = await verifySession(globalThis.__NEXT_REQUEST_HEADERS?.cookie);
+  const loggedIn = await verifySession();
 
   if (!loggedIn) {
     // Redirect from a Server Component
