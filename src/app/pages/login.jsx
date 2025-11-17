@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "./loading";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 const KratosLogin = ({ setCurrentPage }) => {
   const [flow, setFlow] = useState(null);
@@ -13,6 +13,8 @@ const KratosLogin = ({ setCurrentPage }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const kratosPublicUrl = "https://orto.lotar122.dev/kratos/public";
+
+  const router = useRouter();
 
   async function checkSession() {
   try {
@@ -81,7 +83,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 
   if(isLoggedIn)
   {
-    redirect('/orders');
+    router.push('/orders');
   }
 
   if (!flow) return <Loading />;
