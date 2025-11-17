@@ -1,7 +1,8 @@
 // app/protected/page.tsx
+import { cookies } from 'next/headers';
 import axios from 'axios';
 
-export default async function ProtectedPage({ cookies }) {
+export default async function ProtectedPage({}) {
   const cookieHeader = cookies().toString(); // get cookies from request
 
   let loggedIn = false;
