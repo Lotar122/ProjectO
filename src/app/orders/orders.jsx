@@ -20,7 +20,13 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
       // Send POST to logout, include credentials
       await axios.post(
         `${kratosUrl}/self-service/logout`,
-        {},
+        {
+          csrf_token: 
+          document.cookie
+          .split('; ')
+          .find(row => row.startsWith('ory_kratos_csrf_token='))
+          ?.split('=')[1],
+        },
         { withCredentials: true } // include cookies
       );
 
