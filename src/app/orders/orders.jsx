@@ -17,6 +17,11 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
     try {
       const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
 
+      console.log(document.cookie
+          .split('; ')
+          .find(row => row.startsWith('ory_kratos_csrf_token='))
+          ?.split('=')[1]);
+
       // Send POST to logout, include credentials
       await axios.post(
         `${kratosUrl}/self-service/logout`,
