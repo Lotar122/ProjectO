@@ -6,7 +6,7 @@ import axios from 'axios';
 
 export default async function ProtectedPage({}) {
   let cookieHeader = await cookies(); // get cookies from request
-  cookieHeader = cookieHeader.toString();
+  cookieHeader = cookieHeader.get("ory_kratos_session");
 
   let loggedIn = false;
   //try {
