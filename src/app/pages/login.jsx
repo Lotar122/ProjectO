@@ -76,7 +76,11 @@ const KratosLogin = ({ setCurrentPage }) => {
     }
   };
 
-  if(session?.active) window.history.pushState("/orders");
+  if(session) 
+  {
+    console.log("Redirect");
+    window.history.pushState("/orders");
+  }
 
   if (!flow) return <Loading />;
 
