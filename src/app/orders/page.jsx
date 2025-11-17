@@ -27,7 +27,7 @@ async function verifySession() {
 
   const sessionId = sessionCookie.value;
 
-  try {
+  //try {
     const res = await fetch(`${KRATOS_ADMIN_URL}/sessions/${sessionId}`, {
       headers: {
         "Authorization": `Bearer ${KRATOS_ADMIN_TOKEN}`,
@@ -36,10 +36,12 @@ async function verifySession() {
       cache: "no-store",
     });
 
+    console.log(res);
+
     return res.ok; // true if session exists
-  } catch {
+  //} catch {
     return false;
-  }
+  //}
 }
 
 export default async function Page() {
