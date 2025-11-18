@@ -5,7 +5,10 @@ import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogI
 
 import axios from "axios";
 
-export default function Orders({ordersArray, ordersToBeDisplayed})
+let ordersArray = [];
+let ordersToBeDisplayed = structuredClone(ordersArray);
+
+export default function Orders()
 {
     const [currentPage, setCurrentPage] = useState('orders');
     const [orders, setOrders] = useState(ordersToBeDisplayed);
@@ -14,7 +17,7 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
     const orderSearchRef = useRef(null);
 
     useEffect(() => {
-      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = ordersArray; setOrders(ordersArray)});
+      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
     }, []);
  
   const handleLogout = async () => {
