@@ -23,9 +23,7 @@ export default async function ProtectedPage() {
 
   let loggedIn = false;
   try {
-    const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
-
-    const res = await axios.get(`${kratosUrl}/sessions/whoami`, {
+    const res = await axios.get(`${Bun.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
       headers: {
         cookie: `${cookieHeader.name}=${cookieHeader.value}`,
       },
@@ -37,11 +35,7 @@ export default async function ProtectedPage() {
     if (res.data && res.data.active) {
       loggedIn = true;
 
-	  console.log("Server side DB access.");
-
 	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
-
-	  console.log(`SELECT * FROM users WHERE "UUID" = ${res.data.id}`);
 
 	  let users = null;
 	  try {
@@ -63,6 +57,8 @@ export default async function ProtectedPage() {
 			console.error(err);
 		}
 	  }
+
+	  await DB.end();
     }
   } catch (err) {
     loggedIn = false;
