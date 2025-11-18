@@ -22,13 +22,11 @@ let ordersToBeDisplayed = structuredClone(ordersArray);
 export default async function ProtectedPage() {
   let cookieHeader = await cookies(); // get cookies from request
 
-  let userAuthSession = getUserAuthSession(cookieHeader);
-
-  console.log(userAuthSession);
+  let userAuthSession = await getUserAuthSession(cookieHeader);
 
   if(userAuthSession.loggedIn)
   {
     return (<Orders ordersArray={ordersArray} ordersToBeDisplayed={ordersToBeDisplayed} />);
   }
-  //else redirect("/");
+  else redirect("/");
 }
