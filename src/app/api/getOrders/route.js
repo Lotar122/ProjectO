@@ -25,6 +25,8 @@ export async function GET() {
 
   payload = await DB`SELECT * FROM orders WHERE "user" = ${userAuthSession.data.identity.id}`;
 
+  DB.end();
+
   return new Response(JSON.stringify(payload), {
     headers: { "Content-Type": "application/json" },
   });

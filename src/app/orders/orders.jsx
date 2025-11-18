@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
+import { User, Package, Calendar, Trash2, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
 
 import axios from "axios";
 
@@ -15,6 +15,9 @@ export default function Orders()
     const [newOrder, setNewOrder] = useState({ patient: '', type: '', notes: '' });
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
+
+    const [hoveredOrder, setHoveredOrder] = useState(null);
+    const [deleteOrderId, setDeleteOrderId] = useState(null);
 
     useEffect(() => {
       const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
@@ -109,8 +112,54 @@ export default function Orders()
         setOrders(ordersToBeDisplayed);
         };
 
+        const handleDeleteClick = (id) => {
+    setDeleteOrderId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteOrderId) return;
+
+    try {
+      await fetch(`/api/orders`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: deleteOrderId }),
+        credentials: "include",
+      });
+      // Optionally: refresh orders or update state
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleteOrderId(null);
+    }
+  };
+
+  const cancelDelete = () => setDeleteOrderId(null);
+
     return (
     <div className="min-h-screen bg-black text-white">
+      {deleteOrderId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 p-6 rounded-xl w-80">
+            <h2 className="text-lg font-semibold text-white mb-4">Delete Order?</h2>
+            <p className="text-gray-400 mb-6">Are you sure you want to delete this order? This action cannot be undone.</p>
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-600 rounded hover:bg-red-500 text-white transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-800">
         <div className="container mx-auto px-4 py-4">
@@ -234,43 +283,64 @@ export default function Orders()
  
             {/* Orders Grid */}
             <div className="grid gap-6">
-              {orders.map((order) => (
-                <div key={order.id} className="bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-                        <Package className="w-6 h-6 text-black" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
-                        <p className="text-gray-400">{order.type}</p>
-                        <p className="text-sm text-gray-500">Order #{order.id} • {order.date}</p>
-                      </div>
-                    </div>
- 
-                    <div className="flex items-center gap-6">
-                      <div className="text-right">
-                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}>
-                          {getStatusIcon(order.status)}
-                          {order.status.replace('-', ' ').toUpperCase()}
-                        </span>
-                        <div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
-                          <div 
-                            className={`h-2 rounded-full transition-all duration-300 ${
-                              order.status === 'completed' ? 'bg-green-500' :
-                              order.status === 'in-progress' ? 'bg-blue-500' :
-                              order.status === 'shipped' ? 'bg-purple-500' : 'bg-yellow-500'
-                            }`}
-                            style={{ width: `${order.progress}%` }}
-                          ></div>
-                        </div>
-                        <p className="text-sm text-gray-500 mt-1">{order.progress}% Complete</p>
-                      </div>
-                    </div>
-                  </div>
+        {orders.map((order) => (
+          <div
+            key={order.id}
+            className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
+            onMouseEnter={() => setHoveredOrder(order.id)}
+            onMouseLeave={() => setHoveredOrder(null)}
+          >
+            {/* Trash icon on hover */}
+            {hoveredOrder === order.id && (
+              <button
+                onClick={() => handleDeleteClick(order.id)}
+                className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-800 transition-colors"
+              >
+                <Trash2 className="w-5 h-5 text-red-500" />
+              </button>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+                  <Package className="w-6 h-6 text-black" />
                 </div>
-              ))}
+                <div>
+                  <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
+                  <p className="text-gray-400">{order.type}</p>
+                  <p className="text-sm text-gray-500">Order #{order.id} • {order.date}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <div className="text-right">
+                  <span
+                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}
+                  >
+                    {getStatusIcon(order.status)}
+                    {order.status.replace("-", " ").toUpperCase()}
+                  </span>
+                  <div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        order.status === "completed"
+                          ? "bg-green-500"
+                          : order.status === "in-progress"
+                          ? "bg-blue-500"
+                          : order.status === "shipped"
+                          ? "bg-purple-500"
+                          : "bg-yellow-500"
+                      }`}
+                      style={{ width: `${order.progress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">{order.progress}% Complete</p>
+                </div>
+              </div>
             </div>
+          </div>
+        ))}
+      </div>
           </div>
         )}
  

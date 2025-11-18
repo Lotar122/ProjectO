@@ -9,11 +9,8 @@ import postgres from "postgres";
 import {v7 as uuid7 } from "uuid"
 
 //Has to be used with credentials
-export async function POST(req) {
+export async function DELETE(req) {
   try {
-    const body = await req.json();     // read JSON request body
-    const { patient, type, status, progress, issueDate, dueDate } = body;
-
     const cookieHeader = await cookies();
     const userAuthSession = await getUserAuthSession(cookieHeader);
 
@@ -25,20 +22,22 @@ export async function POST(req) {
         );
     }
 
-    const orderID = uuid7();
-    const userID = userAuthSession.data.identity.id;
+    const url = new URL(req.url);
+    const orderID = url.searchParams.get("orderID");
 
     const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
-    await DB`
-        INSERT INTO orders (id, "user", patient, type, status, progress, issue_date, due_date)
-		VALUES (${orderID}, ${userID}, ${patient}, ${type}, ${status}, ${progress}, ${issueDate}, ${dueDate})
-    `;
+    const [order] = await DB`SELECT * FROM orders WHERE id = ${orderID}`;
+
+    if(order.user == userAuthSession.data.identity.id)
+    {
+        await DB`DELETE FROM orders WHERE id = ${orderID}`;
+    }
 
     DB.end();
 
     return Response.json(
-      { success: true, orderID: orderID, body },
+      { success: true, body },
       { status: 200 }
     );
   } catch (err) {
