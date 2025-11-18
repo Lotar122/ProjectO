@@ -312,7 +312,7 @@ export default function Orders()
                 </div>
               </div>
 
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-6 mr-4">
                 <div className="text-right">
                   <span
                     className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}
