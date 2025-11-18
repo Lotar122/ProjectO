@@ -39,7 +39,7 @@ export default async function ProtectedPage() {
 
 	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
-	  
+	  console.log(`SELECT * FROM users WHERE UUID = ${res.data}`);
 
 	  try {
 		const users = await DB`SELECT * FROM users WHERE UUID = ${res.data}`;
