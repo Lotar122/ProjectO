@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import axios from 'axios';
 import { redirect } from 'next/navigation';
 
+import postgres from "postgres";
+
 import Orders from './orders';
 
 let ordersArray = [
@@ -32,6 +34,12 @@ export default async function ProtectedPage() {
 
     if (res.data && res.data.active) {
       loggedIn = true;
+
+	  const DB = postgres(DB_URL, {prepare: true});
+
+	  console.log(res.data);
+
+	  //const users = await DB`SELECT * FROM users WHERE uuid = ${res.data}`;
     }
   } catch (err) {
     loggedIn = false;

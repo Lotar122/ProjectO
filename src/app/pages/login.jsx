@@ -70,7 +70,6 @@ const KratosLogin = ({ setCurrentPage }) => {
         { withCredentials: true } // Required for browser flow
       );
 
-      console.log("Login successful:", res.data);
       setError(null);
       setIsLoggedIn(true);
     } catch (err) {
