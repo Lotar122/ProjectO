@@ -23,7 +23,7 @@ export async function GET() {
 
   const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
-  payload = await DB`SELECT * FROM orders WHERE id = ${userAuthSession.data.id}`;
+  payload = await DB`SELECT * FROM orders WHERE "user" = ${userAuthSession.data.id}`;
 
   return new Response(JSON.stringify(payload), {
     headers: { "Content-Type": "application/json" },

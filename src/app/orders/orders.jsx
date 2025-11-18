@@ -74,8 +74,7 @@ export default function Orders()
           console.log(ordersArray);
 
           const res = await axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
-          console.log(res);
-          console.log(ordersArray[ordersArray.length - 1]);
+          order.id = res.data.orderID;
 
           ordersToBeDisplayed = structuredClone(ordersArray);
           setOrders(ordersToBeDisplayed);
