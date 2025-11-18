@@ -54,7 +54,7 @@ export default async function ProtectedPage() {
 	  if(users.length == 0)
 	  {
 		try {
-			const [user] = await DB`
+			await DB`
 			INSERT INTO users ("UUID", email)
 			VALUES (${res.data.id}, ${res.data.identity.traits.email})
 			`;
