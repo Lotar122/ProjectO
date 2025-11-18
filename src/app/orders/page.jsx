@@ -42,7 +42,7 @@ export default async function ProtectedPage() {
 	  
 
 	  try {
-		const users = await DB`SELECT * FROM users WHERE uuid = ${res.data}`;
+		const users = await DB`SELECT * FROM users WHERE UUID = ${res.data}`;
 	  	console.log(users);
 	  }
 	  catch(err) {
