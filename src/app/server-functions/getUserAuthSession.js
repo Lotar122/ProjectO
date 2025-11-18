@@ -49,7 +49,5 @@ export async function getUserAuthSession(cookieHeader)
 	data: res.data
   };
 
-  console.log(loggedIn);
-
   return result;
 }
