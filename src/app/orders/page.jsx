@@ -35,6 +35,8 @@ export default async function ProtectedPage() {
     if (res.data && res.data.active) {
       loggedIn = true;
 
+	  console.log("Server side DB access.");
+
 	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
 	  
