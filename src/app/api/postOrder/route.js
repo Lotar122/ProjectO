@@ -10,7 +10,7 @@ import {v7 as uuid7 } from "uuid"
 
 //Has to be used with credentials
 export async function POST(req) {
-  try {
+  //try {
     const body = await req.json();     // read JSON request body
     const { patient, type, status, progress, issueDate, dueDate } = body;
 
@@ -39,10 +39,10 @@ export async function POST(req) {
       { success: true, message: "Order created", body },
       { status: 200 }
     );
-  } catch (err) {
-    return Response.json(
-      { success: false, error: err.message },
-      { status: 500 }
-    );
-  }
+//   } catch (err) {
+//     return Response.json(
+//       { success: false, error: err.message },
+//       { status: 500 }
+//     );
+//   }
 }
