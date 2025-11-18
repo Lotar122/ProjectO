@@ -112,7 +112,7 @@ export default function Orders()
         setOrders(ordersToBeDisplayed);
         };
 
-        const handleDeleteClick = (id) => {
+  const handleDeleteClick = (id) => {
     setDeleteOrderId(id);
   };
 
@@ -120,13 +120,9 @@ export default function Orders()
     if (!deleteOrderId) return;
 
     try {
-      await fetch(`/api/orders`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: deleteOrderId }),
-        credentials: "include",
-      });
-      // Optionally: refresh orders or update state
+      await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {withCredentials: true});
+
+      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
     } catch (err) {
       console.error(err);
     } finally {
