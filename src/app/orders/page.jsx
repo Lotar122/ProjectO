@@ -24,9 +24,11 @@ export default async function ProtectedPage() {
 
   let userAuthSession = await getUserAuthSession(cookieHeader);
 
+  console.log(userAuthSession);
+
   if(userAuthSession.loggedIn)
   {
     return (<Orders ordersArray={ordersArray} ordersToBeDisplayed={ordersToBeDisplayed} />);
   }
-  else redirect("/");
+  //else redirect("/");
 }
