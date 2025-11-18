@@ -31,7 +31,7 @@ export async function POST(req) {
     const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
     await DB`
-        INSERT INTO orders (id, user, patient, type, status, progress, issue_date, due_date)
+        INSERT INTO orders (id, "user", patient, type, status, progress, issue_date, due_date)
 		VALUES (${orderID}, ${userID}, ${patient}, ${type}, ${status}, ${progress}, ${issueDate}, ${dueDate})
     `;
 
