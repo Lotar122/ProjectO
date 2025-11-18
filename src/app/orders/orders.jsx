@@ -326,7 +326,16 @@ export default function Orders()
                   </button>
                   <button
                     type="button"
-                    onClick={() => {setCurrentPage('orders'); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersToBeDisplayed);}}
+                    onClick={() => {
+                      setCurrentPage('orders'); 
+                      ordersToBeDisplayed = structuredClone(ordersArray); 
+                      setOrders(ordersToBeDisplayed);
+
+                      console.log(ordersArray);
+
+                      axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
+                      console.log(ordersArray[ordersArray.length - 1]);
+                    }}
                     className="flex-1 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors duration-200"
                   >
                     Cancel
