@@ -294,7 +294,7 @@ export default function Orders()
             {hoveredOrder === order.id && (
               <button
                 onClick={() => handleDeleteClick(order.id)}
-                className="absolute top-3 right-12 p-2 rounded-full hover:bg-gray-800 transition-colors"
+                className="absolute top-3 right-48 p-2 rounded-full hover:bg-gray-800 transition-colors"
               >
                 <Trash2 className="w-5 h-5 text-red-500" />
               </button>
