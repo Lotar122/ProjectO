@@ -21,7 +21,6 @@ const KratosLogin = ({ setCurrentPage }) => {
     const res = await axios.get(`${KRATOS_PUBLIC_URL}/sessions/whoami`, {
       withCredentials: true, // send cookies
     });
-    console.log("Session exists:", res.data);
     return res.data;
   } catch (err) {
     if (err.response?.status === 401) {

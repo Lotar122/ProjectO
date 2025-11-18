@@ -32,6 +32,8 @@ export default async function ProtectedPage() {
       withCredentials: false,
     });
 
+	console.log(res.data);
+
     if (res.data && res.data.active) {
       loggedIn = true;
 
@@ -41,13 +43,26 @@ export default async function ProtectedPage() {
 
 	  console.log(`SELECT * FROM users WHERE "UUID" = ${res.data.id}`);
 
+	  let users = null;
 	  try {
-		const users = await DB`SELECT * FROM users WHERE "UUID" = ${res.data.id}`;
-	  	console.log(users);
+		users = await DB`SELECT * FROM users WHERE "UUID" = ${res.data.id}`;
 	  }
 	  catch(err) {
 		console.error(err);
 	  }
+
+	//   if(users.length == 0)
+	//   {
+	// 	try {
+	// 		const [user] = await DB`
+	// 		INSERT INTO users ("UUID", email)
+	// 		VALUES (${res.data.id}, ${res.data.})
+	// 		`;
+	// 	}
+	// 	catch(err) {
+	// 		console.error(err);
+	// 	}
+	//   }
     }
   } catch (err) {
     loggedIn = false;
