@@ -23,8 +23,6 @@ export async function GET() {
 
   payload = await DB`SELECT * FROM orders WHERE id = ${userAuthSession.data.id}`;
 
-  console.log(payload);
-
   return new Response(JSON.stringify(payload), {
     headers: { "Content-Type": "application/json" },
   });

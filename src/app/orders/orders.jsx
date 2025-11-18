@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
 
 import axios from "axios";
@@ -13,7 +13,9 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
 
-    const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => console.log(r));
+    useEffect(async () => {
+      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = ordersArray; setOrders(ordersArray)});
+    }, []);
  
   const handleLogout = async () => {
     try {
