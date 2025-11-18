@@ -58,18 +58,25 @@ export default function Orders()
         }
       };
 
-      const handleCreateOrder = (e) => {
+      const handleCreateOrder = async (e) => {
         e.preventDefault();
         if (newOrder.patient && newOrder.type) {
           const order = {
-            id: `ORD-${String(ordersArray.length + 1).padStart(3, '0')}`,
             patient: newOrder.patient,
             type: newOrder.type,
             status: 'pending',
-            date: new Date().toISOString().split('T')[0],
-            progress: 10
+            issueDate: new Date(),
+            dueDate: new Date(),
+            progress: 0
           };
           ordersArray.push(order);
+
+          console.log(ordersArray);
+
+          const res = await axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
+          console.log(res);
+          console.log(ordersArray[ordersArray.length - 1]);
+
           ordersToBeDisplayed = structuredClone(ordersArray);
           setOrders(ordersToBeDisplayed);
           setNewOrder({ patient: '', type: '', notes: '' });
@@ -330,12 +337,6 @@ export default function Orders()
                       setCurrentPage('orders'); 
                       ordersToBeDisplayed = structuredClone(ordersArray); 
                       setOrders(ordersToBeDisplayed);
-
-                      console.log(ordersArray);
-
-                      const res = await axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
-                      console.log(res);
-                      console.log(ordersArray[ordersArray.length - 1]);
                     }}
                     className="flex-1 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors duration-200"
                   >

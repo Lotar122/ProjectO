@@ -13,8 +13,6 @@ export default async function ProtectedPage() {
 
   let userAuthSession = await getUserAuthSession(cookieHeader);
 
-  console.log(userAuthSession);
-
   if(userAuthSession.loggedIn)
   {
     return (<Orders />);

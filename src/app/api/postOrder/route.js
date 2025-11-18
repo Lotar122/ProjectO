@@ -12,7 +12,7 @@ import {v7 as uuid7 } from "uuid"
 export async function POST(req) {
   try {
     const body = await req.json();     // read JSON request body
-    const { patient, type, status, progress/*, issueDate, dueDate*/ } = body;
+    const { patient, type, status, progress, issueDate, dueDate } = body;
 
     const cookieHeader = await cookies();
     const userAuthSession = await getUserAuthSession(cookieHeader);
