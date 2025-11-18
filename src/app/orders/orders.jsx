@@ -15,11 +15,19 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
  
   const handleLogout = async () => {
     try {
-      const kratosUrl = 'https://orto.lotar122.dev/kratos/public';
-      const returnTo = window.location.origin; // redirect back to app
-      window.location.href = `${kratosUrl}/self-service/logout/browser?return_to=${encodeURIComponent(returnTo)}`;
+      const KRATOS_PUBLIC = "https://orto.lotar122.dev/kratos/public"; 
+      // example: http://localhost:4433
+
+      const res = await axios.get(
+        `${KRATOS_PUBLIC}/self-service/logout/browser`,
+        {
+          withCredentials: true, // important so session cookies are included
+        }
+      );
+
+      window.location.href = res.data.logout_url;
     } catch (err) {
-      console.error('Logout failed', err);
+      console.error("Logout error:", err);
     }
   };
 
