@@ -294,13 +294,13 @@ export default function Orders()
             {hoveredOrder === order.id && (
               <button
                 onClick={() => handleDeleteClick(order.id)}
-                className="absolute top-3 right-48 p-2 rounded-full hover:bg-gray-800 transition-colors"
+                className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors"
               >
                 <Trash2 className="w-5 h-5 text-red-500" />
               </button>
             )}
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between ml-8">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
                   <Package className="w-6 h-6 text-black" />
