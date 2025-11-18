@@ -35,7 +35,7 @@ export default async function ProtectedPage() {
     if (res.data && res.data.active) {
       loggedIn = true;
 
-	  //const DB = postgres(DB_URL, {prepare: true});
+	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
 	  
 
