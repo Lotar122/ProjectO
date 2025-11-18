@@ -21,7 +21,7 @@ export async function GET() {
 
   const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
-  payload = await DB`SELECT * FROM orders WHERE UUID = ${userAuthSession.data.id}`;
+  payload = await DB`SELECT * FROM orders WHERE id = ${userAuthSession.data.id}`;
 
   console.log(payload);
 
