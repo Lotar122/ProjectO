@@ -2,10 +2,7 @@
 
 // app/protected/page.tsx
 import { cookies } from 'next/headers';
-import axios from 'axios';
 import { redirect } from 'next/navigation';
-
-import postgres from "postgres";
 
 import Orders from './orders';
 
