@@ -294,7 +294,7 @@ export default function Orders()
             {hoveredOrder === order.id && (
               <button
                 onClick={() => handleDeleteClick(order.id)}
-                className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-800 transition-colors"
+                className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-800 transition-colors mr-4"
               >
                 <Trash2 className="w-5 h-5 text-red-500" />
               </button>
@@ -312,7 +312,7 @@ export default function Orders()
                 </div>
               </div>
 
-              <div className="flex items-center gap-6 mr-4">
+              <div className="flex items-center gap-6">
                 <div className="text-right">
                   <span
                     className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}
