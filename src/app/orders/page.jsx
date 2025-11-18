@@ -3,7 +3,7 @@
 // app/protected/page.tsx
 import { cookies } from 'next/headers';
 import axios from 'axios';
-import { redirect } from 'next/dist/server/api-utils';
+import { redirect } from 'next/navigation';
 
 import Orders from './orders';
 
