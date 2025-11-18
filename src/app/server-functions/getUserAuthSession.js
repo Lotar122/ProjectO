@@ -1,8 +1,8 @@
 "use server";
 
-export async function getUserAuthSession(cookieHeader)
+export async function getUserAuthSession(cookie)
 {
-  cookieHeader = cookieHeader.get("ory_kratos_session");
+  const cookieHeader = cookie.get("ory_kratos_session");
   let res = null;
   try {
     res = await axios.get(`${Bun.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
