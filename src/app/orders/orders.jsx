@@ -12,6 +12,8 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
     const [newOrder, setNewOrder] = useState({ patient: '', type: '', notes: '' });
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
+
+    const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => console.log(r));
  
   const handleLogout = async () => {
     try {
