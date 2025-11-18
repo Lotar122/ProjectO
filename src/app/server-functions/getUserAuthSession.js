@@ -4,7 +4,7 @@ export async function getUserAuthSession(cookie)
 {
   const cookieHeader = cookie.get("ory_kratos_session");
   let res = null;
-  try {
+  //try {
 	console.log(`${cookieHeader.name}=${cookieHeader.value}`);
 
     res = await axios.get(`${Bun.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
@@ -44,9 +44,9 @@ export async function getUserAuthSession(cookie)
 
       loggedIn = true;
     }
-  } catch (err) {
+  //} catch (err) {
     loggedIn = false;
-  }
+  //}
 
   let result = 
   {
