@@ -47,7 +47,7 @@ export async function getUserAuthSession(cookieHeader)
   let result = 
   {
 	loggedIn: loggedIn,
-	data: res.data
+	data: res?.data
   };
 
   return result;
