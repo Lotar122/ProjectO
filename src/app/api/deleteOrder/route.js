@@ -37,7 +37,7 @@ export async function DELETE(req) {
     DB.end();
 
     return Response.json(
-      { success: true, body },
+      { success: true },
       { status: 200 }
     );
 //   } catch (err) {
