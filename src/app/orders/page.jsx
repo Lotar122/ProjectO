@@ -35,11 +35,11 @@ export default async function ProtectedPage() {
     if (res.data && res.data.active) {
       loggedIn = true;
 
-	  const DB = postgres(DB_URL, {prepare: true});
+	  //const DB = postgres(DB_URL, {prepare: true});
 
 	  
 
-	  const users = await DB`SELECT * FROM users WHERE uuid = ${res.data}`;
+	  //const users = await DB`SELECT * FROM users WHERE uuid = ${res.data}`;
     }
   } catch (err) {
     loggedIn = false;
