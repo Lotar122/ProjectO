@@ -28,5 +28,5 @@ export default async function ProtectedPage() {
   {
     return (<Orders ordersArray={ordersArray} ordersToBeDisplayed={ordersToBeDisplayed} />);
   }
-  else redirect("/");
+  //else redirect("/");
 }
