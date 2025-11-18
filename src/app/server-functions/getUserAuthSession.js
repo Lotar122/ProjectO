@@ -12,6 +12,8 @@ export async function getUserAuthSession(cookie)
       withCredentials: false,
     });
 
+	console.log(res);
+
     if (res.data && res.data.active) {
 	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
