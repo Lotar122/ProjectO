@@ -37,9 +37,9 @@ export default async function ProtectedPage() {
 
 	  const DB = postgres(DB_URL, {prepare: true});
 
-	  console.log(res.data);
+	  
 
-	  //const users = await DB`SELECT * FROM users WHERE uuid = ${res.data}`;
+	  const users = await DB`SELECT * FROM users WHERE uuid = ${res.data}`;
     }
   } catch (err) {
     loggedIn = false;
@@ -49,5 +49,5 @@ export default async function ProtectedPage() {
   {
     return (<Orders ordersArray={ordersArray} ordersToBeDisplayed={ordersToBeDisplayed} />);
   }
-  else; //redirect("/");
+  else redirect("/");
 }
