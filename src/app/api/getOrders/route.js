@@ -2,6 +2,8 @@ import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 
 import { cookies } from "next/headers";
 
+import postgres from "postgres";
+
 export async function GET() {
   let payload = null;
 
