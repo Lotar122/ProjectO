@@ -42,8 +42,8 @@ export default async function ProtectedPage() {
 	  console.log(`SELECT * FROM users WHERE UUID = ${res.data}`);
 
 	  try {
-		const users = await DB`SELECT * FROM users WHERE UUID = ${res.data}`;
-	  	console.log(users);
+		//const users = await DB`SELECT * FROM users WHERE UUID = ${res.data}`;
+	  	//console.log(users);
 	  }
 	  catch(err) {
 		console.error(err);
