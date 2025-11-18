@@ -13,7 +13,7 @@ export default function Orders({ordersArray, ordersToBeDisplayed})
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
 
-    useEffect(async () => {
+    useEffect(() => {
       const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = ordersArray; setOrders(ordersArray)});
     }, []);
  
