@@ -10,7 +10,7 @@ import {v7 as uuid7 } from "uuid"
 
 //Has to be used with credentials
 export async function DELETE(req) {
-  //try {
+  try {
     const cookieHeader = await cookies();
     const userAuthSession = await getUserAuthSession(cookieHeader);
 
@@ -40,10 +40,10 @@ export async function DELETE(req) {
       { success: true },
       { status: 200 }
     );
-//   } catch (err) {
-//     return Response.json(
-//       { success: false, error: err.message },
-//       { status: 500 }
-//     );
-//   }
+  } catch (err) {
+    return Response.json(
+      { success: false, error: err.message },
+      { status: 500 }
+    );
+  }
 }

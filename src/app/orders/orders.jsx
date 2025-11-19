@@ -69,7 +69,6 @@ export default function Orders()
             type: newOrder.type,
             status: 'pending',
             issueDate: new Date(),
-            dueDate: new Date(),
             progress: 0
           };
           ordersArray.push(order);
@@ -376,8 +375,22 @@ export default function Orders()
                     required
                   />
                 </div>
- 
+
                 <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Due date
+                  </label>
+                  <input
+                    type="date"
+                    value={newOrder.dueDate}
+                    onChange={(e) => setNewOrder({...newOrder, dueDate: e.target.value})}
+                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+                    placeholder="Enter type"
+                    required
+                  />
+                </div>
+ 
+                {/* <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Additional Notes
                   </label>
@@ -387,7 +400,7 @@ export default function Orders()
                     className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white h-32 resize-none"
                     placeholder="Any special instructions or notes..."
                   />
-                </div>
+                </div> */}
  
                 <div className="flex gap-4">
                   <button
