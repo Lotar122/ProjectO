@@ -17,5 +17,11 @@ export default async function ProtectedPage() {
   {
     return (<Orders />);
   }
-  //else redirect("/");
+  else redirect("/");
 }
+
+export const metadata = {
+  title: 'ProjectO - Orders',
+  description:
+    'A website for managing orders in orthodontics.',
+};
