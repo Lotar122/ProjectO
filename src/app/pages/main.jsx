@@ -2,7 +2,6 @@
 
 import Landing from "./landing";
 import Login from "./login"
-import Orders from "../orders/page"
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
