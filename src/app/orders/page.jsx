@@ -1,24 +1,13 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
+import ProtectedPage from "./ordersServerWrapper";
 
-import OrdersWrapped from './ordersServerWrapper';
-
-import { getUserAuthSession } from '../server-functions/getUserAuthSession';
-
-export default async function ProtectedPage() {
-  let cookieHeader = await cookies(); // get cookies from request
-
-  let userAuthSession = await getUserAuthSession(cookieHeader);
-
-  if(userAuthSession.loggedIn)
-  {
-    return await OrdersWrapped();
-  }
-  else redirect("/");
-}
-
+const Page = () => {
+  return <ProtectedPage/>;
+};
+ 
 export const metadata = {
-  title: 'ProjectO - Orders',
+  title: 'ProjectO',
   description:
     'A website for managing orders in orthodontics.',
 };
+
+export default Page;
