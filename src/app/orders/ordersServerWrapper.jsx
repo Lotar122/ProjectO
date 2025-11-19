@@ -2,7 +2,7 @@
 
 import Orders from "./orders"
 
-export default function OrdersWrapped()
+export default async function OrdersWrapped()
 {
     return (<Orders />);
 }
