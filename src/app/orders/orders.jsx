@@ -12,7 +12,7 @@ export default function Orders()
 {
     const [currentPage, setCurrentPage] = useState('orders');
     const [orders, setOrders] = useState(ordersToBeDisplayed);
-    const [newOrder, setNewOrder] = useState({ patient: '', type: '', notes: '' });
+    const [newOrder, setNewOrder] = useState({ patient: '', type: '', dueDate: new Date() });
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
 
