@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-import Orders from './orders';
+import OrdersWrapped from './ordersServerWrapper';
 
 import { getUserAuthSession } from '../server-functions/getUserAuthSession';
 
@@ -12,7 +12,7 @@ export default async function ProtectedPage() {
 
   if(userAuthSession.loggedIn)
   {
-    return (<Orders />);
+    return (<OrdersWrapped />);
   }
   else redirect("/");
 }
