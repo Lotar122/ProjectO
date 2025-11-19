@@ -12,7 +12,7 @@ export default async function ProtectedPage() {
 
   if(userAuthSession.loggedIn)
   {
-    return (<OrdersWrapped />);
+    return OrdersWrapped();
   }
   else redirect("/");
 }
