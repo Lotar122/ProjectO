@@ -68,6 +68,7 @@ export default function Orders()
             patient: newOrder.patient,
             type: newOrder.type,
             status: 'pending',
+            dueDate: newOrder.dueDate,
             issueDate: new Date(),
             progress: 0
           };
