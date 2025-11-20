@@ -286,6 +286,7 @@ export default function Orders()
             onMouseEnter={() => setHoveredOrder(order.id)}
             onMouseLeave={() => setHoveredOrder(null)}
           >
+            {console.log(order)}
             {/* Trash icon on hover */}
             {hoveredOrder === order.id && (
               <button
