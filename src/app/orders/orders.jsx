@@ -304,7 +304,7 @@ export default function Orders()
                 <div>
                   <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
                   <p className="text-gray-400">{order.type}</p>
-                  <p className="text-sm text-gray-500">Order #{order.id} • {order.dueDate.toLocaleDateString('de-DE')}</p>
+                  <p className="text-sm text-gray-500">Order #{order.id} • {console.log(order)}</p>
                 </div>
               </div>
 
