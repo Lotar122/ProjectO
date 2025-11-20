@@ -304,7 +304,7 @@ export default function Orders()
                 <div>
                   <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
                   <p className="text-gray-400">{order.type}</p>
-                  <p className="text-sm text-gray-500">Order #{order.id} • {console.log(order)}</p>
+                  <p className="text-sm text-gray-500">Order #{order.id} • {order.due_date.slice(0, 10)}</p>
                 </div>
               </div>
 
