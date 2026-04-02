@@ -21,6 +21,7 @@ export default function Orders()
 
     useEffect(() => {
       const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data;  ordersArray.reverse(); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
+      console.log("get orders");
     }, []);
  
   const handleLogout = async () => {
@@ -38,6 +39,8 @@ export default function Orders()
     } catch (err) {
       console.error("Logout error:", err);
     }
+
+    console.log("logout");
   };
 
     const getStatusColor = (status) => {
