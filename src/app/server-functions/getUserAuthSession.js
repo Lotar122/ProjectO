@@ -10,7 +10,7 @@ export async function getUserAuthSession(cookie)
   let loggedIn = false;
   try {
 	console.log(cookieHeader);
-    res = await axios.get(`${Bun.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
+    res = await axios.get(`https://orto.lotar122.dev/kratos/sessions/whoami`, {
       headers: {
         cookie: `${cookieHeader.name}=${cookieHeader.value}`,
       },
