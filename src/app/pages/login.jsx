@@ -36,7 +36,11 @@ const KratosLogin = ({ setCurrentPage }) => {
   // Initialize browser login flow
   const initFlow = async () => {
 	setSession(await checkSession());
-	if(session) return;
+	if(session) 
+  {
+    setIsLoggedIn(true);
+    return;
+  }
     try {
       const res = await axios.get(`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`, {
         withCredentials: true, // Must include cookies for browser flow
