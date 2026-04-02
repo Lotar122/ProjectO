@@ -10,7 +10,7 @@ export async function getUserAuthSession(cookie)
   let loggedIn = false;
   try {
 	console.log(cookieHeader);
-    res = await axios.get(`http://localhost:4433/public/sessions/whoami`, {
+    res = await axios.get(`http://localhost:4433/sessions/whoami`, {
       headers: {
         cookie: `${cookieHeader.name}=${cookieHeader.value}`,
       },
