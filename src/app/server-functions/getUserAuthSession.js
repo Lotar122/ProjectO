@@ -17,30 +17,30 @@ export async function getUserAuthSession(cookie)
     });
 
     if (res.data && res.data.active) {
-	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
+	//   const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
-	  let users = null;
-	  try {
-		users = await DB`SELECT * FROM users WHERE "UUID" = ${res.data.identity.id}`;
-	  }
-	  catch(err) {
-		console.error(err);
-	  }
+	//   let users = null;
+	//   try {
+	// 	users = await DB`SELECT * FROM users WHERE "UUID" = ${res.data.identity.id}`;
+	//   }
+	//   catch(err) {
+	// 	console.error(err);
+	//   }
 
-	  if(users.length == 0)
-	  {
-		try {
-			await DB`
-			INSERT INTO users ("UUID", email)
-			VALUES (${res.data.identity.id}, ${res.data.identity.traits.email})
-			`;
-		}
-		catch(err) {
-			console.error(err);
-		}
-	  }
+	//   if(users.length == 0)
+	//   {
+	// 	try {
+	// 		await DB`
+	// 		INSERT INTO users ("UUID", email)
+	// 		VALUES (${res.data.identity.id}, ${res.data.identity.traits.email})
+	// 		`;
+	// 	}
+	// 	catch(err) {
+	// 		console.error(err);
+	// 	}
+	//   }
 
-	  await DB.end();
+	//   await DB.end();
 
       loggedIn = true;
     }
