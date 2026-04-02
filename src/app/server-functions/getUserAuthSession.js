@@ -17,7 +17,6 @@ export async function getUserAuthSession(cookie)
     });
 
     if (res.data && res.data.active) {
-		console.log("Protection let through.");
 	//   const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
 	//   let users = null;
@@ -49,6 +48,8 @@ export async function getUserAuthSession(cookie)
   catch (err) {
     loggedIn = false;
   }
+
+  console.log("Protection: ", loggedIn);
 
   let result = 
   {
