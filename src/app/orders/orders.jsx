@@ -25,8 +25,7 @@ export default function Orders()
  
   const handleLogout = async () => {
     try {
-      const KRATOS_PUBLIC = "https://orto.lotar122.dev/kratos/public"; 
-      // example: http://localhost:4433
+      const KRATOS_PUBLIC = "https://orto.lotar122.dev/kratos"; 
 
       const res = await axios.get(
         `${KRATOS_PUBLIC}/self-service/logout/browser`,
