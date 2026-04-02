@@ -80,10 +80,10 @@ const KratosLogin = ({ setCurrentPage }) => {
   };
 
   useEffect(() => {
-
     if(isLoggedIn || session?.active)
     {
       router.push('/orders');
+      console.log("push orders");
     }
   }, [isLoggedIn, session]);
 

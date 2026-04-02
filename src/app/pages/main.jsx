@@ -12,6 +12,7 @@ export default function Main()
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     if (!isLoggedIn) {
+		console.log("not logged in");
 		return (
 		<div className="min-h-screen bg-black"> 
 			{currentPage === 'login' && 
