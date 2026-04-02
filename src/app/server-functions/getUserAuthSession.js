@@ -48,6 +48,7 @@ export async function getUserAuthSession(cookie)
     }
   } 
   catch (err) {
+	console.log("Protection error.");
     loggedIn = false;
   }
 
