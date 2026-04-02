@@ -12,9 +12,11 @@ export default async function ProtectedPage() {
 
   let userAuthSession = await getUserAuthSession(cookieHeader);
 
-  if(userAuthSession.loggedIn)
-  {
-    return (<Orders />);
-  }
-  else redirect("/");
+  // if(userAuthSession.loggedIn)
+  // {
+  //   return (<Orders />);
+  // }
+  // else redirect("/");
+
+  return (<Orders />);
 }
