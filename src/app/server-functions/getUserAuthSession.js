@@ -9,14 +9,13 @@ export async function getUserAuthSession(cookie)
   let res = null;
   let loggedIn = false;
   try {
+	console.log(cookieHeader);
     res = await axios.get(`${Bun.env.KRATOS_PUBLIC_URL}/sessions/whoami`, {
       headers: {
         cookie: `${cookieHeader.name}=${cookieHeader.value}`,
       },
       withCredentials: false,
     });
-
-	console.log(res);
 
     if (res.data && res.data.active) {
 	//   const DB = postgres(Bun.env.DB_URL, {prepare: true});
