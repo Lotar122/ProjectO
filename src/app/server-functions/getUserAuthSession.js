@@ -23,7 +23,7 @@ export async function getUserAuthSession(cookie)
 
 	  let users = null;
 	  try {
-		users = await DB`SELECT * FROM users WHERE "UUID" = ${res.data.identity.id}`;
+		users = await DB`SELECT * FROM users WHERE "user_id" = ${res.data.identity.id}`;
 	  }
 	  catch(err) {
 		console.error(err);
@@ -34,7 +34,7 @@ export async function getUserAuthSession(cookie)
 		const name = await getNameFromEmail(res.data.identity.traits.email);
 		try {
 			await DB`
-			INSERT INTO users ("UUID", email, name, last-name)
+			INSERT INTO users (user_id, email, name, last_name)
 			VALUES (${res.data.identity.id}, ${res.data.identity.traits.email}, ${name.first}, ${name.last})
 			`;
 		}
