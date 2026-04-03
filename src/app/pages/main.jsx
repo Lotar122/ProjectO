@@ -1,7 +1,7 @@
 "use client";
 
 import Landing from "./landing";
-import Login from "./login"
+import Login from "../login/login"
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
