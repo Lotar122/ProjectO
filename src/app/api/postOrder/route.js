@@ -14,7 +14,7 @@ export async function POST(req) {
     const { patient, details, status, progress, issueDate, dueDate } = body;
 
     // Get user session
-    const cookieHeader = cookies();
+    const cookieHeader = await cookies();
     const userAuthSession = await getUserAuthSession(cookieHeader);
 
     if (!userAuthSession.loggedIn) {
