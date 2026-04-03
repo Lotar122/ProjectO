@@ -12,7 +12,7 @@ export default function Orders({ userName, userLastName })
 {
     const [currentPage, setCurrentPage] = useState('orders');
     const [orders, setOrders] = useState(ordersToBeDisplayed);
-    const [newOrder, setNewOrder] = useState({ patient: '', type: '', dueDate: new Date() });
+    const [newOrder, setNewOrder] = useState({ patient: '', details: '', dueDate: new Date() });
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
 
@@ -83,7 +83,7 @@ export default function Orders({ userName, userLastName })
 
           ordersToBeDisplayed = structuredClone(ordersArray);
           setOrders(ordersToBeDisplayed);
-          setNewOrder({ patient: '', type: '', notes: '' });
+          setNewOrder({ patient: '', details: '', notes: '' });
           setCurrentPage('orders');
         }
         };
