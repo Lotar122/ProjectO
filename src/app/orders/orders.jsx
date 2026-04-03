@@ -399,6 +399,47 @@ export default function Orders({ userName, userLastName })
                     placeholder="Any special instructions or notes..."
                   />
                 </div> */}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Attach Files
+                  </label>
+
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer hover:border-white transition">
+                    <span className="text-gray-400 text-sm">Click or drag files</span>
+                    <input
+                      type="file"
+                      multiple
+                      onChange={(e) => {
+                        const selected = Array.from(e.target.files);
+                        setFiles(prev => [...prev, ...selected]);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {/* File list */}
+                  <div className="mt-3 space-y-2">
+                    {files.map((file, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-gray-900 px-3 py-2 rounded-lg"
+                      >
+                        <span className="text-sm text-white truncate">
+                          {file.name}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setFiles(prev => prev.filter((_, i) => i !== index))}
+                          className="text-gray-400 hover:text-red-500 text-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
  
                 <div className="flex gap-4">
                   <button
