@@ -7,9 +7,9 @@ import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata"
 export async function GET(req) {
 	let payload = null;
 
-	const body = await req.json();
+	const url = new URL(req.url);
 
-  	const { file_id } = body;
+  	const file_id = url.searchParams.get("file_id");
 
 	let cookieHeader = await cookies(); // get cookies from request
 

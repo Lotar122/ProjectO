@@ -92,7 +92,7 @@ export default function Orders({ userName, userLastName }) {
 			val.files.forEach((val, index) => {
 				const response = axios.get("/api/getFileName",
 					{
-						file_id: val.id
+						params: {file_id: val.id}
 					},
 					{
 						withCredentials: true,
