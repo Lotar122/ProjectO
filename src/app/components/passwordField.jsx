@@ -8,7 +8,7 @@ export default function PasswordField({ password, setPassword }) {
 
 	return (
 		<div>
-			<label className="block text-sm font-medium text-gray-300 mb-2">
+			<label className="mb-2 block text-sm font-medium text-slate-300">
 				Password
 			</label>
 			<div className="relative">
@@ -16,14 +16,14 @@ export default function PasswordField({ password, setPassword }) {
 					type={showPassword ? "text" : "password"}
 					value={password}
 					onChange={(e) => setPassword(e.target.value)}
-					className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white pr-12"
+					className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 pr-12 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
 					placeholder="Enter your password"
 					required
 				/>
 				<button
 					type="button"
 					onClick={() => setShowPassword(!showPassword)}
-					className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+					className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-200">
 					{showPassword ? (
 						<EyeOff className="w-5 h-5" />
 					) : (
