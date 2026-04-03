@@ -20,7 +20,7 @@ export default function Orders({ userName, userLastName })
     const [deleteOrderId, setDeleteOrderId] = useState(null);
 
     useEffect(() => {
-      //const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data;  ordersArray.reverse(); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
+      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data;  ordersArray.reverse(); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
       console.log("get orders");
     }, []);
  
