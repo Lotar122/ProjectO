@@ -127,12 +127,9 @@ const KratosLogin = ({ setCurrentPage }) => {
 				animate="show"
 				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/80 p-8 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl">
 				<motion.div variants={item} className="mb-8 text-center">
-					<div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/70 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-400">
-						Secure Access
-					</div>
 					<h2 className="mb-2 text-3xl font-bold text-white">Welcome Back</h2>
 					<p className="text-slate-400">
-						Sign in to your orthodontic dashboard
+						Sign in to the dashboard
 					</p>
 				</motion.div>
 
