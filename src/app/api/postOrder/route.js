@@ -28,7 +28,7 @@ export async function POST(req) {
     const orderID = uuid7();
     const userID = userAuthSession.data.identity.id;
 
-    const DB = postgres(Bun.env.DB_URL, {prepare: true});
+    const DB = postgres(process.env.DB_URL, {prepare: true});
 
     await DB`
         INSERT INTO orders (order_id, user_id, patient, details, status, progress, issue_date, due_date)
