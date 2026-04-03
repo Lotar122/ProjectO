@@ -11,5 +11,5 @@ export default function LoginRoute() {
     router.push(`/${page}`);
   }
 
-  <KratosLogin setCurrentPage={routerRedirect} />
+  return <KratosLogin setCurrentPage={routerRedirect} />
 }
