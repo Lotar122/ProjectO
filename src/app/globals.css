@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 :root {
-	--background: #050505;
-	--foreground: #f5f5f5;
+	--background: #000000;
+	--foreground: #ededed;
 	--sb-width: 10px;
-	--sb-thumb: rgba(255, 255, 255, 0.95);
+	--sb-thumb: rgba(255, 255, 255, 0.9);
 	--sb-track: transparent;
 }
 
@@ -17,15 +17,13 @@
 
 html {
 	scroll-behavior: smooth;
+	scrollbar-width: thin;
+	scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
 
 body {
 	min-height: 100vh;
-	background:
-		radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 28%),
-		radial-gradient(circle at 80% 20%, rgba(120, 119, 198, 0.12), transparent 24%),
-		radial-gradient(circle at 20% 80%, rgba(14, 165, 233, 0.08), transparent 24%),
-		linear-gradient(180deg, #060606 0%, #0f0f10 100%);
+	background: var(--background);
 	color: var(--foreground);
 	font-family: var(--font-geist-sans), sans-serif;
 	text-rendering: optimizeLegibility;
@@ -33,50 +31,31 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
-body::before {
-	content: "";
-	position: fixed;
-	inset: 0;
-	pointer-events: none;
-	background-image:
-		linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-	background-size: 72px 72px;
-	mask-image: radial-gradient(circle at center, black, transparent 82%);
-	opacity: 0.45;
-}
-
 ::selection {
 	background: rgba(255, 255, 255, 0.9);
-	color: #050505;
+	color: #000000;
 }
 
-*::-webkit-scrollbar {
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
 	width: var(--sb-width);
 	height: var(--sb-width);
 }
 
-*::-webkit-scrollbar-track {
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
 	background: var(--sb-track);
-	margin: 6px;
-	border-radius: 999px;
 }
 
-*::-webkit-scrollbar-thumb {
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
 	background: var(--sb-thumb);
 	border-radius: 999px;
-	min-height: 28px;
-	box-shadow: 0 0 0 3px transparent;
-	background-clip: padding-box;
 }
 
-*::-webkit-scrollbar-corner {
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner {
 	background: transparent;
-}
-
-* {
-	scrollbar-width: thin;
-	scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
 
 @media (prefers-reduced-motion: reduce) {
