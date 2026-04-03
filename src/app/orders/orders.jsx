@@ -21,7 +21,6 @@ export default function Orders({ userName, userLastName })
 
     useEffect(() => {
       const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data;  ordersArray.reverse(); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
-      console.log("get orders");
     }, []);
  
   const handleLogout = async () => {
@@ -39,8 +38,6 @@ export default function Orders({ userName, userLastName })
     } catch (err) {
       console.error("Logout error:", err);
     }
-
-    console.log("logout");
   };
 
     const getStatusColor = (status) => {
@@ -76,10 +73,8 @@ export default function Orders({ userName, userLastName })
           };
           ordersArray.push(order);
 
-          console.log(ordersArray);
-
           const res = await axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
-          order.id = res.data.orderID;
+          order.order_id = res.data.orderID;
 
           ordersToBeDisplayed = structuredClone(ordersArray);
           setOrders(ordersToBeDisplayed);
@@ -283,16 +278,15 @@ export default function Orders({ userName, userLastName })
             <div className="grid gap-6">
         {orders.map((order) => (
           <div
-            key={order.id}
+            key={order.order_id}
             className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
-            onMouseEnter={() => setHoveredOrder(order.id)}
+            onMouseEnter={() => setHoveredOrder(order.order_id)}
             onMouseLeave={() => setHoveredOrder(null)}
           >
-            {console.log(order)}
             {/* Trash icon on hover */}
-            {hoveredOrder === order.id && (
+            {hoveredOrder === order.order_id && (
               <button
-                onClick={() => handleDeleteClick(order.id)}
+                onClick={() => handleDeleteClick(order.order_id)}
                 className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors"
               >
                 <Trash2 className="w-5 h-5 text-red-500" />
@@ -307,7 +301,7 @@ export default function Orders({ userName, userLastName })
                 <div>
                   <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
                   <p className="text-gray-400">{order.type}</p>
-                  <p className="text-sm text-gray-500">Order #{order.id} • {order.due_date.slice(0, 10)}</p>
+                  <p className="text-sm text-gray-500">Order #{order.order_id} • {order.due_date.slice(0, 10)}</p>
                 </div>
               </div>
 
