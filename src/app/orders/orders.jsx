@@ -704,7 +704,7 @@ export default function Orders({ userName, userLastName }) {
 						<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-8 backdrop-blur">
 							<form onSubmit={handleCreateOrder} className="space-y-6">
 								<div>
-									<label className="mb-2 block text-sm font-medium text-gray-300">
+									<label className="mb-2 block text-sm font-medium text-slate-300">
 										Patient Name
 									</label>
 									<input
@@ -716,14 +716,14 @@ export default function Orders({ userName, userLastName }) {
 												patient: e.target.value,
 											})
 										}
-										className="w-full rounded-lg border border-gray-700 bg-black/70 px-4 py-3 text-white transition-all duration-300 focus:border-white/60 focus:ring-2 focus:ring-white/20 focus:outline-none"
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
 										placeholder="Enter patient full name"
 										required
 									/>
 								</div>
 
 								<div>
-									<label className="mb-2 block text-sm font-medium text-gray-300">
+									<label className="mb-2 block text-sm font-medium text-slate-300">
 										Details
 									</label>
 									<input
@@ -735,14 +735,14 @@ export default function Orders({ userName, userLastName }) {
 												details: e.target.value,
 											})
 										}
-										className="w-full rounded-lg border border-gray-700 bg-black/70 px-4 py-3 text-white transition-all duration-300 focus:border-white/60 focus:ring-2 focus:ring-white/20 focus:outline-none"
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
 										placeholder="Enter type"
 										required
 									/>
 								</div>
 
 								<div>
-									<label className="mb-2 block text-sm font-medium text-gray-300">
+									<label className="mb-2 block text-sm font-medium text-slate-300">
 										Due date
 									</label>
 									<input
@@ -754,18 +754,18 @@ export default function Orders({ userName, userLastName }) {
 												dueDate: e.target.value,
 											})
 										}
-										className="w-full rounded-lg border border-gray-700 bg-black/70 px-4 py-3 text-white transition-all duration-300 focus:border-white/60 focus:ring-2 focus:ring-white/20 focus:outline-none"
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
 										required
 									/>
 								</div>
 
 								<div>
-									<label className="mb-2 block text-sm font-medium text-gray-300">
+									<label className="mb-2 block text-sm font-medium text-slate-300">
 										Attach Files
 									</label>
 
-									<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-700 transition hover:border-white">
-										<span className="text-sm text-gray-400">
+									<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
+										<span className="text-sm text-slate-400">
 											Click or drag files
 										</span>
 										<input
@@ -788,8 +788,8 @@ export default function Orders({ userName, userLastName }) {
 										{files.map((file, index) => (
 											<div
 												key={`${file.name}-${index}`}
-												className="flex items-center justify-between rounded-lg bg-gray-900 px-3 py-2">
-												<span className="truncate text-sm text-white">
+												className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
+												<span className="truncate text-sm text-slate-100">
 													{file.name}
 												</span>
 
@@ -803,7 +803,7 @@ export default function Orders({ userName, userLastName }) {
 															),
 														)
 													}
-													className="text-sm text-gray-400 hover:text-red-500">
+													className="text-sm text-slate-400 hover:text-red-400">
 													X
 												</button>
 											</div>
@@ -822,7 +822,7 @@ export default function Orders({ userName, userLastName }) {
 									<button
 										type="button"
 										onClick={showOrdersPage}
-										className="flex-1 rounded-lg bg-gray-700 py-3 font-semibold text-white transition-colors duration-200 hover:bg-gray-600">
+										className="flex-1 rounded-lg bg-slate-800 py-3 font-semibold text-white transition-colors duration-200 hover:bg-slate-700">
 										Cancel
 									</button>
 								</div>
