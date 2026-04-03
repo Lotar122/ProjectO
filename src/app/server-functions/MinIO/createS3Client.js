@@ -1,6 +1,6 @@
 "use server";
 
-import { S3Client, HeadBucketCommand } from "aws-sdk/client-s3";
+import { S3Client, HeadBucketCommand } from "@aws-sdk/client-s3";
 
 export async function createS3Client()
 {
