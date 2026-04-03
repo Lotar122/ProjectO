@@ -371,7 +371,7 @@ export default function Orders({ userName, userLastName }) {
 				initial={{ opacity: 0, y: -18 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ duration: 0.45 }}
-				className="border-b border-white/10 bg-white/5 backdrop-blur-xl">
+				className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl">
 				<div className="container mx-auto px-4 py-4">
 					<div className="flex items-center justify-between">
 						<div className="flex items-center gap-3">
@@ -420,13 +420,15 @@ export default function Orders({ userName, userLastName }) {
 				</div>
 			</motion.header>
 
-			<div className="border-b border-white/10 bg-white/5 backdrop-blur-xl md:hidden">
+			<div className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl md:hidden">
 				<div className="container mx-auto px-4 py-3">
 					<div className="flex gap-2">
 						<button
 							onClick={showOrdersPage}
 							className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
-								currentPage === "orders" ? "bg-white text-black" : "text-gray-300"
+								currentPage === "orders"
+									? "bg-white text-slate-950"
+									: "text-slate-300"
 							}`}>
 							<Package className="h-4 w-4" />
 							Orders
@@ -435,8 +437,8 @@ export default function Orders({ userName, userLastName }) {
 							onClick={() => setCurrentPage("create-order")}
 							className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
 								currentPage === "create-order"
-									? "bg-white text-black"
-									: "text-gray-300"
+									? "bg-white text-slate-950"
+									: "text-slate-300"
 							}`}>
 							<Plus className="h-4 w-4" />
 							New
@@ -453,7 +455,7 @@ export default function Orders({ userName, userLastName }) {
 								<h2 className="text-3xl font-bold text-white">
 									Treatment Orders
 								</h2>
-								<p className="text-gray-400">
+								<p className="text-slate-400">
 									Manage and track all orthodontic appliance orders
 								</p>
 							</div>
@@ -471,16 +473,16 @@ export default function Orders({ userName, userLastName }) {
 							initial={{ opacity: 0, y: 12 }}
 							animate={{ opacity: 1, y: 0 }}
 							transition={{ duration: 0.45, delay: 0.05 }}
-							className="mb-8 rounded-xl border border-white/10 bg-white/6 p-6 backdrop-blur">
+							className="mb-8 rounded-xl border border-slate-800 bg-slate-900/85 p-6 backdrop-blur">
 							<div className="flex flex-col gap-4 md:flex-row">
 								<div className="relative flex-1">
-									<Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+									<Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
 									<input
 										ref={orderSearchRef}
 										onChange={(e) => handleSearchChange(e.target.value)}
 										type="text"
 										placeholder="Search orders..."
-										className="w-full rounded-lg border border-gray-700 bg-black/70 py-3 pl-10 pr-4 text-white transition-all duration-300 focus:border-white/60 focus:ring-2 focus:ring-white/20 focus:outline-none"
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-slate-100 transition-all duration-300 placeholder:text-slate-500 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
 									/>
 								</div>
 								<div className="flex gap-2">
@@ -488,12 +490,12 @@ export default function Orders({ userName, userLastName }) {
 										ref={orderFilterRef}
 										defaultValue="All Status"
 										onChange={(e) => handleStatusChange(e.target.value)}
-										className="rounded-lg border border-gray-700 bg-black/70 px-4 py-3 text-white transition-all duration-300 focus:border-white/60 focus:ring-2 focus:ring-white/20 focus:outline-none">
-										<option className="bg-gray-900">All Status</option>
-										<option className="bg-gray-900">Pending</option>
-										<option className="bg-gray-900">In Progress</option>
-										<option className="bg-gray-900">Shipped</option>
-										<option className="bg-gray-900">Completed</option>
+										className="rounded-lg border border-slate-700 bg-black px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none">
+										<option className="bg-black">All Status</option>
+										<option className="bg-black">Pending</option>
+										<option className="bg-black">In Progress</option>
+										<option className="bg-black">Shipped</option>
+										<option className="bg-black">Completed</option>
 									</select>
 								</div>
 							</div>
@@ -511,7 +513,7 @@ export default function Orders({ userName, userLastName }) {
 										animate={{ opacity: 1, y: 0 }}
 										transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
 										whileHover={{ y: -4 }}
-										className="relative rounded-xl border border-white/10 bg-white/6 p-6 backdrop-blur transition-colors duration-200 hover:border-white/20"
+										className="relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur transition-colors duration-200 hover:border-slate-700"
 										onMouseEnter={() =>
 											setHoveredOrder(order.order_id)
 										}
@@ -535,10 +537,10 @@ export default function Orders({ userName, userLastName }) {
 													<h3 className="text-lg font-semibold text-white">
 														{order.patient}
 													</h3>
-													<p className="text-gray-400">
+													<p className="text-slate-300">
 														{order.details || order.type}
 													</p>
-													<p className="text-sm text-gray-500">
+													<p className="text-sm text-slate-500">
 														Order #{order.order_id} • {getDisplayDate(order)}
 													</p>
 												</div>
@@ -555,7 +557,7 @@ export default function Orders({ userName, userLastName }) {
 															.replace("-", " ")
 															.toUpperCase()}
 													</span>
-													<div className="mt-2 h-2 w-32 rounded-full bg-gray-700">
+													<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">
 														<div
 															className={`h-2 rounded-full transition-all duration-300 ${
 																order.status === "completed"
@@ -571,7 +573,7 @@ export default function Orders({ userName, userLastName }) {
 															}}
 														/>
 													</div>
-													<p className="mt-1 text-sm text-gray-500">
+													<p className="mt-1 text-sm text-slate-500">
 														{order.progress}% Complete
 													</p>
 												</div>
@@ -581,7 +583,7 @@ export default function Orders({ userName, userLastName }) {
 													onClick={() =>
 														toggleOrderExpanded(order.order_id)
 													}
-													className="inline-flex items-center gap-2 self-start rounded-lg border border-white/10 bg-black/30 px-4 py-2 text-sm text-gray-200 transition-colors hover:border-white/30 hover:text-white">
+													className="inline-flex items-center gap-2 self-start rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
 													{isExpanded ? "Hide details" : "View details"}
 													<ChevronDown
 														className={`h-4 w-4 transition-transform ${
@@ -600,11 +602,11 @@ export default function Orders({ userName, userLastName }) {
 													exit={{ opacity: 0, height: 0, y: -8 }}
 													transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
 													className="overflow-hidden">
-													<div className="mt-6 ml-8 rounded-xl border border-white/10 bg-black/35 p-5 backdrop-blur">
+													<div className="mt-6 ml-8 rounded-xl border border-slate-800 bg-slate-950 p-5 backdrop-blur">
 														<div className="grid gap-5 md:grid-cols-2">
 															<div className="space-y-3">
 																<div>
-																	<p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+																	<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
 																		Patient Name
 																	</p>
 																	<p className="mt-1 text-sm text-white">
@@ -612,10 +614,10 @@ export default function Orders({ userName, userLastName }) {
 																	</p>
 																</div>
 																<div>
-																	<p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+																	<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
 																		Details
 																	</p>
-																	<p className="mt-1 text-sm leading-6 text-gray-300">
+																	<p className="mt-1 text-sm leading-6 text-slate-300">
 																		{order.details ||
 																			"No additional details yet."}
 																	</p>
@@ -623,10 +625,10 @@ export default function Orders({ userName, userLastName }) {
 															</div>
 
 															<div>
-																<p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+																<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
 																	Attached Files
 																</p>
-																<p className="mt-1 text-sm text-gray-400">
+																<p className="mt-1 text-sm text-slate-400">
 																	{orderFiles.length} file
 																	{orderFiles.length === 1 ? "" : "s"}
 																</p>
@@ -638,16 +640,16 @@ export default function Orders({ userName, userLastName }) {
 																				key={attachment.id}
 																				initial={{ opacity: 0, y: 10 }}
 																				animate={{ opacity: 1, y: 0 }}
-																				className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+																				className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
 																				<div className="flex min-w-0 items-center gap-3">
-																					<div className="rounded-lg bg-white/8 p-2 text-gray-300">
+																					<div className="rounded-lg bg-slate-800 p-2 text-slate-300">
 																						<FileText className="h-4 w-4" />
 																					</div>
 																					<div className="min-w-0">
 																						<p className="truncate text-sm text-white">
 																							{attachment.name}
 																						</p>
-																						<p className="text-xs text-gray-500">
+																						<p className="text-xs text-slate-500">
 																							{attachment.isLocal
 																								? "Ready to download in this session"
 																								: "Frontend placeholder download"}
@@ -670,7 +672,7 @@ export default function Orders({ userName, userLastName }) {
 																			</motion.div>
 																		))
 																	) : (
-																		<div className="rounded-lg border border-dashed border-white/10 px-4 py-6 text-sm text-gray-500">
+																		<div className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-sm text-slate-500">
 																			No files attached to this order yet.
 																		</div>
 																	)}
@@ -694,12 +696,12 @@ export default function Orders({ userName, userLastName }) {
 							<h2 className="mb-2 text-3xl font-bold text-white">
 								Create New Order
 							</h2>
-							<p className="text-gray-400">
+							<p className="text-slate-400">
 								Enter patient details and appliance information
 							</p>
 						</div>
 
-						<div className="mx-auto max-w-2xl rounded-xl border border-white/10 bg-white/6 p-8 backdrop-blur">
+						<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-8 backdrop-blur">
 							<form onSubmit={handleCreateOrder} className="space-y-6">
 								<div>
 									<label className="mb-2 block text-sm font-medium text-gray-300">
