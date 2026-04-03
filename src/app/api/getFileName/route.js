@@ -1,7 +1,9 @@
 "use server";
 
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
-import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata"
+import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata";
+
+import { cookies } from "next/headers";
 
 //Has to be used with credentials
 export async function GET(req) {
