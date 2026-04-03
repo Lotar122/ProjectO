@@ -116,6 +116,32 @@ export default function Orders({ userName, userLastName })
         }
       };
 
+      const searchOrdersByString = (str) => {
+        if(str.trim() === "")
+        {
+            ordersToBeDisplayed = structuredClone(ordersArray);
+            setOrders(ordersToBeDisplayed);
+            return;
+        }
+        ordersToBeDisplayed = [];
+        ordersArray.forEach((val) => {if(val.patient.toLowerCase().includes(str.toLowerCase())) {ordersToBeDisplayed.push(val)}});
+      
+        setOrders(ordersToBeDisplayed);
+        };
+      
+        const searchOrdersByStatus = (status) => {
+        if(status === "All Status")
+        {
+            return;
+        }
+        let newOrdersToBeDisplayed = [];
+        ordersToBeDisplayed.forEach((val) => {if(val.status.toLowerCase().includes(status.toLowerCase().replace(' ', '-'))) {newOrdersToBeDisplayed.push(val)}});
+      
+        ordersToBeDisplayed = structuredClone(newOrdersToBeDisplayed);
+      
+        setOrders(ordersToBeDisplayed);
+        };
+
   const handleDeleteClick = (id) => {
     setDeleteOrderId(id);
   };
