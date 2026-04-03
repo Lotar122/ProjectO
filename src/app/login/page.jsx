@@ -2,7 +2,7 @@
 
 import LoginRoute from "./loginClientWrapper";
 
-export default function Page() {
+export default async function Page() {
   return <LoginRoute />
 }
  
