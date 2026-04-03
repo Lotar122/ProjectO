@@ -42,7 +42,7 @@ const getFilteredOrders = (orders, searchValue, statusValue) => {
 const getDisplayDate = (order) =>
 	order.due_date?.slice(0, 10) || order.dueDate?.slice(0, 10) || "";
 
-const getOrderFiles = (order) => {
+const getOrderFiles = (order, fileNamesById) => {
 	if (Array.isArray(order.uploadedFiles) && order.uploadedFiles.length > 0) {
 		return order.uploadedFiles.map((file, index) => ({
 			id: file.id || `${order.order_id || order.patient}-${index}`,
@@ -58,7 +58,7 @@ const getOrderFiles = (order) => {
 
 	return order.files.map((fileId, index) => ({
 		id: String(fileId),
-		name: `Attachment ${index + 1}`,
+		name: fileNamesById[fileId] || `Attachment ${index + 1}`,
 		fileId,
 		isLocal: false,
 	}));
@@ -73,6 +73,7 @@ export default function Orders({ userName, userLastName }) {
 	const [hoveredOrder, setHoveredOrder] = useState(null);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
 	const [expandedOrderId, setExpandedOrderId] = useState(null);
+	const [fileNamesById, setFileNamesById] = useState({});
 	const orderFilterRef = useRef(null);
 	const orderSearchRef = useRef(null);
 
@@ -87,17 +88,6 @@ export default function Orders({ userName, userLastName }) {
 			withCredentials: true,
 		});
 		const nextOrders = [...response.data].reverse();
-
-		nextOrders.forEach((order, index) => {
-			order.files.forEach((val, index) => {
-				const response = axios.get(`/api/getFileName?file_id=${val}`,
-					{
-						withCredentials: true,
-					}
-				).then(() => {order.name = response.filename});
-			});
-		});
-
 		setAllOrders(nextOrders);
 		syncVisibleOrders(nextOrders);
 	}, [syncVisibleOrders]);
@@ -105,6 +95,61 @@ export default function Orders({ userName, userLastName }) {
 	useEffect(() => {
 		void refreshOrders();
 	}, [refreshOrders]);
+
+	useEffect(() => {
+		const missingFileIds = [
+			...new Set(
+				allOrders
+					.flatMap((order) => (Array.isArray(order.files) ? order.files : []))
+					.filter((fileId) => fileId && !fileNamesById[fileId]),
+			),
+		];
+
+		if (missingFileIds.length === 0) {
+			return;
+		}
+
+		let isMounted = true;
+
+		const loadFileNames = async () => {
+			try {
+				const responses = await Promise.all(
+					missingFileIds.map(async (fileId) => {
+						const response = await axios.get(
+							`/api/getFileName?file_id=${fileId}`,
+							{
+								withCredentials: true,
+							},
+						);
+
+						return [fileId, response.data.filename];
+					}),
+				);
+
+				if (!isMounted) {
+					return;
+				}
+
+				setFileNamesById((current) => {
+					const next = { ...current };
+
+					responses.forEach(([fileId, filename]) => {
+						next[fileId] = filename || current[fileId] || "Attachment";
+					});
+
+					return next;
+				});
+			} catch (err) {
+				console.error("Failed to load file names:", err);
+			}
+		};
+
+		void loadFileNames();
+
+		return () => {
+			isMounted = false;
+		};
+	}, [allOrders, fileNamesById]);
 
 	const handleLogout = async () => {
 		try {
@@ -426,7 +471,7 @@ export default function Orders({ userName, userLastName }) {
 
 						<div className="grid gap-6">
 							{orders.map((order) => {
-								const orderFiles = getOrderFiles(order);
+								const orderFiles = getOrderFiles(order, fileNamesById);
 								const isExpanded = expandedOrderId === order.order_id;
 
 								return (
