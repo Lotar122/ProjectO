@@ -1,6 +1,8 @@
 "use server";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { createBucket } from "@/app/server-functions/MinIO/createBucket";
+import { getUserAuthSession } from "@/app/server-functions/MinIO/getS3Client";
 import { cookies } from "next/headers";
 import postgres from "postgres";
 import { v7 as uuid7 } from "uuid";
@@ -10,8 +12,16 @@ export async function POST(req) {
   const DB = postgres(process.env.DB_URL, { prepare: true });
 
   try {
-    const body = await req.json();
-    const { patient, details, status, progress, issueDate, dueDate } = body;
+    const formData = await req.formData();
+
+    const patient = formData.get("patient");
+    const details = formData.get("details");
+    const status = formData.get("status");
+    const dueDate = formData.get("dueDate");
+    const issueDate = formData.get("issueDate");
+    const progress = formData.get("progress");
+
+    const files = formData.getAll("files");
 
     // Get user session
     const cookieHeader = await cookies();
@@ -33,14 +43,66 @@ export async function POST(req) {
 
     console.log(orderID, userID, patient, details, status, progress, issue_date, due_date);
 
+    // const fileBuffers = await Promise.all(
+    //   files.map(async (file) => Buffer.from(await file.arrayBuffer()))
+    // );
+
+    const s3 = await createS3Client();
+
+    await createBucket(s3, "projecto");
+
+    let fileKeys = [];
+
+    files.forEach(async file => {
+      fileKeys.push(uuid7());
+      await s3.send(new PutObjectCommand({
+        Bucket: "projecto",
+        Key: fileKeys[fileKeys.length - 1],
+        Body: file.stream(),
+        Metadata: {
+          "original-name": file.name
+        }
+      }));
+    });
+
     // Insert into DB safely
     await DB`
       INSERT INTO orders (
-        order_id, user_id, patient, details, status, progress, issue_date, due_date
+        order_id, user_id, patient, details, status, progress, issue_date, due_date, files
       ) VALUES (
-        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}
+        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${(() => {
+          let res = "[";
+
+          for(const fileKey in fileKeys)
+          {
+            res += `'${fileKey}',`;
+          }
+
+          res += "]"
+
+          return res;
+        })()}
       )
     `;
+
+    console.log(`
+      INSERT INTO orders (
+        order_id, user_id, patient, details, status, progress, issue_date, due_date, files
+      ) VALUES (
+        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${(() => {
+          let res = "[";
+
+          for(const fileKey in fileKeys)
+          {
+            res += `'${fileKey}',`;
+          }
+
+          res += "]"
+
+          return res;
+        })()}
+      )
+    `);
 
     return new Response(
       JSON.stringify({ success: true, orderID, body }),

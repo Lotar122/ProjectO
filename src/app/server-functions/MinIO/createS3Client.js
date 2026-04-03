@@ -8,8 +8,8 @@ export async function getS3Client()
         region: "us-east-1", // can be any value
         endpoint: "http://localhost:9000", // MinIO API
         credentials: {
-            accessKeyId: "minioadmin",
-            secretAccessKey: "minioadmin",
+            accessKeyId: process.env.MINIO_ROOT,
+            secretAccessKey: process.env.MINIO_PASSWORD,
         },
         forcePathStyle: true, // required for MinIO
     });
