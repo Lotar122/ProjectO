@@ -13,6 +13,7 @@ export default function Orders({ userName, userLastName })
     const [currentPage, setCurrentPage] = useState('orders');
     const [orders, setOrders] = useState(ordersToBeDisplayed);
     const [newOrder, setNewOrder] = useState({ patient: '', details: '', dueDate: new Date() });
+    const [files, setFiles] = useState([]);
     const orderFilterRef = useRef(null);
     const orderSearchRef = useRef(null);
 
@@ -62,6 +63,7 @@ export default function Orders({ userName, userLastName })
 
       const handleCreateOrder = async (e) => {
         e.preventDefault();
+
         if (newOrder.patient && newOrder.details) {
           const order = {
             patient: newOrder.patient,
@@ -71,43 +73,48 @@ export default function Orders({ userName, userLastName })
             issueDate: new Date(),
             progress: 0
           };
+
           ordersArray.push(order);
 
-          const res = await axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
-          order.order_id = res.data.orderID;
+          try {
+            const formData = new FormData();
 
-          ordersToBeDisplayed = structuredClone(ordersArray);
-          setOrders(ordersToBeDisplayed);
-          setNewOrder({ patient: '', details: '', notes: '' });
-          setCurrentPage('orders');
-        }
-        };
-      
-        const searchOrdersByString = (str) => {
-        if(str.trim() === "")
-        {
+            // 🔹 append order fields
+            formData.append("patient", order.patient);
+            formData.append("details", order.details);
+            formData.append("status", order.status);
+            formData.append("dueDate", order.dueDate);
+            formData.append("issueDate", order.issueDate.toISOString());
+            formData.append("progress", order.progress);
+
+            // 🔹 append files
+            files.forEach(file => {
+              formData.append("files", file);
+            });
+
+            const res = await axios.post("/api/postOrder", formData, {
+              withCredentials: true,
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            });
+
+            order.order_id = res.data.orderID;
+
             ordersToBeDisplayed = structuredClone(ordersArray);
             setOrders(ordersToBeDisplayed);
-            return;
+
+            // reset form
+            setNewOrder({ patient: '', details: '', notes: '' });
+            setFiles([]);
+
+            setCurrentPage('orders');
+
+          } catch (err) {
+            console.error("Order creation failed:", err);
+          }
         }
-        ordersToBeDisplayed = [];
-        ordersArray.forEach((val) => {if(val.patient.toLowerCase().includes(str.toLowerCase())) {ordersToBeDisplayed.push(val)}});
-      
-        setOrders(ordersToBeDisplayed);
-        };
-      
-        const searchOrdersByStatus = (status) => {
-        if(status === "All Status")
-        {
-            return;
-        }
-        let newOrdersToBeDisplayed = [];
-        ordersToBeDisplayed.forEach((val) => {if(val.status.toLowerCase().includes(status.toLowerCase().replace(' ', '-'))) {newOrdersToBeDisplayed.push(val)}});
-      
-        ordersToBeDisplayed = structuredClone(newOrdersToBeDisplayed);
-      
-        setOrders(ordersToBeDisplayed);
-        };
+      };
 
   const handleDeleteClick = (id) => {
     setDeleteOrderId(id);
