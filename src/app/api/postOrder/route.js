@@ -64,7 +64,7 @@ export async function POST(req) {
 						Key: fileKey,
 						Body: file,
 						Metadata: {
-							"original-name": files[index].name,
+							"original_name": files[index].name,
 						},
 					}),
 				);

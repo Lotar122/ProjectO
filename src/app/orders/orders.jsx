@@ -87,6 +87,20 @@ export default function Orders({ userName, userLastName }) {
 			withCredentials: true,
 		});
 		const nextOrders = [...response.data].reverse();
+
+		nextOrders.forEach((val, index) => {
+			val.files.forEach((val, index) => {
+				const response = axios.get("/api/getFileName",
+					{
+						file_id: val.id
+					},
+					{
+						withCredentials: true,
+					}
+				).then(() => {val.name = response.filename});
+			});
+		});
+
 		setAllOrders(nextOrders);
 		syncVisibleOrders(nextOrders);
 	}, [syncVisibleOrders]);
