@@ -490,12 +490,12 @@ export default function Orders({ userName, userLastName }) {
 										ref={orderFilterRef}
 										defaultValue="All Status"
 										onChange={(e) => handleStatusChange(e.target.value)}
-										className="rounded-lg border border-slate-700 bg-black px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none">
-										<option className="bg-black">All Status</option>
-										<option className="bg-black">Pending</option>
-										<option className="bg-black">In Progress</option>
-										<option className="bg-black">Shipped</option>
-										<option className="bg-black">Completed</option>
+										className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none">
+										<option className="bg-slate-950 text-slate-100">All Status</option>
+										<option className="bg-slate-950 text-slate-100">Pending</option>
+										<option className="bg-slate-950 text-slate-100">In Progress</option>
+										<option className="bg-slate-950 text-slate-100">Shipped</option>
+										<option className="bg-slate-950 text-slate-100">Completed</option>
 									</select>
 								</div>
 							</div>
