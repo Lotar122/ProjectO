@@ -8,7 +8,8 @@ export default function LoginRoute() {
 
   function routerRedirect(page)
   {
-    router.push(`/${page}`);
+    if(page == 'landing') router.push(`/`);
+    else router.push(`/${page}`);
   }
 
   return <KratosLogin setCurrentPage={routerRedirect} />
