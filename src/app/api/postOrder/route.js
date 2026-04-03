@@ -71,18 +71,7 @@ export async function POST(req) {
       INSERT INTO orders (
         order_id, user_id, patient, details, status, progress, issue_date, due_date, files
       ) VALUES (
-        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${(() => {
-          let res = "[";
-
-          for(const fileKey in fileKeys)
-          {
-            res += `'${fileKey}',`;
-          }
-
-          res += "]"
-
-          return res;
-        })()}
+        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${fileKeys}
       )
     `;
 
