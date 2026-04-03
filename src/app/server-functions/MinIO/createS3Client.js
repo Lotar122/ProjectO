@@ -2,7 +2,7 @@
 
 import { S3Client, HeadBucketCommand } from "@aws-sdk/client-s3";
 
-export async function getS3Client()
+export async function createS3Client()
 {
     const s3 = new S3Client({
         region: "us-east-1", // can be any value
