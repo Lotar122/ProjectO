@@ -65,10 +65,10 @@ export default function Orders({ userName, userLastName })
 
       const handleCreateOrder = async (e) => {
         e.preventDefault();
-        if (newOrder.patient && newOrder.type) {
+        if (newOrder.patient && newOrder.details) {
           const order = {
             patient: newOrder.patient,
-            type: newOrder.type,
+            details: newOrder.details,
             status: 'pending',
             dueDate: newOrder.dueDate,
             issueDate: new Date(),
@@ -368,12 +368,12 @@ export default function Orders({ userName, userLastName })
  
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Type of service
+                    Details
                   </label>
                   <input
                     type="text"
-                    value={newOrder.type}
-                    onChange={(e) => setNewOrder({...newOrder, type: e.target.value})}
+                    value={newOrder.details}
+                    onChange={(e) => setNewOrder({...newOrder, details: e.target.value})}
                     className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
                     placeholder="Enter type"
                     required
@@ -389,7 +389,7 @@ export default function Orders({ userName, userLastName })
                     value={newOrder.dueDate}
                     onChange={(e) => setNewOrder({...newOrder, dueDate: e.target.value})}
                     className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter type"
+                    placeholder="Enter due date"
                     required
                   />
                 </div>

@@ -12,7 +12,7 @@ import {v7 as uuid7 } from "uuid"
 export async function POST(req) {
   try {
     const body = await req.json();     // read JSON request body
-    const { patient, type, status, progress, issueDate, dueDate } = body;
+    const { patient, details, status, progress, issueDate, dueDate } = body;
 
     const cookieHeader = await cookies();
     const userAuthSession = await getUserAuthSession(cookieHeader);
@@ -31,8 +31,8 @@ export async function POST(req) {
     const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
     await DB`
-        INSERT INTO orders (id, "user", patient, type, status, progress, issue_date, due_date)
-		VALUES (${orderID}, ${userID}, ${patient}, ${type}, ${status}, ${progress}, ${issueDate}, ${dueDate})
+        INSERT INTO orders (order_id, user_id, patient, details, status, progress, issue_date, due_date)
+		VALUES (${orderID}, ${userID}, ${patient}, ${details}, ${status}, ${progress}, ${issueDate}, ${dueDate})
     `;
 
     DB.end();
