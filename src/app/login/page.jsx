@@ -2,7 +2,8 @@
 
 import KratosLogin from "./login";
 
-const Page = () => {
+export default async function Page()
+{
   return <KratosLogin/>;
 };
  
@@ -11,5 +12,3 @@ export const metadata = {
   description:
     'A website for managing orders in orthodontics.',
 };
-
-export default Page;
