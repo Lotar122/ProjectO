@@ -122,25 +122,16 @@ const KratosLogin = ({ setCurrentPage }) => {
 	return (
 		<div className="relative flex min-h-screen items-center justify-center p-4">
 			<motion.div
-				initial={{ opacity: 0, scale: 0.92 }}
-				animate={{ opacity: 1, scale: 1 }}
-				transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
-				className="absolute inset-0 overflow-hidden">
-				<div className="absolute left-[8%] top-[14%] h-48 w-48 rounded-full bg-white/8 blur-3xl" />
-				<div className="absolute bottom-[12%] right-[10%] h-64 w-64 rounded-full bg-sky-400/10 blur-3xl" />
-			</motion.div>
-
-			<motion.div
 				variants={container}
 				initial="hidden"
 				animate="show"
-				className="relative z-10 w-full max-w-md rounded-[28px] border border-white/10 bg-white/6 p-8 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/80 p-8 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl">
 				<motion.div variants={item} className="mb-8 text-center">
-					<div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.24em] text-gray-400">
+					<div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/70 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-400">
 						Secure Access
 					</div>
 					<h2 className="mb-2 text-3xl font-bold text-white">Welcome Back</h2>
-					<p className="text-gray-400">
+					<p className="text-slate-400">
 						Sign in to your orthodontic dashboard
 					</p>
 				</motion.div>
@@ -156,14 +147,14 @@ const KratosLogin = ({ setCurrentPage }) => {
 
 				<motion.form variants={item} onSubmit={handleLogin} className="space-y-6">
 					<div>
-						<label className="mb-2 block text-sm font-medium text-gray-300">
+						<label className="mb-2 block text-sm font-medium text-slate-300">
 							Email Address
 						</label>
 						<input
 							type="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
-							className="w-full rounded-xl border border-gray-700 bg-black/70 px-4 py-3 text-white transition-all duration-300 focus:border-white/60 focus:ring-2 focus:ring-white/20 focus:outline-none"
+							className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
 							placeholder="Enter your email"
 							required
 						/>
@@ -175,7 +166,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 						type="submit"
 						whileHover={{ scale: 1.02, y: -1 }}
 						whileTap={{ scale: 0.985 }}
-						className="w-full rounded-xl bg-white py-3 font-semibold text-black shadow-[0_14px_40px_rgba(255,255,255,0.14)] transition-colors duration-200 hover:bg-gray-200">
+						className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 shadow-[0_14px_40px_rgba(125,211,252,0.14)] transition-colors duration-200 hover:bg-sky-200">
 						Sign In
 					</motion.button>
 				</motion.form>
@@ -183,7 +174,7 @@ const KratosLogin = ({ setCurrentPage }) => {
 				<motion.div variants={item} className="mt-6 text-center">
 					<button
 						onClick={() => setCurrentPage("landing")}
-						className="font-medium text-white transition-colors hover:text-gray-300">
+						className="font-medium text-slate-200 transition-colors hover:text-white">
 						{"<-"} Back to Home
 					</button>
 				</motion.div>
