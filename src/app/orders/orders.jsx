@@ -8,7 +8,7 @@ import axios from "axios";
 let ordersArray = [];
 let ordersToBeDisplayed = structuredClone(ordersArray);
 
-export default function Orders()
+export default function Orders({ userName, userLastName })
 {
     const [currentPage, setCurrentPage] = useState('orders');
     const [orders, setOrders] = useState(ordersToBeDisplayed);
@@ -193,7 +193,7 @@ export default function Orders()
             <div className="flex items-center gap-4">
               <div className="hidden md:flex items-center gap-2 text-sm text-gray-300">
                 <UserCircle className="w-5 h-5" />
-                Dr. Smith
+                Dr. {userLastName}
               </div>
               <button
                 onClick={handleLogout}
