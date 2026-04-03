@@ -1,6 +1,8 @@
 "use server";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
+import { deleteFileFromMinio } from "@/app/server-functions/MinIO/deleteFile";
 
 import { cookies } from "next/headers";
 
@@ -29,9 +31,13 @@ export async function DELETE(req) {
 
     const [order] = await DB`SELECT * FROM orders WHERE order_id = ${orderID};`;
 
-    if(order.user_id == userAuthSession.data.identity.id)
+    if(order.user_id === userAuthSession.data.identity.id)
     {
-        await DB`DELETE FROM orders WHERE order_id = ${orderID};`;
+      const s3 = await createS3Client();
+      await Promise.all(
+        order.files.map(file => deleteFileFromMinio(s3, "projecto", file))
+      );
+      await DB`DELETE FROM orders WHERE order_id = ${orderID};`;
     }
 
     DB.end();
