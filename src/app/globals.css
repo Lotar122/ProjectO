@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-	--background: #ffffff;
-	--foreground: #171717;
+	--background: #050505;
+	--foreground: #f5f5f5;
 	--sb-width: 10px;
 	--sb-thumb: rgba(255, 255, 255, 0.95);
 	--sb-track: transparent;
@@ -15,23 +15,42 @@
 	--font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--background: #0a0a0a;
-		--foreground: #ededed;
-	}
+html {
+	scroll-behavior: smooth;
 }
 
 body {
-	background: var(--background);
+	min-height: 100vh;
+	background:
+		radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 28%),
+		radial-gradient(circle at 80% 20%, rgba(120, 119, 198, 0.12), transparent 24%),
+		radial-gradient(circle at 20% 80%, rgba(14, 165, 233, 0.08), transparent 24%),
+		linear-gradient(180deg, #060606 0%, #0f0f10 100%);
 	color: var(--foreground);
-	font-family: Arial, Helvetica, sans-serif;
+	font-family: var(--font-geist-sans), sans-serif;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
-/* -------------------------------
-   Chrome / Edge / Safari (Blink/WebKit)
-   full control via ::-webkit-scrollbar
-   ------------------------------- */
+body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	background-image:
+		linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+	background-size: 72px 72px;
+	mask-image: radial-gradient(circle at center, black, transparent 82%);
+	opacity: 0.45;
+}
+
+::selection {
+	background: rgba(255, 255, 255, 0.9);
+	color: #050505;
+}
+
 *::-webkit-scrollbar {
 	width: var(--sb-width);
 	height: var(--sb-width);
@@ -39,28 +58,38 @@ body {
 
 *::-webkit-scrollbar-track {
 	background: var(--sb-track);
-	margin: 6px; /* optional: gives the thumb some breathing room */
+	margin: 6px;
 	border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb {
 	background: var(--sb-thumb);
 	border-radius: 999px;
-	min-height: 28px; /* keeps the thumb usable */
-	box-shadow: 0 0 0 3px transparent; /* keeps layout stable if you add borders */
+	min-height: 28px;
+	box-shadow: 0 0 0 3px transparent;
 	background-clip: padding-box;
 }
 
-/* corner (for two-axis scrolling) */
 *::-webkit-scrollbar-corner {
 	background: transparent;
 }
 
-/* -------------------------------
-   Firefox: limited control — use thin + color
-   (cannot set border-radius on the thumb directly)
-   ------------------------------- */
 * {
-	scrollbar-width: thin; /* auto / thin / none */
+	scrollbar-width: thin;
 	scrollbar-color: var(--sb-thumb) var(--sb-track);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
 }
