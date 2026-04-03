@@ -31,6 +31,8 @@ export async function POST(req) {
     const issue_date = issueDate ? new Date(issueDate).toISOString().split("T")[0] : null;
     const due_date = dueDate ? new Date(dueDate).toISOString().split("T")[0] : null;
 
+    console.log(orderID, userID, patient, details, status, progress, issue_date, due_date);
+
     // Insert into DB safely
     await DB`
       INSERT INTO orders (
