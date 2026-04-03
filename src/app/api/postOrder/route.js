@@ -1,52 +1,58 @@
 "use server";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
-
 import { cookies } from "next/headers";
-
 import postgres from "postgres";
+import { v7 as uuid7 } from "uuid";
 
-import {v7 as uuid7 } from "uuid"
-
-//Has to be used with credentials
+// Server POST function for inserting orders
 export async function POST(req) {
+  const DB = postgres(process.env.DB_URL, { prepare: true });
+
   try {
-    const body = await req.json();     // read JSON request body
+    const body = await req.json();
     const { patient, details, status, progress, issueDate, dueDate } = body;
 
-    const cookieHeader = await cookies();
+    // Get user session
+    const cookieHeader = cookies();
     const userAuthSession = await getUserAuthSession(cookieHeader);
 
-    if(!userAuthSession.loggedIn)
-    {
-        return new Response(
-            JSON.stringify({ error: "Forbidden" }),
-            { status: 403, headers: { "Content-Type": "application/json" } }
-        );
+    if (!userAuthSession.loggedIn) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
     }
 
     const orderID = uuid7();
     const userID = userAuthSession.data.identity.id;
 
-    const DB = postgres(process.env.DB_URL, {prepare: true});
+    // Convert dates to ISO strings (YYYY-MM-DD) or null
+    const issue_date = issueDate ? new Date(issueDate).toISOString().split("T")[0] : null;
+    const due_date = dueDate ? new Date(dueDate).toISOString().split("T")[0] : null;
 
+    // Insert into DB safely
     await DB`
-        INSERT INTO orders (order_id, user_id, patient, details, status, progress, issue_date, due_date)
-		VALUES (${orderID}, ${userID}, ${patient}, ${details}, ${status}, ${progress}, ${issueDate}, ${dueDate});
+      INSERT INTO orders (
+        order_id, user_id, patient, details, status, progress, issue_date, due_date
+      ) VALUES (
+        ${orderID}, ${userID}, ${patient}, ${details}, ${status}, ${progress}, ${issue_date}, ${due_date}
+      )
     `;
 
-    DB.end();
-
-    console.log(process.env.DB_URL);
-
-    return Response.json(
-      { success: true, orderID: orderID, body },
-      { status: 200 }
+    return new Response(
+      JSON.stringify({ success: true, orderID, body }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
     );
+
   } catch (err) {
-    return Response.json(
-      { success: false, error: err.message },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, error: err.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
+
+  } finally {
+    // Always close DB connection
+    DB.end();
   }
 }
