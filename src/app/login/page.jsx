@@ -1,17 +1,9 @@
-"use client";
+"use server";
 
-import KratosLogin from "./login";
-import { useRouter } from "next/navigation";
+import LoginRoute from "./loginClientWrapper";
 
 export default function Page() {
-  const router = useRouter();
-
-  // This is a plain function, no React state
-  function setCurrentPage(page) {
-    router.push(`/${page}`); // client-side navigation
-  }
-
-  return <KratosLogin setCurrentPage={setCurrentPage} />;
+  return <LoginRoute />
 }
  
 export const metadata = {
