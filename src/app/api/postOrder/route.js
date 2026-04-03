@@ -32,7 +32,7 @@ export async function POST(req) {
 
     await DB`
         INSERT INTO orders (order_id, user_id, patient, details, status, progress, issue_date, due_date)
-		VALUES (${orderID}, ${userID}, ${patient}, ${details}, ${status}, ${progress}, ${issueDate}, ${dueDate})
+		VALUES (${orderID}, ${userID}, ${patient}, ${details}, ${status}, ${progress}, ${issueDate}, ${dueDate});
     `;
 
     DB.end();

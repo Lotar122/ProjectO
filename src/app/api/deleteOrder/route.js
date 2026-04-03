@@ -27,11 +27,11 @@ export async function DELETE(req) {
 
     const DB = postgres(Bun.env.DB_URL, {prepare: true});
 
-    const [order] = await DB`SELECT * FROM orders WHERE order_id = ${orderID}`;
+    const [order] = await DB`SELECT * FROM orders WHERE order_id = ${orderID};`;
 
     if(order.user == userAuthSession.data.identity.id)
     {
-        await DB`DELETE FROM orders WHERE order_id = ${orderID}`;
+        await DB`DELETE FROM orders WHERE order_id = ${orderID};`;
     }
 
     DB.end();
