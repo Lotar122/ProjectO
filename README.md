@@ -9,18 +9,21 @@ zainstaluj [bun](https://bun.sh/)
 zainstaluj rozszerzenie prettier do vs code
 
 Sklonuj repo:
+
 ```
 git clone https://github.com/Lotar122/ProjectO.git
 ```
 
 Zainstaluj potrzebne pakiety:
+
 ```
 bun install
 ```
 
 Zacznij serwer deweloperski:
+
 ```
-bun run dev 
+bun run dev
 ```
 
 # Technologie użyte

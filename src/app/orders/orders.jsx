@@ -1,509 +1,607 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { User, Package, Calendar, Trash2, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
-
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	CheckCircle,
+	Clock,
+	LogOut,
+	Package,
+	Plus,
+	Search,
+	Trash2,
+	UserCircle,
+	XCircle,
+} from "lucide-react";
 import axios from "axios";
 
-let ordersArray = [];
-let ordersToBeDisplayed = structuredClone(ordersArray);
+const INITIAL_ORDER = {
+	patient: "",
+	details: "",
+	dueDate: new Date().toISOString().split("T")[0],
+};
 
-export default function Orders({ userName, userLastName })
-{
-    const [currentPage, setCurrentPage] = useState('orders');
-    const [orders, setOrders] = useState(ordersToBeDisplayed);
-    const [newOrder, setNewOrder] = useState({ patient: '', details: '', dueDate: new Date() });
-    const [files, setFiles] = useState([]);
-    const orderFilterRef = useRef(null);
-    const orderSearchRef = useRef(null);
+const getFilteredOrders = (orders, searchValue, statusValue) => {
+	const normalizedSearch = searchValue.trim().toLowerCase();
+	const normalizedStatus = statusValue.toLowerCase().replace(" ", "-");
 
-    const [hoveredOrder, setHoveredOrder] = useState(null);
-    const [deleteOrderId, setDeleteOrderId] = useState(null);
+	return orders.filter((order) => {
+		const matchesSearch =
+			normalizedSearch === "" ||
+			order.patient.toLowerCase().includes(normalizedSearch);
+		const matchesStatus =
+			statusValue === "All Status" ||
+			order.status.toLowerCase() === normalizedStatus;
 
-    useEffect(() => {
-      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data;  ordersArray.reverse(); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
-    }, []);
- 
-  const handleLogout = async () => {
-    try {
-      const KRATOS_PUBLIC = "https://orto.lotar122.dev/kratos"; 
+		return matchesSearch && matchesStatus;
+	});
+};
 
-      const res = await axios.get(
-        `${KRATOS_PUBLIC}/self-service/logout/browser`,
-        {
-          withCredentials: true, // important so session cookies are included
-        }
-      );
+const getDisplayDate = (order) =>
+	order.due_date?.slice(0, 10) || order.dueDate?.slice(0, 10) || "";
 
-      window.location.href = res.data.logout_url;
-    } catch (err) {
-      console.error("Logout error:", err);
-    }
-  };
+export default function Orders({ userName, userLastName }) {
+	const [currentPage, setCurrentPage] = useState("orders");
+	const [allOrders, setAllOrders] = useState([]);
+	const [orders, setOrders] = useState([]);
+	const [newOrder, setNewOrder] = useState(INITIAL_ORDER);
+	const [files, setFiles] = useState([]);
+	const [hoveredOrder, setHoveredOrder] = useState(null);
+	const [deleteOrderId, setDeleteOrderId] = useState(null);
+	const orderFilterRef = useRef(null);
+	const orderSearchRef = useRef(null);
 
-    const getStatusColor = (status) => {
-        switch (status) {
-          case 'completed': return 'bg-green-100 text-green-800';
-          case 'in-progress': return 'bg-blue-100 text-blue-800';
-          case 'pending': return 'bg-yellow-100 text-yellow-800';
-          case 'shipped': return 'bg-purple-100 text-purple-800';
-          default: return 'bg-gray-100 text-gray-800';
-        }
-      };
-     
-      const getStatusIcon = (status) => {
-        switch (status) {
-          case 'completed': return <CheckCircle className="w-4 h-4" />;
-          case 'in-progress': return <Clock className="w-4 h-4" />;
-          case 'pending': return <Clock className="w-4 h-4" />;
-          case 'shipped': return <Package className="w-4 h-4" />;
-          default: return <XCircle className="w-4 h-4" />;
-        }
-      };
+	const syncVisibleOrders = useCallback((sourceOrders) => {
+		const searchValue = orderSearchRef.current?.value || "";
+		const statusValue = orderFilterRef.current?.value || "All Status";
+		setOrders(getFilteredOrders(sourceOrders, searchValue, statusValue));
+	}, []);
 
-      const handleCreateOrder = async (e) => {
-        e.preventDefault();
+	const refreshOrders = useCallback(async () => {
+		const response = await axios.get("/api/getOrders", {
+			withCredentials: true,
+		});
+		const nextOrders = [...response.data].reverse();
+		setAllOrders(nextOrders);
+		syncVisibleOrders(nextOrders);
+	}, [syncVisibleOrders]);
 
-        if (newOrder.patient && newOrder.details) {
-          const order = {
-            patient: newOrder.patient,
-            details: newOrder.details,
-            status: 'pending',
-            dueDate: newOrder.dueDate,
-            issueDate: new Date(),
-            progress: 0
-          };
+	useEffect(() => {
+		void refreshOrders();
+	}, [refreshOrders]);
 
-          ordersArray.push(order);
+	const handleLogout = async () => {
+		try {
+			const response = await axios.get(
+				"https://orto.lotar122.dev/kratos/self-service/logout/browser",
+				{
+					withCredentials: true,
+				},
+			);
 
-          try {
-            const formData = new FormData();
+			window.location.href = response.data.logout_url;
+		} catch (err) {
+			console.error("Logout error:", err);
+		}
+	};
 
-            // 🔹 append order fields
-            formData.append("patient", order.patient);
-            formData.append("details", order.details);
-            formData.append("status", order.status);
-            formData.append("dueDate", order.dueDate);
-            formData.append("issueDate", order.issueDate.toISOString());
-            formData.append("progress", order.progress);
+	const getStatusColor = (status) => {
+		switch (status) {
+			case "completed":
+				return "bg-green-100 text-green-800";
+			case "in-progress":
+				return "bg-blue-100 text-blue-800";
+			case "pending":
+				return "bg-yellow-100 text-yellow-800";
+			case "shipped":
+				return "bg-purple-100 text-purple-800";
+			default:
+				return "bg-gray-100 text-gray-800";
+		}
+	};
 
-            // 🔹 append files
-            files.forEach(file => {
-              formData.append("files", file);
-            });
+	const getStatusIcon = (status) => {
+		switch (status) {
+			case "completed":
+				return <CheckCircle className="w-4 h-4" />;
+			case "in-progress":
+			case "pending":
+				return <Clock className="w-4 h-4" />;
+			case "shipped":
+				return <Package className="w-4 h-4" />;
+			default:
+				return <XCircle className="w-4 h-4" />;
+		}
+	};
 
-            const res = await axios.post("/api/postOrder", formData, {
-              withCredentials: true,
-              headers: {
-                "Content-Type": "multipart/form-data",
-              },
-            });
+	const handleCreateOrder = async (e) => {
+		e.preventDefault();
 
-            order.order_id = res.data.orderID;
+		if (!newOrder.patient || !newOrder.details) {
+			return;
+		}
 
-            ordersToBeDisplayed = structuredClone(ordersArray);
-            setOrders(ordersToBeDisplayed);
+		const order = {
+			patient: newOrder.patient,
+			details: newOrder.details,
+			status: "pending",
+			dueDate: newOrder.dueDate,
+			issueDate: new Date().toISOString(),
+			progress: 0,
+		};
 
-            // reset form
-            setNewOrder({ patient: '', details: '', notes: '' });
-            setFiles([]);
+		try {
+			const formData = new FormData();
 
-            setCurrentPage('orders');
+			formData.append("patient", order.patient);
+			formData.append("details", order.details);
+			formData.append("status", order.status);
+			formData.append("dueDate", order.dueDate);
+			formData.append("issueDate", order.issueDate);
+			formData.append("progress", String(order.progress));
 
-          } catch (err) {
-            console.error("Order creation failed:", err);
-          }
-        }
-      };
+			files.forEach((file) => {
+				formData.append("files", file);
+			});
 
-      const searchOrdersByString = (str) => {
-        if(str.trim() === "")
-        {
-            ordersToBeDisplayed = structuredClone(ordersArray);
-            setOrders(ordersToBeDisplayed);
-            return;
-        }
-        ordersToBeDisplayed = [];
-        ordersArray.forEach((val) => {if(val.patient.toLowerCase().includes(str.toLowerCase())) {ordersToBeDisplayed.push(val)}});
-      
-        setOrders(ordersToBeDisplayed);
-        };
-      
-        const searchOrdersByStatus = (status) => {
-        if(status === "All Status")
-        {
-            return;
-        }
-        let newOrdersToBeDisplayed = [];
-        ordersToBeDisplayed.forEach((val) => {if(val.status.toLowerCase().includes(status.toLowerCase().replace(' ', '-'))) {newOrdersToBeDisplayed.push(val)}});
-      
-        ordersToBeDisplayed = structuredClone(newOrdersToBeDisplayed);
-      
-        setOrders(ordersToBeDisplayed);
-        };
+			const response = await axios.post("/api/postOrder", formData, {
+				withCredentials: true,
+				headers: {
+					"Content-Type": "multipart/form-data",
+				},
+			});
 
-  const handleDeleteClick = (id) => {
-    setDeleteOrderId(id);
-  };
+			const nextOrders = [
+				{
+					...order,
+					order_id: response.data.orderID,
+				},
+				...allOrders,
+			];
 
-  const confirmDelete = async () => {
-    if (!deleteOrderId) return;
+			setAllOrders(nextOrders);
+			syncVisibleOrders(nextOrders);
+			setNewOrder(INITIAL_ORDER);
+			setFiles([]);
+			setCurrentPage("orders");
+		} catch (err) {
+			console.error("Order creation failed:", err);
+		}
+	};
 
-    try {
-      await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {withCredentials: true});
+	const handleSearchChange = (searchValue) => {
+		const statusValue = orderFilterRef.current?.value || "All Status";
+		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
+	};
 
-      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setDeleteOrderId(null);
-    }
-  };
+	const handleStatusChange = (statusValue) => {
+		const searchValue = orderSearchRef.current?.value || "";
+		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
+	};
 
-  const cancelDelete = () => setDeleteOrderId(null);
+	const showOrdersPage = () => {
+		setCurrentPage("orders");
+		syncVisibleOrders(allOrders);
+	};
 
-    return (
-    <div className="min-h-screen bg-black text-white">
-      {deleteOrderId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-900 p-6 rounded-xl w-80">
-            <h2 className="text-lg font-semibold text-white mb-4">Delete Order?</h2>
-            <p className="text-gray-400 mb-6">Are you sure you want to delete this order? This action cannot be undone.</p>
-            <div className="flex justify-end gap-4">
-              <button
-                onClick={cancelDelete}
-                className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 rounded hover:bg-red-500 text-white transition-colors"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                <Package className="w-6 h-6 text-black" />
-              </div>
-              <h1 className="text-2xl font-bold text-white">ProjectO</h1>
-            </div>
- 
-            <nav className="hidden md:flex items-center gap-6">
-              <button
-                onClick={() => {setCurrentPage('orders'); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersToBeDisplayed);}}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                  currentPage === 'orders' ? 'bg-white text-black' : 'text-gray-300 hover:text-white'
-                }`}
-              >
-                <Package className="w-4 h-4" />
-                Orders
-              </button>
-              <button
-                onClick={() => setCurrentPage('create-order')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                  currentPage === 'create-order' ? 'bg-white text-black' : 'text-gray-300 hover:text-white'
-                }`}
-              >
-                <Plus className="w-4 h-4" />
-                New Order
-              </button>
-            </nav>
- 
-            <div className="flex items-center gap-4">
-              <div className="hidden md:flex items-center gap-2 text-sm text-gray-300">
-                <UserCircle className="w-5 h-5" />
-                Dr. {userLastName}
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
- 
-      {/* Mobile Navigation */}
-      <div className="md:hidden bg-gray-900 border-b border-gray-800">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex gap-2">
-            <button
-              onClick={() => {setCurrentPage('orders'); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersToBeDisplayed);}}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                currentPage === 'orders' ? 'bg-white text-black' : 'text-gray-300'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              Orders
-            </button>
-            <button
-              onClick={() => setCurrentPage('create-order')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                currentPage === 'create-order' ? 'bg-white text-black' : 'text-gray-300'
-              }`}
-            >
-              <Plus className="w-4 h-4" />
-              New
-            </button>
-          </div>
-        </div>
-      </div>
- 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {currentPage === 'orders' && (
-          <div>
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-3xl font-bold text-white">Treatment Orders</h2>
-                <p className="text-gray-400">Manage and track all orthodontic appliance orders</p>
-              </div>
-              <button
-                onClick={() => setCurrentPage('create-order')}
-                className="bg-white text-black px-6 py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                New Order
-              </button>
-            </div>
- 
-            {/* Search and Filter */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-8">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <input
-                    ref={orderSearchRef}
-                    onChange={(e) => {searchOrdersByString(e.target.value); searchOrdersByStatus(orderFilterRef.current.value);}}
-                    type="text"
-                    placeholder="Search orders..."
-                    className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <select 
-                    onChange={(e) => {searchOrdersByString(orderSearchRef.current.value); searchOrdersByStatus(e.target.value);}} 
-                    ref={orderFilterRef} 
-                    className="px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white">
-                    <option className="bg-gray-900">All Status</option>
-                    <option className="bg-gray-900">Pending</option>
-                    <option className="bg-gray-900">In Progress</option>
-                    <option className="bg-gray-900">Shipped</option>
-                    <option className="bg-gray-900">Completed</option>
-                  </select>
-                </div>
-              </div>
-            </div>
- 
-            {/* Orders Grid */}
-            <div className="grid gap-6">
-        {orders.map((order) => (
-          <div
-            key={order.order_id}
-            className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
-            onMouseEnter={() => setHoveredOrder(order.order_id)}
-            onMouseLeave={() => setHoveredOrder(null)}
-          >
-            {/* Trash icon on hover */}
-            {hoveredOrder === order.order_id && (
-              <button
-                onClick={() => handleDeleteClick(order.order_id)}
-                className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors"
-              >
-                <Trash2 className="w-5 h-5 text-red-500" />
-              </button>
-            )}
+	const confirmDelete = async () => {
+		if (!deleteOrderId) {
+			return;
+		}
 
-            <div className="flex items-center justify-between ml-8">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-                  <Package className="w-6 h-6 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
-                  <p className="text-gray-400">{order.type}</p>
-                  <p className="text-sm text-gray-500">Order #{order.order_id} • {(() => {if(order.due_date) return order.due_date.slice(0, 10); else if(order.dueDate) return order.dueDate.slice(0, 10);})()}</p>
-                </div>
-              </div>
+		try {
+			await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
+				withCredentials: true,
+			});
+			await refreshOrders();
+		} catch (err) {
+			console.error(err);
+		} finally {
+			setDeleteOrderId(null);
+		}
+	};
 
-              <div className="flex items-center gap-6">
-                <div className="text-right">
-                  <span
-                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}
-                  >
-                    {getStatusIcon(order.status)}
-                    {order.status.replace("-", " ").toUpperCase()}
-                  </span>
-                  <div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all duration-300 ${
-                        order.status === "completed"
-                          ? "bg-green-500"
-                          : order.status === "in-progress"
-                          ? "bg-blue-500"
-                          : order.status === "shipped"
-                          ? "bg-purple-500"
-                          : "bg-yellow-500"
-                      }`}
-                      style={{ width: `${order.progress}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">{order.progress}% Complete</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-          </div>
-        )}
- 
-        {currentPage === 'create-order' && (
-          <div>
-            <div className="mb-8">
-              <h2 className="text-3xl font-bold text-white mb-2">Create New Order</h2>
-              <p className="text-gray-400">Enter patient details and appliance information</p>
-            </div>
- 
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-8 max-w-2xl mx-auto">
-              <form onSubmit={handleCreateOrder} className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Patient Name
-                  </label>
-                  <input
-                    type="text"
-                    value={newOrder.patient}
-                    onChange={(e) => setNewOrder({...newOrder, patient: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter patient full name"
-                    required
-                  />
-                </div>
- 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Details
-                  </label>
-                  <input
-                    type="text"
-                    value={newOrder.details}
-                    onChange={(e) => setNewOrder({...newOrder, details: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter type"
-                    required
-                  />
-                </div>
+	return (
+		<div className="min-h-screen bg-black text-white">
+			{deleteOrderId && (
+				<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+					<div className="bg-gray-900 p-6 rounded-xl w-80">
+						<h2 className="text-lg font-semibold text-white mb-4">
+							Delete Order?
+						</h2>
+						<p className="text-gray-400 mb-6">
+							Are you sure you want to delete this order? This
+							action cannot be undone.
+						</p>
+						<div className="flex justify-end gap-4">
+							<button
+								onClick={() => setDeleteOrderId(null)}
+								className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors">
+								Cancel
+							</button>
+							<button
+								onClick={confirmDelete}
+								className="px-4 py-2 bg-red-600 rounded hover:bg-red-500 text-white transition-colors">
+								Delete
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Due date
-                  </label>
-                  <input
-                    type="date"
-                    value={newOrder.dueDate}
-                    onChange={(e) => setNewOrder({...newOrder, dueDate: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter due date"
-                    required
-                  />
-                </div>
- 
-                {/* <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Additional Notes
-                  </label>
-                  <textarea
-                    value={newOrder.notes}
-                    onChange={(e) => setNewOrder({...newOrder, notes: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white h-32 resize-none"
-                    placeholder="Any special instructions or notes..."
-                  />
-                </div> */}
+			<header className="bg-gray-900 border-b border-gray-800">
+				<div className="container mx-auto px-4 py-4">
+					<div className="flex items-center justify-between">
+						<div className="flex items-center gap-3">
+							<div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+								<Package className="w-6 h-6 text-black" />
+							</div>
+							<h1 className="text-2xl font-bold text-white">
+								ProjectO
+							</h1>
+						</div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Attach Files
-                  </label>
+						<nav className="hidden md:flex items-center gap-6">
+							<button
+								onClick={showOrdersPage}
+								className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+									currentPage === "orders"
+										? "bg-white text-black"
+										: "text-gray-300 hover:text-white"
+								}`}>
+								<Package className="w-4 h-4" />
+								Orders
+							</button>
+							<button
+								onClick={() => setCurrentPage("create-order")}
+								className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+									currentPage === "create-order"
+										? "bg-white text-black"
+										: "text-gray-300 hover:text-white"
+								}`}>
+								<Plus className="w-4 h-4" />
+								New Order
+							</button>
+						</nav>
 
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer hover:border-white transition">
-                    <span className="text-gray-400 text-sm">Click or drag files</span>
-                    <input
-                      type="file"
-                      multiple
-                      onChange={(e) => {
-                        const selected = Array.from(e.target.files);
-                        setFiles(prev => [...prev, ...selected]);
-                      }}
-                      className="hidden"
-                    />
-                  </label>
+						<div className="flex items-center gap-4">
+							<div className="hidden md:flex items-center gap-2 text-sm text-gray-300">
+								<UserCircle className="w-5 h-5" />
+								Dr. {userLastName || userName}
+							</div>
+							<button
+								onClick={handleLogout}
+								className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:text-white transition-colors">
+								<LogOut className="w-4 h-4" />
+								Logout
+							</button>
+						</div>
+					</div>
+				</div>
+			</header>
 
-                  {/* File list */}
-                  <div className="mt-3 space-y-2">
-                    {files.map((file, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between bg-gray-900 px-3 py-2 rounded-lg"
-                      >
-                        <span className="text-sm text-white truncate">
-                          {file.name}
-                        </span>
+			<div className="md:hidden bg-gray-900 border-b border-gray-800">
+				<div className="container mx-auto px-4 py-3">
+					<div className="flex gap-2">
+						<button
+							onClick={showOrdersPage}
+							className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+								currentPage === "orders"
+									? "bg-white text-black"
+									: "text-gray-300"
+							}`}>
+							<Package className="w-4 h-4" />
+							Orders
+						</button>
+						<button
+							onClick={() => setCurrentPage("create-order")}
+							className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+								currentPage === "create-order"
+									? "bg-white text-black"
+									: "text-gray-300"
+							}`}>
+							<Plus className="w-4 h-4" />
+							New
+						</button>
+					</div>
+				</div>
+			</div>
 
-                        <button
-                          type="button"
-                          onClick={() => setFiles(prev => prev.filter((_, i) => i !== index))}
-                          className="text-gray-400 hover:text-red-500 text-sm"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
- 
-                <div className="flex gap-4">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-white text-black py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors duration-200"
-                  >
-                    Create Order
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setCurrentPage('orders'); 
-                      ordersToBeDisplayed = structuredClone(ordersArray); 
-                      setOrders(ordersToBeDisplayed);
-                    }}
-                    className="flex-1 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors duration-200"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
+			<main className="container mx-auto px-4 py-8">
+				{currentPage === "orders" && (
+					<div>
+						<div className="flex items-center justify-between mb-8">
+							<div>
+								<h2 className="text-3xl font-bold text-white">
+									Treatment Orders
+								</h2>
+								<p className="text-gray-400">
+									Manage and track all orthodontic appliance
+									orders
+								</p>
+							</div>
+							<button
+								onClick={() => setCurrentPage("create-order")}
+								className="bg-white text-black px-6 py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2">
+								<Plus className="w-5 h-5" />
+								New Order
+							</button>
+						</div>
+
+						<div className="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-8">
+							<div className="flex flex-col md:flex-row gap-4">
+								<div className="flex-1 relative">
+									<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+									<input
+										ref={orderSearchRef}
+										onChange={(e) =>
+											handleSearchChange(e.target.value)
+										}
+										type="text"
+										placeholder="Search orders..."
+										className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+									/>
+								</div>
+								<div className="flex gap-2">
+									<select
+										ref={orderFilterRef}
+										defaultValue="All Status"
+										onChange={(e) =>
+											handleStatusChange(e.target.value)
+										}
+										className="px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white">
+										<option className="bg-gray-900">
+											All Status
+										</option>
+										<option className="bg-gray-900">
+											Pending
+										</option>
+										<option className="bg-gray-900">
+											In Progress
+										</option>
+										<option className="bg-gray-900">
+											Shipped
+										</option>
+										<option className="bg-gray-900">
+											Completed
+										</option>
+									</select>
+								</div>
+							</div>
+						</div>
+
+						<div className="grid gap-6">
+							{orders.map((order) => (
+								<div
+									key={order.order_id}
+									className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
+									onMouseEnter={() =>
+										setHoveredOrder(order.order_id)
+									}
+									onMouseLeave={() => setHoveredOrder(null)}>
+									{hoveredOrder === order.order_id && (
+										<button
+											onClick={() =>
+												setDeleteOrderId(order.order_id)
+											}
+											className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors">
+											<Trash2 className="w-5 h-5 text-red-500" />
+										</button>
+									)}
+
+									<div className="flex items-center justify-between ml-8">
+										<div className="flex items-center gap-4">
+											<div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+												<Package className="w-6 h-6 text-black" />
+											</div>
+											<div>
+												<h3 className="text-lg font-semibold text-white">
+													{order.patient}
+												</h3>
+												<p className="text-gray-400">
+													{order.details ||
+														order.type}
+												</p>
+												<p className="text-sm text-gray-500">
+													Order #{order.order_id} •{" "}
+													{getDisplayDate(order)}
+												</p>
+											</div>
+										</div>
+
+										<div className="flex items-center gap-6">
+											<div className="text-right">
+												<span
+													className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
+														order.status,
+													)}`}>
+													{getStatusIcon(
+														order.status,
+													)}
+													{order.status
+														.replace("-", " ")
+														.toUpperCase()}
+												</span>
+												<div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
+													<div
+														className={`h-2 rounded-full transition-all duration-300 ${
+															order.status ===
+															"completed"
+																? "bg-green-500"
+																: order.status ===
+																	  "in-progress"
+																	? "bg-blue-500"
+																	: order.status ===
+																		  "shipped"
+																		? "bg-purple-500"
+																		: "bg-yellow-500"
+														}`}
+														style={{
+															width: `${order.progress}%`,
+														}}
+													/>
+												</div>
+												<p className="text-sm text-gray-500 mt-1">
+													{order.progress}% Complete
+												</p>
+											</div>
+										</div>
+									</div>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
+				{currentPage === "create-order" && (
+					<div>
+						<div className="mb-8">
+							<h2 className="text-3xl font-bold text-white mb-2">
+								Create New Order
+							</h2>
+							<p className="text-gray-400">
+								Enter patient details and appliance information
+							</p>
+						</div>
+
+						<div className="bg-gray-900 rounded-xl border border-gray-800 p-8 max-w-2xl mx-auto">
+							<form
+								onSubmit={handleCreateOrder}
+								className="space-y-6">
+								<div>
+									<label className="block text-sm font-medium text-gray-300 mb-2">
+										Patient Name
+									</label>
+									<input
+										type="text"
+										value={newOrder.patient}
+										onChange={(e) =>
+											setNewOrder({
+												...newOrder,
+												patient: e.target.value,
+											})
+										}
+										className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+										placeholder="Enter patient full name"
+										required
+									/>
+								</div>
+
+								<div>
+									<label className="block text-sm font-medium text-gray-300 mb-2">
+										Details
+									</label>
+									<input
+										type="text"
+										value={newOrder.details}
+										onChange={(e) =>
+											setNewOrder({
+												...newOrder,
+												details: e.target.value,
+											})
+										}
+										className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+										placeholder="Enter type"
+										required
+									/>
+								</div>
+
+								<div>
+									<label className="block text-sm font-medium text-gray-300 mb-2">
+										Due date
+									</label>
+									<input
+										type="date"
+										value={newOrder.dueDate}
+										onChange={(e) =>
+											setNewOrder({
+												...newOrder,
+												dueDate: e.target.value,
+											})
+										}
+										className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+										required
+									/>
+								</div>
+
+								<div>
+									<label className="block text-sm font-medium text-gray-300 mb-2">
+										Attach Files
+									</label>
+
+									<label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer hover:border-white transition">
+										<span className="text-gray-400 text-sm">
+											Click or drag files
+										</span>
+										<input
+											type="file"
+											multiple
+											onChange={(e) => {
+												const selected = Array.from(
+													e.target.files || [],
+												);
+												setFiles((previous) => [
+													...previous,
+													...selected,
+												]);
+											}}
+											className="hidden"
+										/>
+									</label>
+
+									<div className="mt-3 space-y-2">
+										{files.map((file, index) => (
+											<div
+												key={`${file.name}-${index}`}
+												className="flex items-center justify-between bg-gray-900 px-3 py-2 rounded-lg">
+												<span className="text-sm text-white truncate">
+													{file.name}
+												</span>
+
+												<button
+													type="button"
+													onClick={() =>
+														setFiles((previous) =>
+															previous.filter(
+																(
+																	_,
+																	currentIndex,
+																) =>
+																	currentIndex !==
+																	index,
+															),
+														)
+													}
+													className="text-gray-400 hover:text-red-500 text-sm">
+													X
+												</button>
+											</div>
+										))}
+									</div>
+								</div>
+
+								<div className="flex gap-4">
+									<button
+										type="submit"
+										className="flex-1 bg-white text-black py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors duration-200">
+										Create Order
+									</button>
+									<button
+										type="button"
+										onClick={showOrdersPage}
+										className="flex-1 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors duration-200">
+										Cancel
+									</button>
+								</div>
+							</form>
+						</div>
+					</div>
+				)}
+			</main>
+		</div>
+	);
 }
 
 export const metadata = {
-  title: 'ProjectO - Orders',
-  description:
-    'A website for managing orders in orthodontics.',
+	title: "ProjectO - Orders",
+	description: "A website for managing orders in orthodontics.",
 };

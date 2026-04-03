@@ -4,13 +4,12 @@ import KratosLogin from "./login";
 import { useRouter } from "next/navigation";
 
 export default function LoginRoute() {
-  let router = useRouter();
+	let router = useRouter();
 
-  function routerRedirect(page)
-  {
-    if(page == 'landing') router.push(`/`);
-    else router.push(`/${page}`);
-  }
+	function routerRedirect(page) {
+		if (page == "landing") router.push(`/`);
+		else router.push(`/${page}`);
+	}
 
-  return <KratosLogin setCurrentPage={routerRedirect} />
+	return <KratosLogin setCurrentPage={routerRedirect} />;
 }

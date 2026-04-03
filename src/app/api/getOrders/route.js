@@ -7,27 +7,27 @@ import { cookies } from "next/headers";
 import postgres from "postgres";
 
 export async function GET() {
-  let payload = null;
+	let payload = null;
 
-  let cookieHeader = await cookies(); // get cookies from request
-  
-  let userAuthSession = await getUserAuthSession(cookieHeader);
+	let cookieHeader = await cookies(); // get cookies from request
 
-  if(!userAuthSession.loggedIn) 
-  {
-    return new Response(
-        JSON.stringify({ error: "Forbidden" }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
-    );
-  }
+	let userAuthSession = await getUserAuthSession(cookieHeader);
 
-  const DB = postgres(process.env.DB_URL, {prepare: true});
+	if (!userAuthSession.loggedIn) {
+		return new Response(JSON.stringify({ error: "Forbidden" }), {
+			status: 403,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
 
-  payload = await DB`SELECT * FROM orders WHERE "user_id" = ${userAuthSession.data.identity.id};`;
+	const DB = postgres(process.env.DB_URL, { prepare: true });
 
-  DB.end();
+	payload =
+		await DB`SELECT * FROM orders WHERE "user_id" = ${userAuthSession.data.identity.id};`;
 
-  return new Response(JSON.stringify(payload), {
-    headers: { "Content-Type": "application/json" },
-  });
+	DB.end();
+
+	return new Response(JSON.stringify(payload), {
+		headers: { "Content-Type": "application/json" },
+	});
 }

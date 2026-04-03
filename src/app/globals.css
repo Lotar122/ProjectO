@@ -1,31 +1,31 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --sb-width: 10px;
-  --sb-thumb: rgba(255, 255, 255, 0.95);
-  --sb-track: transparent;
+	--background: #ffffff;
+	--foreground: #171717;
+	--sb-width: 10px;
+	--sb-thumb: rgba(255, 255, 255, 0.95);
+	--sb-track: transparent;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--font-sans: var(--font-geist-sans);
+	--font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+	:root {
+		--background: #0a0a0a;
+		--foreground: #ededed;
+	}
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+	background: var(--background);
+	color: var(--foreground);
+	font-family: Arial, Helvetica, sans-serif;
 }
 
 /* -------------------------------
@@ -33,27 +33,27 @@ body {
    full control via ::-webkit-scrollbar
    ------------------------------- */
 *::-webkit-scrollbar {
-  width: var(--sb-width);
-  height: var(--sb-width);
+	width: var(--sb-width);
+	height: var(--sb-width);
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--sb-track);
-  margin: 6px; /* optional: gives the thumb some breathing room */
-  border-radius: 999px;
+	background: var(--sb-track);
+	margin: 6px; /* optional: gives the thumb some breathing room */
+	border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--sb-thumb);
-  border-radius: 999px;
-  min-height: 28px;          /* keeps the thumb usable */
-  box-shadow: 0 0 0 3px transparent; /* keeps layout stable if you add borders */
-  background-clip: padding-box;
+	background: var(--sb-thumb);
+	border-radius: 999px;
+	min-height: 28px; /* keeps the thumb usable */
+	box-shadow: 0 0 0 3px transparent; /* keeps layout stable if you add borders */
+	background-clip: padding-box;
 }
 
 /* corner (for two-axis scrolling) */
 *::-webkit-scrollbar-corner {
-  background: transparent;
+	background: transparent;
 }
 
 /* -------------------------------
@@ -61,6 +61,6 @@ body {
    (cannot set border-radius on the thumb directly)
    ------------------------------- */
 * {
-  scrollbar-width: thin; /* auto / thin / none */
-  scrollbar-color: var(--sb-thumb) var(--sb-track);
+	scrollbar-width: thin; /* auto / thin / none */
+	scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
