@@ -1,5 +1,3 @@
-"use server";
-
 import LoginRoute from "./loginClientWrapper";
 
 export default async function Page() {
