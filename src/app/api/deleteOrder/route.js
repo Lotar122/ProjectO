@@ -29,7 +29,7 @@ export async function DELETE(req) {
 
     const [order] = await DB`SELECT * FROM orders WHERE order_id = ${orderID};`;
 
-    if(order.user == userAuthSession.data.identity.id)
+    if(order.user_id == userAuthSession.data.identity.id)
     {
         await DB`DELETE FROM orders WHERE order_id = ${orderID};`;
     }
