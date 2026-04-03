@@ -1,16 +1,16 @@
 import KratosLogin from "./login";
+import { useRouter } from "next/navigation";
 
-import { redirect } from "next/navigation";
+export default function Page() {
+  const router = useRouter();
 
-function setCurrentPage(page)
-{
-    redirect(`/${page}`);
+  // This is a plain function, no React state
+  function setCurrentPage(page) {
+    router.push(`/${page}`); // client-side navigation
+  }
+
+  return <KratosLogin setCurrentPage={setCurrentPage} />;
 }
-
-export default async function Page()
-{
-  return <KratosLogin setCurrentPage={setCurrentPage}/>;
-};
  
 export const metadata = {
   title: 'ProjectO - Login',
