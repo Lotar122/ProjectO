@@ -88,13 +88,13 @@ export default function Orders({ userName, userLastName }) {
 		});
 		const nextOrders = [...response.data].reverse();
 
-		nextOrders.forEach((val, index) => {
-			val.files.forEach((val, index) => {
+		nextOrders.forEach((order, index) => {
+			order.files.forEach((val, index) => {
 				const response = axios.get(`/api/getFileName?file_id=${val}`,
 					{
 						withCredentials: true,
 					}
-				).then(() => {val.name = response.filename});
+				).then(() => {order.name = response.filename});
 			});
 		});
 
