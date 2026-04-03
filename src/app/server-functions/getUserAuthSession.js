@@ -3,6 +3,8 @@
 import axios from "axios";
 import postgres from "postgres";
 
+import { getNameFromEmail } from "./getUserName";
+
 export async function getUserAuthSession(cookie)
 {
   const cookieHeader = cookie.get("ory_kratos_session");
@@ -17,7 +19,7 @@ export async function getUserAuthSession(cookie)
     });
 
     if (res.data && res.data.active) {
-	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
+	  const DB = postgres(process.env.DB_URL, {prepare: true});
 
 	  let users = null;
 	  try {
@@ -29,10 +31,11 @@ export async function getUserAuthSession(cookie)
 
 	  if(users.length == 0)
 	  {
+		const name = await getNameFromEmail(res.data.identity.traits.email);
 		try {
 			await DB`
-			INSERT INTO users ("UUID", email)
-			VALUES (${res.data.identity.id}, ${res.data.identity.traits.email})
+			INSERT INTO users ("UUID", email, name, last-name)
+			VALUES (${res.data.identity.id}, ${res.data.identity.traits.email}, ${name.first}, ${name.last})
 			`;
 		}
 		catch(err) {
