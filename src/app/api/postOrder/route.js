@@ -37,6 +37,8 @@ export async function POST(req) {
 
     DB.end();
 
+    console.log(process.env.DB_URL);
+
     return Response.json(
       { success: true, orderID: orderID, body },
       { status: 200 }
