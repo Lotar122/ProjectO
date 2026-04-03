@@ -1,3 +1,5 @@
+"use client";
+
 import KratosLogin from "./login";
 import { useRouter } from "next/navigation";
 
