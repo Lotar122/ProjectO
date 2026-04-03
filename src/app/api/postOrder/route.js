@@ -2,7 +2,7 @@
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { createBucket } from "@/app/server-functions/MinIO/createBucket";
-import { createS3Client } from "@/app/server-functions/MinIO/getS3Client";
+import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { cookies } from "next/headers";
 import postgres from "postgres";
 import { v7 as uuid7 } from "uuid";
