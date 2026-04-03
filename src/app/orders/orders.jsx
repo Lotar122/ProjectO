@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	CheckCircle,
+	ChevronDown,
 	Clock,
+	Download,
+	FileText,
 	LogOut,
 	Package,
 	Plus,
@@ -39,6 +42,28 @@ const getFilteredOrders = (orders, searchValue, statusValue) => {
 const getDisplayDate = (order) =>
 	order.due_date?.slice(0, 10) || order.dueDate?.slice(0, 10) || "";
 
+const getOrderFiles = (order) => {
+	if (Array.isArray(order.uploadedFiles) && order.uploadedFiles.length > 0) {
+		return order.uploadedFiles.map((file, index) => ({
+			id: file.id || `${order.order_id || order.patient}-${index}`,
+			name: file.name || `Attachment ${index + 1}`,
+			file,
+			isLocal: true,
+		}));
+	}
+
+	if (!Array.isArray(order.files)) {
+		return [];
+	}
+
+	return order.files.map((fileId, index) => ({
+		id: String(fileId),
+		name: `Attachment ${index + 1}`,
+		fileId,
+		isLocal: false,
+	}));
+};
+
 export default function Orders({ userName, userLastName }) {
 	const [currentPage, setCurrentPage] = useState("orders");
 	const [allOrders, setAllOrders] = useState([]);
@@ -47,6 +72,7 @@ export default function Orders({ userName, userLastName }) {
 	const [files, setFiles] = useState([]);
 	const [hoveredOrder, setHoveredOrder] = useState(null);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
+	const [expandedOrderId, setExpandedOrderId] = useState(null);
 	const orderFilterRef = useRef(null);
 	const orderSearchRef = useRef(null);
 
@@ -127,6 +153,11 @@ export default function Orders({ userName, userLastName }) {
 			dueDate: newOrder.dueDate,
 			issueDate: new Date().toISOString(),
 			progress: 0,
+			uploadedFiles: files.map((file, index) => ({
+				id: `${file.name}-${index}-${file.size}`,
+				name: file.name,
+				file,
+			})),
 		};
 
 		try {
@@ -163,6 +194,7 @@ export default function Orders({ userName, userLastName }) {
 			setNewOrder(INITIAL_ORDER);
 			setFiles([]);
 			setCurrentPage("orders");
+			setExpandedOrderId(response.data.orderID);
 		} catch (err) {
 			console.error("Order creation failed:", err);
 		}
@@ -200,6 +232,37 @@ export default function Orders({ userName, userLastName }) {
 		}
 	};
 
+	const toggleOrderExpanded = (orderId) => {
+		setExpandedOrderId((current) => (current === orderId ? null : orderId));
+	};
+
+	const handleDownloadFile = (order, attachment) => {
+		if (attachment.isLocal && attachment.file instanceof File) {
+			const objectUrl = URL.createObjectURL(attachment.file);
+			const link = document.createElement("a");
+			link.href = objectUrl;
+			link.download = attachment.name;
+			link.click();
+			URL.revokeObjectURL(objectUrl);
+			return;
+		}
+
+		const placeholderContent = [
+			"Frontend placeholder download",
+			`Order: ${order.order_id}`,
+			`Patient: ${order.patient}`,
+			`Attachment: ${attachment.name}`,
+			`File reference: ${attachment.fileId}`,
+		].join("\n");
+		const blob = new Blob([placeholderContent], { type: "text/plain" });
+		const objectUrl = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = objectUrl;
+		link.download = `${attachment.name}.txt`;
+		link.click();
+		URL.revokeObjectURL(objectUrl);
+	};
+
 	return (
 		<div className="min-h-screen bg-black text-white">
 			{deleteOrderId && (
@@ -209,8 +272,8 @@ export default function Orders({ userName, userLastName }) {
 							Delete Order?
 						</h2>
 						<p className="text-gray-400 mb-6">
-							Are you sure you want to delete this order? This
-							action cannot be undone.
+							Are you sure you want to delete this order? This action cannot be
+							undone.
 						</p>
 						<div className="flex justify-end gap-4">
 							<button
@@ -235,9 +298,7 @@ export default function Orders({ userName, userLastName }) {
 							<div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
 								<Package className="w-6 h-6 text-black" />
 							</div>
-							<h1 className="text-2xl font-bold text-white">
-								ProjectO
-							</h1>
+							<h1 className="text-2xl font-bold text-white">ProjectO</h1>
 						</div>
 
 						<nav className="hidden md:flex items-center gap-6">
@@ -285,9 +346,7 @@ export default function Orders({ userName, userLastName }) {
 						<button
 							onClick={showOrdersPage}
 							className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-								currentPage === "orders"
-									? "bg-white text-black"
-									: "text-gray-300"
+								currentPage === "orders" ? "bg-white text-black" : "text-gray-300"
 							}`}>
 							<Package className="w-4 h-4" />
 							Orders
@@ -315,8 +374,7 @@ export default function Orders({ userName, userLastName }) {
 									Treatment Orders
 								</h2>
 								<p className="text-gray-400">
-									Manage and track all orthodontic appliance
-									orders
+									Manage and track all orthodontic appliance orders
 								</p>
 							</div>
 							<button
@@ -333,9 +391,7 @@ export default function Orders({ userName, userLastName }) {
 									<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
 									<input
 										ref={orderSearchRef}
-										onChange={(e) =>
-											handleSearchChange(e.target.value)
-										}
+										onChange={(e) => handleSearchChange(e.target.value)}
 										type="text"
 										placeholder="Search orders..."
 										className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
@@ -345,109 +401,188 @@ export default function Orders({ userName, userLastName }) {
 									<select
 										ref={orderFilterRef}
 										defaultValue="All Status"
-										onChange={(e) =>
-											handleStatusChange(e.target.value)
-										}
+										onChange={(e) => handleStatusChange(e.target.value)}
 										className="px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white">
-										<option className="bg-gray-900">
-											All Status
-										</option>
-										<option className="bg-gray-900">
-											Pending
-										</option>
-										<option className="bg-gray-900">
-											In Progress
-										</option>
-										<option className="bg-gray-900">
-											Shipped
-										</option>
-										<option className="bg-gray-900">
-											Completed
-										</option>
+										<option className="bg-gray-900">All Status</option>
+										<option className="bg-gray-900">Pending</option>
+										<option className="bg-gray-900">In Progress</option>
+										<option className="bg-gray-900">Shipped</option>
+										<option className="bg-gray-900">Completed</option>
 									</select>
 								</div>
 							</div>
 						</div>
 
 						<div className="grid gap-6">
-							{orders.map((order) => (
-								<div
-									key={order.order_id}
-									className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
-									onMouseEnter={() =>
-										setHoveredOrder(order.order_id)
-									}
-									onMouseLeave={() => setHoveredOrder(null)}>
-									{hoveredOrder === order.order_id && (
-										<button
-											onClick={() =>
-												setDeleteOrderId(order.order_id)
-											}
-											className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors">
-											<Trash2 className="w-5 h-5 text-red-500" />
-										</button>
-									)}
+							{orders.map((order) => {
+								const orderFiles = getOrderFiles(order);
+								const isExpanded = expandedOrderId === order.order_id;
 
-									<div className="flex items-center justify-between ml-8">
-										<div className="flex items-center gap-4">
-											<div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-												<Package className="w-6 h-6 text-black" />
-											</div>
-											<div>
-												<h3 className="text-lg font-semibold text-white">
-													{order.patient}
-												</h3>
-												<p className="text-gray-400">
-													{order.details ||
-														order.type}
-												</p>
-												<p className="text-sm text-gray-500">
-													Order #{order.order_id} •{" "}
-													{getDisplayDate(order)}
-												</p>
-											</div>
-										</div>
+								return (
+									<div
+										key={order.order_id}
+										className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
+										onMouseEnter={() =>
+											setHoveredOrder(order.order_id)
+										}
+										onMouseLeave={() => setHoveredOrder(null)}>
+										{hoveredOrder === order.order_id && (
+											<button
+												onClick={() =>
+													setDeleteOrderId(order.order_id)
+												}
+												className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors">
+												<Trash2 className="w-5 h-5 text-red-500" />
+											</button>
+										)}
 
-										<div className="flex items-center gap-6">
-											<div className="text-right">
-												<span
-													className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
-														order.status,
-													)}`}>
-													{getStatusIcon(
-														order.status,
-													)}
-													{order.status
-														.replace("-", " ")
-														.toUpperCase()}
-												</span>
-												<div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
-													<div
-														className={`h-2 rounded-full transition-all duration-300 ${
-															order.status ===
-															"completed"
-																? "bg-green-500"
-																: order.status ===
-																	  "in-progress"
-																	? "bg-blue-500"
-																	: order.status ===
-																		  "shipped"
-																		? "bg-purple-500"
-																		: "bg-yellow-500"
-														}`}
-														style={{
-															width: `${order.progress}%`,
-														}}
-													/>
+										<div className="ml-8 flex items-start justify-between gap-6">
+											<div className="flex items-center gap-4">
+												<div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+													<Package className="w-6 h-6 text-black" />
 												</div>
-												<p className="text-sm text-gray-500 mt-1">
-													{order.progress}% Complete
-												</p>
+												<div>
+													<h3 className="text-lg font-semibold text-white">
+														{order.patient}
+													</h3>
+													<p className="text-gray-400">
+														{order.details || order.type}
+													</p>
+													<p className="text-sm text-gray-500">
+														Order #{order.order_id} • {getDisplayDate(order)}
+													</p>
+												</div>
+											</div>
+
+											<div className="flex items-center gap-4">
+												<div className="text-right">
+													<span
+														className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
+															order.status,
+														)}`}>
+														{getStatusIcon(order.status)}
+														{order.status
+															.replace("-", " ")
+															.toUpperCase()}
+													</span>
+													<div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
+														<div
+															className={`h-2 rounded-full transition-all duration-300 ${
+																order.status === "completed"
+																	? "bg-green-500"
+																	: order.status === "in-progress"
+																		? "bg-blue-500"
+																		: order.status === "shipped"
+																			? "bg-purple-500"
+																			: "bg-yellow-500"
+															}`}
+															style={{
+																width: `${order.progress}%`,
+															}}
+														/>
+													</div>
+													<p className="text-sm text-gray-500 mt-1">
+														{order.progress}% Complete
+													</p>
+												</div>
+
+												<button
+													type="button"
+													onClick={() =>
+														toggleOrderExpanded(order.order_id)
+													}
+													className="inline-flex items-center gap-2 self-start rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:border-gray-500 hover:text-white transition-colors">
+													{isExpanded ? "Hide details" : "View details"}
+													<ChevronDown
+														className={`h-4 w-4 transition-transform ${
+															isExpanded ? "rotate-180" : ""
+														}`}
+													/>
+												</button>
 											</div>
 										</div>
+
+										{isExpanded && (
+											<div className="mt-6 ml-8 rounded-xl border border-gray-800 bg-black/40 p-5">
+												<div className="grid gap-5 md:grid-cols-2">
+													<div className="space-y-3">
+														<div>
+															<p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+																Patient Name
+															</p>
+															<p className="mt-1 text-sm text-white">
+																{order.patient}
+															</p>
+														</div>
+														<div>
+															<p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+																Details
+															</p>
+															<p className="mt-1 text-sm leading-6 text-gray-300">
+																{order.details ||
+																	"No additional details yet."}
+															</p>
+														</div>
+													</div>
+
+													<div>
+														<p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+															Attached Files
+														</p>
+														<p className="mt-1 text-sm text-gray-400">
+															{orderFiles.length} file
+															{orderFiles.length === 1 ? "" : "s"}
+														</p>
+
+														<div className="mt-4 space-y-3">
+															{orderFiles.length > 0 ? (
+																orderFiles.map((attachment) => (
+																	<div
+																		key={attachment.id}
+																		className="flex items-center justify-between gap-3 rounded-lg border border-gray-800 bg-gray-900/70 px-4 py-3">
+																		<div className="flex min-w-0 items-center gap-3">
+																			<div className="rounded-lg bg-gray-800 p-2 text-gray-300">
+																				<FileText className="h-4 w-4" />
+																			</div>
+																			<div className="min-w-0">
+																				<p className="truncate text-sm text-white">
+																					{attachment.name}
+																				</p>
+																				<p className="text-xs text-gray-500">
+																					{attachment.isLocal
+																						? "Ready to download in this session"
+																						: "Frontend placeholder download"}
+																				</p>
+																			</div>
+																		</div>
+
+																		<button
+																			type="button"
+																			onClick={() =>
+																				handleDownloadFile(
+																					order,
+																					attachment,
+																				)
+																			}
+																			className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
+																			<Download className="h-4 w-4" />
+																			Download
+																		</button>
+																	</div>
+																))
+															) : (
+																<div className="rounded-lg border border-dashed border-gray-800 px-4 py-6 text-sm text-gray-500">
+																	No files attached to this order yet.
+																</div>
+															)}
+														</div>
+													</div>
+												</div>
+											</div>
+										)}
 									</div>
-								</div>
-							))}
+								);
+							})}
 						</div>
 					</div>
 				)}
@@ -562,12 +697,8 @@ export default function Orders({ userName, userLastName }) {
 													onClick={() =>
 														setFiles((previous) =>
 															previous.filter(
-																(
-																	_,
-																	currentIndex,
-																) =>
-																	currentIndex !==
-																	index,
+																(_, currentIndex) =>
+																	currentIndex !== index,
 															),
 														)
 													}
