@@ -1,5 +1,3 @@
-"use server";
-
 import KratosLogin from "./login";
 
 export default async function Page()
