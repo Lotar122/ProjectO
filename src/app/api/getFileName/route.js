@@ -15,6 +15,8 @@ export async function GET(req) {
 
   	const file_id = url.searchParams.get("file_id");
 
+	console.log(req.url);
+
 	let cookieHeader = await cookies(); // get cookies from request
 
 	let userAuthSession = await getUserAuthSession(cookieHeader);
