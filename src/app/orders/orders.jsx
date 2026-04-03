@@ -379,15 +379,11 @@ export default function Orders({ userName, userLastName })
                     Due date
                   </label>
                   <input
-                    type="text"
-                    value={newOrder.dueDate ? new Date(newOrder.dueDate).toLocaleDateString('en-GB') : ''}
-                    onChange={(e) => {
-                      const [day, month, year] = e.target.value.split('/');
-                      const iso = `${year}-${month}-${day}`;
-                      setNewOrder({ ...newOrder, dueDate: iso });
-                    }}
-                    placeholder="DD/MM/YYYY"
+                    type="date"
+                    value={newOrder.dueDate}
+                    onChange={(e) => setNewOrder({...newOrder, dueDate: e.target.value})}
                     className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
+                    placeholder="Enter due date"
                     required
                   />
                 </div>
