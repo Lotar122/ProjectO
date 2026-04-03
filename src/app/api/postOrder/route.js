@@ -44,9 +44,9 @@ export async function POST(req) {
 
     console.log(orderID, userID, patient, details, status, progress, issue_date, due_date);
 
-    // const fileBuffers = await Promise.all(
-    //   files.map(async (file) => Buffer.from(await file.arrayBuffer()))
-    // );
+    const fileBuffers = await Promise.all(
+      files.map(async (file) => Buffer.from(await file.arrayBuffer()))
+    );
 
     const s3 = await createS3Client();
 
@@ -54,14 +54,14 @@ export async function POST(req) {
 
     let fileKeys = [];
 
-    files.forEach(async file => {
+    fileBuffers.forEach(async (file, index) => {
       fileKeys.push(uuid7());
       await s3.send(new PutObjectCommand({
         Bucket: "projecto",
         Key: fileKeys[fileKeys.length - 1],
-        Body: file.stream(),
+        Body: file,
         Metadata: {
-          "original-name": file.name
+          "original-name": files[index].name
         }
       }));
     });
