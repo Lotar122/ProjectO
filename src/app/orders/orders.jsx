@@ -83,7 +83,7 @@ export default function Orders({ userName, userLastName })
             formData.append("patient", order.patient);
             formData.append("details", order.details);
             formData.append("status", order.status);
-            formData.append("dueDate", order.dueDate.toISOString());
+            formData.append("dueDate", order.dueDate);
             formData.append("issueDate", order.issueDate.toISOString());
             formData.append("progress", order.progress);
 
