@@ -1,8 +1,15 @@
 import KratosLogin from "./login";
 
+import { redirect } from "next/navigation";
+
+function setCurrentPage(page)
+{
+    redirect(`/${page}`);
+}
+
 export default async function Page()
 {
-  return <KratosLogin/>;
+  return <KratosLogin setCurrentPage={setCurrentPage}/>;
 };
  
 export const metadata = {
