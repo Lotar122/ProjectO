@@ -3,6 +3,8 @@
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata";
 
+import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+
 import { cookies } from "next/headers";
 
 //Has to be used with credentials
