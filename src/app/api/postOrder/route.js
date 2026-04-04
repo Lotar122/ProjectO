@@ -54,7 +54,11 @@ export async function POST(req) {
 			files.map(async (file) => Buffer.from(await file.arrayBuffer())),
 		);
 
+		console.log("Before S3 client");
+
 		const s3 = await createS3Client();
+
+		console.log("After S3 client");
 
 		await createBucket(s3, "projecto");
 
