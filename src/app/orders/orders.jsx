@@ -303,7 +303,7 @@ export default function Orders({ userName, userLastName }) {
 		setExpandedOrderId((current) => (current === orderId ? null : orderId));
 	};
 
-	const handleDownloadFile = async (order, attachment) => {
+	const handleDownloadFile = async (order, attachment, index) => {
 		let fileId = attachment.fileId;
 
 		console.log(attachment.name);
@@ -313,8 +313,7 @@ export default function Orders({ userName, userLastName }) {
 			const refreshedOrder = refreshedOrders.find(
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
-			console.log(fileId = refreshedOrder?.files);
-			console.log(fileId);
+			fileId = refreshedOrder?.files?.[index];
 		}
 
 		if (!fileId) {
@@ -635,7 +634,7 @@ export default function Orders({ userName, userLastName }) {
 
 																<div className="mt-4 space-y-3">
 																	{orderFiles.length > 0 ? (
-																		orderFiles.map((attachment) => (
+																		orderFiles.map((attachment, index) => (
 																			<motion.div
 																				key={attachment.id}
 																				initial={{ opacity: 0, y: 10 }}
@@ -663,6 +662,7 @@ export default function Orders({ userName, userLastName }) {
 																						handleDownloadFile(
 																							order,
 																							attachment,
+																							index
 																						)
 																					}
 																					className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
