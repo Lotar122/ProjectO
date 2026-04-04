@@ -20,7 +20,7 @@ export async function GET() {
 		});
 	}
 
-	const DB = postgres(process.env.DB_URL, { prepare: true });
+	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
 	payload =
 		await DB`SELECT * FROM orders WHERE "user_id" = ${userAuthSession.data.identity.id};`;
