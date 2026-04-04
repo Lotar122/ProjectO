@@ -1,4 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@aws-sdk/node-http-handler";
 import https from "https";
 
 export async function createS3Client() {
@@ -10,10 +11,10 @@ export async function createS3Client() {
             secretAccessKey: process.env.MINIO_SECRET_KEY,
         },
         forcePathStyle: true,
-        requestHandler: {
+        requestHandler: new NodeHttpHandler({
             httpsAgent: new https.Agent({
-                rejectUnauthorized: false  // trust self-signed cert
+                rejectUnauthorized: false
             })
-        }
+        })
     });
 }
