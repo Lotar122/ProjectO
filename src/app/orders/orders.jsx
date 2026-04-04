@@ -303,7 +303,10 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const handleDownloadFile = async (order, attachment) => {
-		console.log(attachment.fileId);
+		if(!attachment.fileId)
+		{
+			await refreshOrders();
+		}
 		const link = document.createElement('a');
 		link.href = `/api/downloadFile?file_id=${attachment.fileId}`;
 		link.setAttribute('download', '');  // filename will come from Content-Disposition header
