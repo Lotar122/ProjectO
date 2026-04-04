@@ -314,6 +314,7 @@ export default function Orders({ userName, userLastName }) {
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
 			fileId = refreshedOrder?.files?.find((file) => {file.name == attachment.name})?.id;
+			console.log(fileId);
 		}
 
 		if (!fileId) {
