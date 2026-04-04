@@ -303,18 +303,12 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const handleDownloadFile = async (order, attachment) => {
-		const response = await axios.get(`/api/downloadFile?file_id=${attachment.fileId}`, {
-			responseType: 'blob',
-		});
-
-		const url = window.URL.createObjectURL(new Blob([response.data]));
 		const link = document.createElement('a');
-		link.href = url;
-		link.setAttribute('download', attachment.fileName ?? attachment.fileId);
+		link.href = `/api/downloadFile?file_id=${attachment.fileId}`;
+		link.setAttribute('download', '');  // filename will come from Content-Disposition header
 		document.body.appendChild(link);
 		link.click();
 		link.remove();
-		window.URL.revokeObjectURL(url);
 	};
 
 	return (
