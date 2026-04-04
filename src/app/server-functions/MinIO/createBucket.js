@@ -9,8 +9,9 @@ export async function createBucket(s3, bucketName) {
 		console.log(`Bucket "${bucketName}" already exists`);
 		return false;
 	} catch (err) {
+		console.error('createBucket error:', err.$metadata, err.message, err.Code);
 		if (err.$metadata?.httpStatusCode !== 404) {
-			throw err; // real error
+			throw err;
 		}
 	}
 
