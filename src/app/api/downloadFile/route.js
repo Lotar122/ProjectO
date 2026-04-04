@@ -40,7 +40,7 @@ export async function GET(req) {
             status: 200,
             headers: {
                 "Content-Type": file.contentType ?? "application/octet-stream",
-                "Content-Disposition": `attachment; filename="${fileRecord.original_name}"`,
+                "Content-Disposition": `attachment; filename="${file.metadata.original_name}"`,
             },
         });
 

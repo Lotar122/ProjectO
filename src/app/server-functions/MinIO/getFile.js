@@ -10,6 +10,13 @@ export async function getFile(s3, bucket, fileKey) {
         })
     );
 
+	const metadataRes = await s3.send(
+    new HeadObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  );
+
     // Convert stream to buffer
     const chunks = [];
     for await (const chunk of response.Body) {
@@ -20,5 +27,6 @@ export async function getFile(s3, bucket, fileKey) {
     return {
         data: buffer,
         contentType: response.ContentType,
+		metadata: metadataRes.Metadata
     };
 }
