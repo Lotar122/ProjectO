@@ -27,7 +27,7 @@ export async function POST(req) {
 		const userID = userAuthSession.data.identity.id;
 		const orderID = formData.get("orderID"); //Get it from request as posting the orders meta return orderID
 
-		const DB = postgres(Bun.env.DB_URL, { prepare: true });
+		const DB = postgres(Bun.env.DB_URL, { prepare: true, ssl: 'require' });
 
 		const formData = await req.formData();
 

@@ -10,7 +10,7 @@ import { v7 as uuid7 } from "uuid";
 
 // Server POST function for inserting orders
 export async function POST(req) {
-	const DB = postgres(process.env.DB_URL, { prepare: true });
+	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
 	try {
 		const formData = await req.formData();

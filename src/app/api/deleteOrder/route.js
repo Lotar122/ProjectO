@@ -24,7 +24,7 @@ export async function DELETE(req) {
 		const url = new URL(req.url);
 		const orderID = url.searchParams.get("orderID");
 
-		const DB = postgres(process.env.DB_URL, { prepare: true });
+		const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
 		const [order] =
 			await DB`SELECT * FROM orders WHERE order_id = ${orderID};`;
