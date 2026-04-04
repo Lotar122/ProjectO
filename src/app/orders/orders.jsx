@@ -302,31 +302,19 @@ export default function Orders({ userName, userLastName }) {
 		setExpandedOrderId((current) => (current === orderId ? null : orderId));
 	};
 
-	const handleDownloadFile = (order, attachment) => {
-		if (attachment.isLocal && attachment.file instanceof File) {
-			const objectUrl = URL.createObjectURL(attachment.file);
-			const link = document.createElement("a");
-			link.href = objectUrl;
-			link.download = attachment.name;
-			link.click();
-			URL.revokeObjectURL(objectUrl);
-			return;
-		}
+	const handleDownloadFile = async (order, attachment) => {
+		const response = await axios.get(`/api/downloadFile?file_id=${attachment.fileId}`, {
+			responseType: 'blob',
+		});
 
-		const placeholderContent = [
-			"Frontend placeholder download",
-			`Order: ${order.order_id}`,
-			`Patient: ${order.patient}`,
-			`Attachment: ${attachment.name}`,
-			`File reference: ${attachment.fileId}`,
-		].join("\n");
-		const blob = new Blob([placeholderContent], { type: "text/plain" });
-		const objectUrl = URL.createObjectURL(blob);
-		const link = document.createElement("a");
-		link.href = objectUrl;
-		link.download = `${attachment.name}.txt`;
+		const url = window.URL.createObjectURL(new Blob([response.data]));
+		const link = document.createElement('a');
+		link.href = url;
+		link.setAttribute('download', attachment.fileName ?? attachment.fileId);
+		document.body.appendChild(link);
 		link.click();
-		URL.revokeObjectURL(objectUrl);
+		link.remove();
+		window.URL.revokeObjectURL(url);
 	};
 
 	return (
