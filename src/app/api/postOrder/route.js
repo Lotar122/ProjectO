@@ -64,6 +64,8 @@ export async function POST(req) {
 
 		await createBucket(s3, "projecto");
 
+		console.log("Bucket created");
+
 		const fileKeys = await Promise.all(
 			fileBuffers.map(async (file, index) => {
 				const fileKey = uuid7();
@@ -82,6 +84,8 @@ export async function POST(req) {
 				return fileKey;
 			}),
 		);
+
+		console.log("Files keyed");
 
 		// Insert into DB safely
 		await DB`
