@@ -50,6 +50,8 @@ export async function POST(req) {
 			? new Date(dueDate).toISOString().split("T")[0]
 			: null;
 
+		console.log("Get files.");
+
 		const fileBuffers = await Promise.all(
 			files.map(async (file) => Buffer.from(await file.arrayBuffer())),
 		);
