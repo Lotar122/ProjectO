@@ -100,6 +100,7 @@ export default function Orders({ userName, userLastName }) {
 		const nextOrders = [...response.data].reverse();
 		setAllOrders(nextOrders);
 		syncVisibleOrders(nextOrders);
+		return nextOrders;
 	}, [syncVisibleOrders]);
 
 	useEffect(() => {
@@ -303,13 +304,23 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const handleDownloadFile = async (order, attachment) => {
-		if(!attachment.fileId)
-		{
-			await refreshOrders();
+		let fileId = attachment.fileId;
+
+		if (!fileId) {
+			const refreshedOrders = await refreshOrders();
+			const refreshedOrder = refreshedOrders.find(
+				(currentOrder) => currentOrder.order_id === order.order_id,
+			);
+			fileId = refreshedOrder?.files?.[0];
 		}
-		const link = document.createElement('a');
-		link.href = `/api/downloadFile?file_id=${attachment.fileId}`;
-		link.setAttribute('download', '');  // filename will come from Content-Disposition header
+
+		if (!fileId) {
+			return;
+		}
+
+		const link = document.createElement("a");
+		link.href = `/api/downloadFile?file_id=${fileId}`;
+		link.setAttribute("download", "");
 		document.body.appendChild(link);
 		link.click();
 		link.remove();
