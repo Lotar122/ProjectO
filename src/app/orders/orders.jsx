@@ -313,7 +313,7 @@ export default function Orders({ userName, userLastName }) {
 			const refreshedOrder = refreshedOrders.find(
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
-			fileId = refreshedOrder?.files?.find((file) => {file.name == attachment.name})?.id;
+			console.log(fileId = refreshedOrder?.files?.find((file) => {file.name == attachment.name}));
 			console.log(fileId);
 		}
 
