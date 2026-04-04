@@ -306,14 +306,14 @@ export default function Orders({ userName, userLastName }) {
 	const handleDownloadFile = async (order, attachment) => {
 		let fileId = attachment.fileId;
 
-		console.log(attachment);
+		console.log(attachment.name);
 
 		if (!fileId) {
 			const refreshedOrders = await refreshOrders();
 			const refreshedOrder = refreshedOrders.find(
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
-			fileId = refreshedOrder?.files?.[0];
+			fileId = refreshedOrder?.files?.find((file) => {file.name == attachment.name})?.id;
 		}
 
 		if (!fileId) {
