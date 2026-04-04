@@ -1,6 +1,6 @@
 "use server";
 
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 
 export async function getFile(s3, bucket, fileKey) {
     const response = await s3.send(
