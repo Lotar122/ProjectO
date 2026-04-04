@@ -18,7 +18,7 @@ export async function getUserAuthSession(cookie) {
 		});
 
 		if (res.data && res.data.active) {
-			const DB = postgres(process.env.DB_URL, { prepare: true });
+			const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
 			let users = null;
 			try {
