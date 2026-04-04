@@ -24,6 +24,8 @@ export async function POST(req) {
 
 		const files = formData.getAll("files");
 
+		console.log("Before auth.");
+
 		// Get user session
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
@@ -34,6 +36,8 @@ export async function POST(req) {
 				headers: { "Content-Type": "application/json" },
 			});
 		}
+
+		console.log("After auth.");
 
 		const orderID = uuid7();
 		const userID = userAuthSession.data.identity.id;
