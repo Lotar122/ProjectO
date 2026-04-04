@@ -1,17 +1,19 @@
-"use server";
-
-import { S3Client, HeadBucketCommand } from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
+import https from "https";
 
 export async function createS3Client() {
-	const s3 = new S3Client({
-		region: "us-east-1", // can be any value
-		endpoint: "https://localhost:9000", // MinIO API
-		credentials: {
-			accessKeyId: process.env.MINIO_ROOT,
-			secretAccessKey: process.env.MINIO_PASSWORD,
-		},
-		forcePathStyle: true, // required for MinIO
-	});
-
-	return s3;
+    return new S3Client({
+        endpoint: process.env.MINIO_ENDPOINT,
+        region: 'us-east-1',
+        credentials: {
+            accessKeyId: process.env.MINIO_ACCESS_KEY,
+            secretAccessKey: process.env.MINIO_SECRET_KEY,
+        },
+        forcePathStyle: true,
+        requestHandler: {
+            httpsAgent: new https.Agent({
+                rejectUnauthorized: false  // trust self-signed cert
+            })
+        }
+    });
 }
