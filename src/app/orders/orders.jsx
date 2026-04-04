@@ -312,8 +312,6 @@ export default function Orders({ userName, userLastName }) {
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
 			fileId = refreshedOrder?.files?.[index];
-
-			console.log(fileId);
 		}
 
 		if (!fileId) {

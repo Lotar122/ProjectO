@@ -24,8 +24,6 @@ export async function POST(req) {
 
 		const files = formData.getAll("files");
 
-		console.log("Before auth.");
-
 		// Get user session
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
@@ -36,8 +34,6 @@ export async function POST(req) {
 				headers: { "Content-Type": "application/json" },
 			});
 		}
-
-		console.log("After auth.");
 
 		const orderID = uuid7();
 		const userID = userAuthSession.data.identity.id;
@@ -50,21 +46,13 @@ export async function POST(req) {
 			? new Date(dueDate).toISOString().split("T")[0]
 			: null;
 
-		console.log("Get files.");
-
 		const fileBuffers = await Promise.all(
 			files.map(async (file) => Buffer.from(await file.arrayBuffer())),
 		);
 
-		console.log("Before S3 client");
-
 		const s3 = await createS3Client();
 
-		console.log("After S3 client");
-
 		await createBucket(s3, "projecto");
-
-		console.log("Bucket created");
 
 		const fileKeys = await Promise.all(
 			fileBuffers.map(async (file, index) => {
@@ -85,8 +73,6 @@ export async function POST(req) {
 			}),
 		);
 
-		console.log("Files keyed");
-
 		// Insert into DB safely
 		await DB`
       INSERT INTO orders (
@@ -95,14 +81,6 @@ export async function POST(req) {
         ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${fileKeys}
       )
     `;
-
-	console.log(`
-      INSERT INTO orders (
-        order_id, user_id, patient, details, status, progress, issue_date, due_date, files
-      ) VALUES (
-        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${fileKeys}
-      )
-    `);
 
 		return new Response(JSON.stringify({ success: true, orderID }), {
 			status: 200,
