@@ -15,6 +15,7 @@ import {
 	Trash2,
 	UserCircle,
 	XCircle,
+	PencilLine
 } from "lucide-react";
 import axios from "axios";
 
@@ -623,10 +624,10 @@ export default function Orders({ userName, userLastName }) {
 																	<button
 																		type="button"
 																		onClick={() => {
-																			
+
 																		}}
 																		className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
-																		<Download className="h-4 w-4" />
+																		<PencilLine className="h-4 w-4" />
 																		Edit
 																	</button>
 																</div>
@@ -658,9 +659,7 @@ export default function Orders({ userName, userLastName }) {
 																							{attachment.name}
 																						</p>
 																						<p className="text-xs text-slate-500">
-																							{attachment.isLocal
-																								? "Ready to download in this session"
-																								: "Frontend placeholder download"}
+																							{"Ready to download in this session"}
 																						</p>
 																					</div>
 																				</div>
