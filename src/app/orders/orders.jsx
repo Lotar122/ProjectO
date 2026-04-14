@@ -669,16 +669,6 @@ export default function Orders({ userName, userLastName }) {
 																	type="button"
 																	onClick={() => {
 																		setOpenEditMenuId(null);
-																		setExpandedOrderId(order.order_id);
-																	}}
-																	className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-400 transition-colors hover:bg-slate-900 hover:text-slate-200">
-																	<FolderCog className="h-4 w-4" />
-																	File management
-																</button>
-																<button
-																	type="button"
-																	onClick={() => {
-																		setOpenEditMenuId(null);
 																		setDeleteOrderId(order.order_id);
 																	}}
 																	className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
@@ -736,6 +726,15 @@ export default function Orders({ userName, userLastName }) {
 
 																	<div className="mt-4 rounded-lg border border-dashed border-slate-800 bg-slate-900/70 p-4">
 																		<div className="flex flex-wrap items-center gap-2">
+																			<button
+																				type="button"
+																				onClick={() =>
+																					setDeleteOrderId(order.order_id)
+																				}
+																				className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200">
+																				<Trash2 className="h-4 w-4" />
+																				Delete order
+																			</button>
 																			<button
 																				type="button"
 																				className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-white">
@@ -1041,15 +1040,6 @@ export default function Orders({ userName, userLastName }) {
 											<span className="flex items-center gap-2 text-sm text-slate-100">
 												<Upload className="h-4 w-4" />
 												Upload replacement file
-											</span>
-											<span className="text-xs text-slate-500">Not connected</span>
-										</button>
-										<button
-											type="button"
-											className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-left">
-											<span className="flex items-center gap-2 text-sm text-slate-100">
-												<Paperclip className="h-4 w-4" />
-												Add supporting file
 											</span>
 											<span className="text-xs text-slate-500">Not connected</span>
 										</button>
