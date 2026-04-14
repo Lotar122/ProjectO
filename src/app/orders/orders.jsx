@@ -724,36 +724,6 @@ export default function Orders({ userName, userLastName }) {
 																		{orderFiles.length === 1 ? "" : "s"}
 																	</p>
 
-																	<div className="mt-4 rounded-lg border border-dashed border-slate-800 bg-slate-900/70 p-4">
-																		<div className="flex flex-wrap items-center gap-2">
-																			<button
-																				type="button"
-																				onClick={() =>
-																					setDeleteOrderId(order.order_id)
-																				}
-																				className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200">
-																				<Trash2 className="h-4 w-4" />
-																				Delete order
-																			</button>
-																			<button
-																				type="button"
-																				className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-white">
-																				<Upload className="h-4 w-4" />
-																				Upload file
-																			</button>
-																			<button
-																				type="button"
-																				className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-white">
-																				<Paperclip className="h-4 w-4" />
-																				Link existing file
-																			</button>
-																		</div>
-																		<p className="mt-3 text-xs text-slate-500">
-																			File management UI is prepared here, but no upload,
-																			replace, or remove behavior is connected yet.
-																		</p>
-																	</div>
-
 																	<div className="mt-4 space-y-3">
 																		{orderFiles.length > 0 ? (
 																		orderFiles.map((attachment, index) => (
@@ -1034,15 +1004,6 @@ export default function Orders({ userName, userLastName }) {
 									</label>
 
 									<div className="mt-3 space-y-2">
-										<button
-											type="button"
-											className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-left">
-											<span className="flex items-center gap-2 text-sm text-slate-100">
-												<Upload className="h-4 w-4" />
-												Upload replacement file
-											</span>
-											<span className="text-xs text-slate-500">Not connected</span>
-										</button>
 										{getOrderFiles(editedOrder, fileNamesById).map((attachment) => (
 											<div
 												key={attachment.id}
