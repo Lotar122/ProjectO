@@ -91,7 +91,6 @@ export default function Orders({ userName, userLastName }) {
 	const [orders, setOrders] = useState([]);
 	const [newOrder, setNewOrder] = useState(INITIAL_ORDER);
 	const [files, setFiles] = useState([]);
-	const [hoveredOrder, setHoveredOrder] = useState(null);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
 	const [editedOrder, setEditedOrder] = useState(null);
 	const [editDraft, setEditDraft] = useState(INITIAL_EDIT_DRAFT);
@@ -560,9 +559,9 @@ export default function Orders({ userName, userLastName }) {
 						</motion.div>
 
 						<div className="grid gap-6">
-							{orders.map((order) => {
-								const orderFiles = getOrderFiles(order, fileNamesById);
-								const isExpanded = expandedOrderId === order.order_id;
+								{orders.map((order) => {
+									const orderFiles = getOrderFiles(order, fileNamesById);
+									const isExpanded = expandedOrderId === order.order_id;
 
 								return (
 									<motion.div
@@ -571,22 +570,8 @@ export default function Orders({ userName, userLastName }) {
 										animate={{ opacity: 1, y: 0 }}
 										transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
 										whileHover={{ y: -4 }}
-										className="relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur transition-colors duration-200 hover:border-slate-700"
-										onMouseEnter={() =>
-											setHoveredOrder(order.order_id)
-										}
-										onMouseLeave={() => setHoveredOrder(null)}>
-										{hoveredOrder === order.order_id && (
-											<button
-												onClick={() =>
-													setDeleteOrderId(order.order_id)
-												}
-												className="absolute left-3 top-3 rounded-full p-2 transition-colors hover:bg-gray-800">
-												<Trash2 className="h-5 w-5 text-red-500" />
-											</button>
-										)}
-
-										<div className="ml-8 flex items-start justify-between gap-6">
+										className="relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur transition-colors duration-200 hover:border-slate-700">
+										<div className="flex items-start justify-between gap-6">
 											<div className="flex items-center gap-4">
 												<div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white shadow-[0_10px_30px_rgba(255,255,255,0.12)]">
 													<Package className="h-6 w-6 text-black" />
@@ -690,6 +675,16 @@ export default function Orders({ userName, userLastName }) {
 																	<FolderCog className="h-4 w-4" />
 																	File management
 																</button>
+																<button
+																	type="button"
+																	onClick={() => {
+																		setOpenEditMenuId(null);
+																		setDeleteOrderId(order.order_id);
+																	}}
+																	className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
+																	<Trash2 className="h-4 w-4" />
+																	Delete order
+																</button>
 																<p className="px-3 pb-1 pt-2 text-xs text-slate-500">
 																	File actions are UI-only for now.
 																</p>
@@ -727,15 +722,6 @@ export default function Orders({ userName, userLastName }) {
 																		{order.details ||
 																			"No additional details yet."}
 																	</p>
-																</div>
-																<div>
-																	<button
-																		type="button"
-																		onClick={() => openEditOrder(order)}
-																		className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
-																		<PencilLine className="h-4 w-4" />
-																		Edit
-																	</button>
 																</div>
 															</div>
 
@@ -976,164 +962,132 @@ export default function Orders({ userName, userLastName }) {
 							</p>
 						</div>
 
-						<div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-							<div className="rounded-xl border border-slate-800 bg-slate-900/88 p-8 backdrop-blur">
-								<form onSubmit={handleEditOrderSave} className="space-y-6">
-									<div>
-										<label className="mb-2 block text-sm font-medium text-slate-300">
-											Patient Name
-										</label>
-										<input
-											type="text"
-											value={editDraft.patient}
-											onChange={(e) =>
-												setEditDraft((current) => ({
-													...current,
-													patient: e.target.value,
-												}))
-											}
-											className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
-											placeholder="Enter patient full name"
-											required
-										/>
-									</div>
+						<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-8 backdrop-blur">
+							<form onSubmit={handleEditOrderSave} className="space-y-6">
+								<div>
+									<label className="mb-2 block text-sm font-medium text-slate-300">
+										Patient Name
+									</label>
+									<input
+										type="text"
+										value={editDraft.patient}
+										onChange={(e) =>
+											setEditDraft((current) => ({
+												...current,
+												patient: e.target.value,
+											}))
+										}
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+										placeholder="Enter patient full name"
+										required
+									/>
+								</div>
 
-									<div>
-										<label className="mb-2 block text-sm font-medium text-slate-300">
-											Details
-										</label>
-										<textarea
-											value={editDraft.details}
-											onChange={(e) =>
-												setEditDraft((current) => ({
-													...current,
-													details: e.target.value,
-												}))
-											}
-											rows={5}
-											className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
-											placeholder="Update treatment details"
-											required
-										/>
-									</div>
+								<div>
+									<label className="mb-2 block text-sm font-medium text-slate-300">
+										Details
+									</label>
+									<input
+										type="text"
+										value={editDraft.details}
+										onChange={(e) =>
+											setEditDraft((current) => ({
+												...current,
+												details: e.target.value,
+											}))
+										}
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+										placeholder="Enter type"
+										required
+									/>
+								</div>
 
-									<div>
-										<label className="mb-2 block text-sm font-medium text-slate-300">
-											Due date
-										</label>
-										<input
-											type="date"
-											value={editDraft.dueDate}
-											onChange={(e) =>
-												setEditDraft((current) => ({
-													...current,
-													dueDate: e.target.value,
-												}))
-											}
-											className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
-											required
-										/>
-									</div>
+								<div>
+									<label className="mb-2 block text-sm font-medium text-slate-300">
+										Due date
+									</label>
+									<input
+										type="date"
+										value={editDraft.dueDate}
+										onChange={(e) =>
+											setEditDraft((current) => ({
+												...current,
+												dueDate: e.target.value,
+											}))
+										}
+										className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+										required
+									/>
+								</div>
 
-									<div className="flex gap-4">
-										<motion.button
-											type="submit"
-											whileHover={{ scale: 1.02, y: -1 }}
-											whileTap={{ scale: 0.985 }}
-											className="flex-1 rounded-lg bg-white py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
-											Save Changes
-										</motion.button>
+								<div>
+									<label className="mb-2 block text-sm font-medium text-slate-300">
+										File Management
+									</label>
+
+									<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
+										<span className="text-sm text-slate-400">
+											Upload or replace files later
+										</span>
+										<span className="mt-1 text-xs text-slate-500">
+											UI only for now, no functionality connected
+										</span>
+									</label>
+
+									<div className="mt-3 space-y-2">
 										<button
 											type="button"
-											onClick={showOrdersPage}
-											className="flex-1 rounded-lg bg-slate-800 py-3 font-semibold text-white transition-colors duration-200 hover:bg-slate-700">
-											Cancel
+											className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-left">
+											<span className="flex items-center gap-2 text-sm text-slate-100">
+												<Upload className="h-4 w-4" />
+												Upload replacement file
+											</span>
+											<span className="text-xs text-slate-500">Not connected</span>
 										</button>
-									</div>
-								</form>
-							</div>
-
-							<div className="rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur">
-								<div className="flex items-center gap-3">
-									<div className="rounded-lg bg-slate-800 p-3 text-slate-100">
-										<FolderCog className="h-5 w-5" />
-									</div>
-									<div>
-										<h3 className="text-lg font-semibold text-white">
-											File Management
-										</h3>
-										<p className="text-sm text-slate-400">
-											Frontend layout only for now.
-										</p>
-									</div>
-								</div>
-
-								<div className="mt-6 space-y-3">
-									<button
-										type="button"
-										className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:border-slate-700">
-										<span className="flex items-center gap-3 text-sm text-slate-200">
-											<Upload className="h-4 w-4" />
-											Upload replacement file
-										</span>
-										<span className="text-xs text-slate-500">Not connected</span>
-									</button>
-									<button
-										type="button"
-										className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:border-slate-700">
-										<span className="flex items-center gap-3 text-sm text-slate-200">
-											<Paperclip className="h-4 w-4" />
-											Add supporting file
-										</span>
-										<span className="text-xs text-slate-500">Not connected</span>
-									</button>
-									<button
-										type="button"
-										className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:border-slate-700">
-										<span className="flex items-center gap-3 text-sm text-slate-200">
-											<Trash2 className="h-4 w-4" />
-											Remove attached file
-										</span>
-										<span className="text-xs text-slate-500">Not connected</span>
-									</button>
-								</div>
-
-								<div className="mt-6 rounded-lg border border-dashed border-slate-800 px-4 py-4 text-sm text-slate-500">
-									This panel is ready for future backend wiring, but it does not
-									upload, replace, link, or delete files yet.
-								</div>
-
-								<div className="mt-6">
-									<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-										Current Attachments
-									</p>
-									<div className="mt-3 space-y-3">
-										{getOrderFiles(editedOrder, fileNamesById).length > 0 ? (
-											getOrderFiles(editedOrder, fileNamesById).map((attachment) => (
-												<div
-													key={attachment.id}
-													className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-													<div className="rounded-lg bg-slate-800 p-2 text-slate-300">
-														<FileText className="h-4 w-4" />
-													</div>
-													<div className="min-w-0">
-														<p className="truncate text-sm text-white">
-															{attachment.name}
-														</p>
-														<p className="text-xs text-slate-500">
-															Visible here for future file actions
-														</p>
-													</div>
-												</div>
-											))
-										) : (
-											<div className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-sm text-slate-500">
+										<button
+											type="button"
+											className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-left">
+											<span className="flex items-center gap-2 text-sm text-slate-100">
+												<Paperclip className="h-4 w-4" />
+												Add supporting file
+											</span>
+											<span className="text-xs text-slate-500">Not connected</span>
+										</button>
+										{getOrderFiles(editedOrder, fileNamesById).map((attachment) => (
+											<div
+												key={attachment.id}
+												className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
+												<span className="flex min-w-0 items-center gap-2 text-sm text-slate-100">
+													<FileText className="h-4 w-4 shrink-0 text-slate-400" />
+													<span className="truncate">{attachment.name}</span>
+												</span>
+												<span className="text-xs text-slate-500">Available</span>
+											</div>
+										))}
+										{getOrderFiles(editedOrder, fileNamesById).length === 0 && (
+											<div className="rounded-lg border border-dashed border-slate-800 px-3 py-5 text-sm text-slate-500">
 												No files attached to this order yet.
 											</div>
 										)}
 									</div>
 								</div>
-							</div>
+
+								<div className="flex gap-4">
+									<motion.button
+										type="submit"
+										whileHover={{ scale: 1.02, y: -1 }}
+										whileTap={{ scale: 0.985 }}
+										className="flex-1 rounded-lg bg-white py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
+										Save Changes
+									</motion.button>
+									<button
+										type="button"
+										onClick={showOrdersPage}
+										className="flex-1 rounded-lg bg-slate-800 py-3 font-semibold text-white transition-colors duration-200 hover:bg-slate-700">
+										Cancel
+									</button>
+								</div>
+							</form>
 						</div>
 					</motion.div>
 				)}
