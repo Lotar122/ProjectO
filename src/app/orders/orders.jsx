@@ -7,12 +7,16 @@ import {
 	ChevronDown,
 	Clock,
 	Download,
+	Ellipsis,
 	FileText,
+	FolderCog,
 	LogOut,
 	Package,
+	Paperclip,
 	Plus,
 	Search,
 	Trash2,
+	Upload,
 	UserCircle,
 	XCircle,
 	PencilLine
@@ -23,6 +27,12 @@ const INITIAL_ORDER = {
 	patient: "",
 	details: "",
 	dueDate: new Date().toISOString().split("T")[0],
+};
+
+const INITIAL_EDIT_DRAFT = {
+	patient: "",
+	details: "",
+	dueDate: "",
 };
 
 const getFilteredOrders = (orders, searchValue, statusValue) => {
@@ -83,8 +93,11 @@ export default function Orders({ userName, userLastName }) {
 	const [files, setFiles] = useState([]);
 	const [hoveredOrder, setHoveredOrder] = useState(null);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
+	const [editedOrder, setEditedOrder] = useState(null);
+	const [editDraft, setEditDraft] = useState(INITIAL_EDIT_DRAFT);
 	const [expandedOrderId, setExpandedOrderId] = useState(null);
 	const [fileNamesById, setFileNamesById] = useState({});
+	const [openEditMenuId, setOpenEditMenuId] = useState(null);
 	const orderFilterRef = useRef(null);
 	const orderSearchRef = useRef(null);
 
@@ -107,6 +120,19 @@ export default function Orders({ userName, userLastName }) {
 	useEffect(() => {
 		void refreshOrders();
 	}, [refreshOrders]);
+
+	useEffect(() => {
+		if (!editedOrder) {
+			setEditDraft(INITIAL_EDIT_DRAFT);
+			return;
+		}
+
+		setEditDraft({
+			patient: editedOrder.patient || "",
+			details: editedOrder.details || editedOrder.type || "",
+			dueDate: getDisplayDate(editedOrder),
+		});
+	}, [editedOrder]);
 
 	useEffect(() => {
 		const missingFileIds = [
@@ -279,6 +305,7 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const showOrdersPage = () => {
+		setOpenEditMenuId(null);
 		setCurrentPage("orders");
 		syncVisibleOrders(allOrders);
 	};
@@ -301,7 +328,40 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const toggleOrderExpanded = (orderId) => {
+		setOpenEditMenuId(null);
 		setExpandedOrderId((current) => (current === orderId ? null : orderId));
+	};
+
+	const openEditOrder = (order) => {
+		setEditedOrder(order);
+		setOpenEditMenuId(null);
+		setCurrentPage("edit-order");
+	};
+
+	const handleEditOrderSave = (e) => {
+		e.preventDefault();
+
+		if (!editedOrder?.order_id) {
+			return;
+		}
+
+		const updatedOrder = {
+			...editedOrder,
+			patient: editDraft.patient,
+			details: editDraft.details,
+			dueDate: editDraft.dueDate,
+			due_date: editDraft.dueDate,
+		};
+
+		const nextOrders = allOrders.map((order) =>
+			order.order_id === editedOrder.order_id ? updatedOrder : order,
+		);
+
+		setAllOrders(nextOrders);
+		syncVisibleOrders(nextOrders);
+		setEditedOrder(updatedOrder);
+		setExpandedOrderId(updatedOrder.order_id);
+		setCurrentPage("orders");
 	};
 
 	const handleDownloadFile = async (order, attachment, index) => {
@@ -589,6 +649,54 @@ export default function Orders({ userName, userLastName }) {
 														}`}
 													/>
 												</button>
+
+												<div className="relative self-start">
+													<button
+														type="button"
+														onClick={() =>
+															setOpenEditMenuId((current) =>
+																current === order.order_id
+																	? null
+																	: order.order_id,
+															)
+														}
+														className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+														aria-label={`Open actions for order ${order.order_id}`}>
+														<Ellipsis className="h-4 w-4" />
+													</button>
+
+													<AnimatePresence>
+														{openEditMenuId === order.order_id && (
+															<motion.div
+																initial={{ opacity: 0, y: 8, scale: 0.98 }}
+																animate={{ opacity: 1, y: 0, scale: 1 }}
+																exit={{ opacity: 0, y: 8, scale: 0.98 }}
+																transition={{ duration: 0.18 }}
+																className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl">
+																<button
+																	type="button"
+																	onClick={() => openEditOrder(order)}
+																	className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white">
+																	<PencilLine className="h-4 w-4" />
+																	Edit order
+																</button>
+																<button
+																	type="button"
+																	onClick={() => {
+																		setOpenEditMenuId(null);
+																		setExpandedOrderId(order.order_id);
+																	}}
+																	className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-400 transition-colors hover:bg-slate-900 hover:text-slate-200">
+																	<FolderCog className="h-4 w-4" />
+																	File management
+																</button>
+																<p className="px-3 pb-1 pt-2 text-xs text-slate-500">
+																	File actions are UI-only for now.
+																</p>
+															</motion.div>
+														)}
+													</AnimatePresence>
+												</div>
 											</div>
 										</div>
 
@@ -623,9 +731,7 @@ export default function Orders({ userName, userLastName }) {
 																<div>
 																	<button
 																		type="button"
-																		onClick={() => {
-
-																		}}
+																		onClick={() => openEditOrder(order)}
 																		className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
 																		<PencilLine className="h-4 w-4" />
 																		Edit
@@ -633,17 +739,38 @@ export default function Orders({ userName, userLastName }) {
 																</div>
 															</div>
 
-															<div>
-																<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-																	Attached Files
-																</p>
-																<p className="mt-1 text-sm text-slate-400">
-																	{orderFiles.length} file
-																	{orderFiles.length === 1 ? "" : "s"}
-																</p>
+																<div>
+																	<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+																		Attached Files
+																	</p>
+																	<p className="mt-1 text-sm text-slate-400">
+																		{orderFiles.length} file
+																		{orderFiles.length === 1 ? "" : "s"}
+																	</p>
 
-																<div className="mt-4 space-y-3">
-																	{orderFiles.length > 0 ? (
+																	<div className="mt-4 rounded-lg border border-dashed border-slate-800 bg-slate-900/70 p-4">
+																		<div className="flex flex-wrap items-center gap-2">
+																			<button
+																				type="button"
+																				className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-white">
+																				<Upload className="h-4 w-4" />
+																				Upload file
+																			</button>
+																			<button
+																				type="button"
+																				className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-white">
+																				<Paperclip className="h-4 w-4" />
+																				Link existing file
+																			</button>
+																		</div>
+																		<p className="mt-3 text-xs text-slate-500">
+																			File management UI is prepared here, but no upload,
+																			replace, or remove behavior is connected yet.
+																		</p>
+																	</div>
+
+																	<div className="mt-4 space-y-3">
+																		{orderFiles.length > 0 ? (
 																		orderFiles.map((attachment, index) => (
 																			<motion.div
 																				key={attachment.id}
@@ -835,6 +962,178 @@ export default function Orders({ userName, userLastName }) {
 									</button>
 								</div>
 							</form>
+						</div>
+					</motion.div>
+				)}
+
+				{currentPage === "edit-order" && editedOrder && (
+					<motion.div variants={sectionTransition} initial="initial" animate="animate">
+						<div className="mb-8">
+							<h2 className="mb-2 text-3xl font-bold text-white">Edit Order</h2>
+							<p className="text-slate-400">
+								Update order details on the frontend for order #
+								{editedOrder.order_id}
+							</p>
+						</div>
+
+						<div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+							<div className="rounded-xl border border-slate-800 bg-slate-900/88 p-8 backdrop-blur">
+								<form onSubmit={handleEditOrderSave} className="space-y-6">
+									<div>
+										<label className="mb-2 block text-sm font-medium text-slate-300">
+											Patient Name
+										</label>
+										<input
+											type="text"
+											value={editDraft.patient}
+											onChange={(e) =>
+												setEditDraft((current) => ({
+													...current,
+													patient: e.target.value,
+												}))
+											}
+											className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+											placeholder="Enter patient full name"
+											required
+										/>
+									</div>
+
+									<div>
+										<label className="mb-2 block text-sm font-medium text-slate-300">
+											Details
+										</label>
+										<textarea
+											value={editDraft.details}
+											onChange={(e) =>
+												setEditDraft((current) => ({
+													...current,
+													details: e.target.value,
+												}))
+											}
+											rows={5}
+											className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+											placeholder="Update treatment details"
+											required
+										/>
+									</div>
+
+									<div>
+										<label className="mb-2 block text-sm font-medium text-slate-300">
+											Due date
+										</label>
+										<input
+											type="date"
+											value={editDraft.dueDate}
+											onChange={(e) =>
+												setEditDraft((current) => ({
+													...current,
+													dueDate: e.target.value,
+												}))
+											}
+											className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+											required
+										/>
+									</div>
+
+									<div className="flex gap-4">
+										<motion.button
+											type="submit"
+											whileHover={{ scale: 1.02, y: -1 }}
+											whileTap={{ scale: 0.985 }}
+											className="flex-1 rounded-lg bg-white py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
+											Save Changes
+										</motion.button>
+										<button
+											type="button"
+											onClick={showOrdersPage}
+											className="flex-1 rounded-lg bg-slate-800 py-3 font-semibold text-white transition-colors duration-200 hover:bg-slate-700">
+											Cancel
+										</button>
+									</div>
+								</form>
+							</div>
+
+							<div className="rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur">
+								<div className="flex items-center gap-3">
+									<div className="rounded-lg bg-slate-800 p-3 text-slate-100">
+										<FolderCog className="h-5 w-5" />
+									</div>
+									<div>
+										<h3 className="text-lg font-semibold text-white">
+											File Management
+										</h3>
+										<p className="text-sm text-slate-400">
+											Frontend layout only for now.
+										</p>
+									</div>
+								</div>
+
+								<div className="mt-6 space-y-3">
+									<button
+										type="button"
+										className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:border-slate-700">
+										<span className="flex items-center gap-3 text-sm text-slate-200">
+											<Upload className="h-4 w-4" />
+											Upload replacement file
+										</span>
+										<span className="text-xs text-slate-500">Not connected</span>
+									</button>
+									<button
+										type="button"
+										className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:border-slate-700">
+										<span className="flex items-center gap-3 text-sm text-slate-200">
+											<Paperclip className="h-4 w-4" />
+											Add supporting file
+										</span>
+										<span className="text-xs text-slate-500">Not connected</span>
+									</button>
+									<button
+										type="button"
+										className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:border-slate-700">
+										<span className="flex items-center gap-3 text-sm text-slate-200">
+											<Trash2 className="h-4 w-4" />
+											Remove attached file
+										</span>
+										<span className="text-xs text-slate-500">Not connected</span>
+									</button>
+								</div>
+
+								<div className="mt-6 rounded-lg border border-dashed border-slate-800 px-4 py-4 text-sm text-slate-500">
+									This panel is ready for future backend wiring, but it does not
+									upload, replace, link, or delete files yet.
+								</div>
+
+								<div className="mt-6">
+									<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+										Current Attachments
+									</p>
+									<div className="mt-3 space-y-3">
+										{getOrderFiles(editedOrder, fileNamesById).length > 0 ? (
+											getOrderFiles(editedOrder, fileNamesById).map((attachment) => (
+												<div
+													key={attachment.id}
+													className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
+													<div className="rounded-lg bg-slate-800 p-2 text-slate-300">
+														<FileText className="h-4 w-4" />
+													</div>
+													<div className="min-w-0">
+														<p className="truncate text-sm text-white">
+															{attachment.name}
+														</p>
+														<p className="text-xs text-slate-500">
+															Visible here for future file actions
+														</p>
+													</div>
+												</div>
+											))
+										) : (
+											<div className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-sm text-slate-500">
+												No files attached to this order yet.
+											</div>
+										)}
+									</div>
+								</div>
+							</div>
 						</div>
 					</motion.div>
 				)}
