@@ -570,7 +570,9 @@ export default function Orders({ userName, userLastName }) {
 										animate={{ opacity: 1, y: 0 }}
 										transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
 										whileHover={{ y: -4 }}
-										className="relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur transition-colors duration-200 hover:border-slate-700">
+										className={`relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur transition-colors duration-200 hover:border-slate-700 ${
+											openEditMenuId === order.order_id ? "z-30" : "z-0"
+										}`}>
 										<div className="flex items-start justify-between gap-6">
 											<div className="flex items-center gap-4">
 												<div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white shadow-[0_10px_30px_rgba(255,255,255,0.12)]">
@@ -657,7 +659,7 @@ export default function Orders({ userName, userLastName }) {
 																animate={{ opacity: 1, y: 0, scale: 1 }}
 																exit={{ opacity: 0, y: 8, scale: 0.98 }}
 																transition={{ duration: 0.18 }}
-																className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl">
+																className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl">
 																<button
 																	type="button"
 																	onClick={() => openEditOrder(order)}
