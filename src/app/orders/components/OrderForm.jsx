@@ -138,7 +138,7 @@ export default function OrderForm({
 								<div className="mt-3">
 									<OrderFilesList
 										attachments={attachments}
-										actionLabel="Remove"
+										actionLabel="X"
 										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
 										emptyMessage="No files attached to this order yet."
 										metaText="Ready in the current session"
