@@ -97,23 +97,19 @@ export default function OrderForm({
 									/>
 								</label>
 
-								<div className="mt-3 space-y-2">
-									{files.map((file, index) => (
-										<div
-											key={`${file.name}-${index}`}
-											className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
-											<span className="truncate text-sm text-slate-100">
-												{file.name}
-											</span>
-
-											<button
-												type="button"
-												onClick={() => onRemoveFile?.(index)}
-												className="text-sm text-slate-400 hover:text-red-400">
-												X
-											</button>
-										</div>
-									))}
+								<div className="mt-3">
+									<OrderFilesList
+										attachments={files.map((file, index) => ({
+											id: `${file.name}-${index}-${file.size}`,
+											name: file.name,
+										}))}
+										actionLabel="X"
+										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
+										emptyMessage="No files attached yet."
+										metaText="Ready in the current session"
+										onAction={(_, index) => onRemoveFile?.(index)}
+										showDownloadButton={false}
+									/>
 								</div>
 							</>
 						) : (
