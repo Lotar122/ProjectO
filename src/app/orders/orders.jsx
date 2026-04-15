@@ -13,6 +13,7 @@ import OrdersToolbar from "./components/OrdersToolbar";
 import {
 	INITIAL_EDIT_DRAFT,
 	INITIAL_ORDER,
+	createLocalAttachments,
 	getDisplayDate,
 	getFilteredOrders,
 	getOrderFiles,
@@ -36,6 +37,7 @@ export default function Orders({ userName, userLastName }) {
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
 	const [editedOrder, setEditedOrder] = useState(null);
 	const [editDraft, setEditDraft] = useState(INITIAL_EDIT_DRAFT);
+	const [editFiles, setEditFiles] = useState([]);
 	const [expandedOrderId, setExpandedOrderId] = useState(null);
 	const [fileNamesById, setFileNamesById] = useState({});
 	const [openEditMenuId, setOpenEditMenuId] = useState(null);
@@ -65,6 +67,7 @@ export default function Orders({ userName, userLastName }) {
 	useEffect(() => {
 		if (!editedOrder) {
 			setEditDraft(INITIAL_EDIT_DRAFT);
+			setEditFiles([]);
 			return;
 		}
 
@@ -159,6 +162,7 @@ export default function Orders({ userName, userLastName }) {
 			dueDate: newOrder.dueDate,
 			issueDate: new Date().toISOString(),
 			progress: 0,
+			frontendFiles: createLocalAttachments(files),
 			uploadedFiles: files.map((file, index) => ({
 				id: `${file.name}-${index}-${file.size}`,
 				name: file.name,
@@ -218,6 +222,7 @@ export default function Orders({ userName, userLastName }) {
 
 	const showOrdersPage = () => {
 		setOpenEditMenuId(null);
+		setEditedOrder(null);
 		setCurrentPage("orders");
 		syncVisibleOrders(allOrders);
 	};
@@ -245,6 +250,7 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const openEditOrder = (order) => {
+		setEditFiles(getOrderFiles(order, fileNamesById));
 		setEditedOrder(order);
 		setOpenEditMenuId(null);
 		setCurrentPage("edit-order");
@@ -263,6 +269,7 @@ export default function Orders({ userName, userLastName }) {
 			details: editDraft.details,
 			dueDate: editDraft.dueDate,
 			due_date: editDraft.dueDate,
+			frontendFiles: editFiles,
 		};
 
 		const nextOrders = allOrders.map((order) =>
@@ -277,6 +284,18 @@ export default function Orders({ userName, userLastName }) {
 	};
 
 	const handleDownloadFile = async (order, attachment, index) => {
+		if (attachment.file instanceof File) {
+			const objectUrl = URL.createObjectURL(attachment.file);
+			const link = document.createElement("a");
+			link.href = objectUrl;
+			link.download = attachment.name;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(objectUrl);
+			return;
+		}
+
 		let fileId = attachment.fileId;
 
 		if (!fileId) {
@@ -437,7 +456,6 @@ export default function Orders({ userName, userLastName }) {
 						initial="initial"
 						animate="animate">
 						<OrderForm
-							attachments={getOrderFiles(editedOrder, fileNamesById)}
 							description={`Update order details on the frontend for order #${editedOrder.order_id}`}
 							details={editDraft.details}
 							dueDate={editDraft.dueDate}
@@ -461,10 +479,22 @@ export default function Orders({ userName, userLastName }) {
 									patient,
 								}))
 							}
+							onFilesSelected={(selectedFiles) =>
+								setEditFiles((current) => [
+									...current,
+									...createLocalAttachments(selectedFiles),
+								])
+							}
+							onRemoveAttachment={(_, index) =>
+								setEditFiles((current) =>
+									current.filter((_, currentIndex) => currentIndex !== index),
+								)
+							}
 							onSubmit={handleEditOrderSave}
 							patient={editDraft.patient}
 							submitLabel="Save Changes"
 							title="Edit Order"
+							attachments={editFiles}
 						/>
 					</motion.div>
 				)}

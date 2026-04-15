@@ -17,6 +17,7 @@ export default function OrderForm({
 	onDueDateChange,
 	onFilesSelected,
 	onPatientChange,
+	onRemoveAttachment,
 	onRemoveFile,
 	onSubmit,
 	patient,
@@ -75,7 +76,9 @@ export default function OrderForm({
 
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
-							{fileSectionMode === "create" ? "Attach Files" : "File Management"}
+							{fileSectionMode === "create"
+								? "Attach Files"
+								: "File Management"}
 						</label>
 
 						{fileSectionMode === "create" ? (
@@ -115,20 +118,31 @@ export default function OrderForm({
 							</>
 						) : (
 							<>
-								<label className="flex h-32 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60">
+								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
 									<span className="text-sm text-slate-400">
-										Upload or replace files later
+										Click or drag files
 									</span>
 									<span className="mt-1 text-xs text-slate-500">
-										UI only for now, no functionality connected
+										Frontend-only changes until backend editing is added
 									</span>
+									<input
+										type="file"
+										multiple
+										onChange={(event) =>
+											onFilesSelected?.(Array.from(event.target.files || []))
+										}
+										className="hidden"
+									/>
 								</label>
 
 								<div className="mt-3">
 									<OrderFilesList
 										attachments={attachments}
+										actionLabel="Remove"
+										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
 										emptyMessage="No files attached to this order yet."
 										metaText="Ready in the current session"
+										onAction={onRemoveAttachment}
 										showDownloadButton={false}
 									/>
 								</div>

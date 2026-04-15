@@ -4,9 +4,12 @@ import { motion } from "framer-motion";
 import { Download, FileText } from "lucide-react";
 
 export default function OrderFilesList({
+	actionLabel,
+	actionTextClassName = "text-sm text-slate-400 hover:text-red-400",
 	attachments,
 	emptyMessage,
 	metaText = "Ready to download in this session",
+	onAction,
 	onDownload,
 	showDownloadButton = true,
 }) {
@@ -43,6 +46,13 @@ export default function OrderFilesList({
 							className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
 							<Download className="h-4 w-4" />
 							Download
+						</button>
+					) : actionLabel && onAction ? (
+						<button
+							type="button"
+							onClick={() => onAction(attachment, index)}
+							className={actionTextClassName}>
+							{actionLabel}
 						</button>
 					) : (
 						<span className="text-xs text-slate-500">Available</span>

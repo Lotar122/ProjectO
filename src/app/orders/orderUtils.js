@@ -10,6 +10,14 @@ export const INITIAL_EDIT_DRAFT = {
 	dueDate: "",
 };
 
+export const createLocalAttachments = (files) =>
+	files.map((file, index) => ({
+		id: `local-${file.name}-${file.size}-${file.lastModified}-${Date.now()}-${index}`,
+		name: file.name,
+		file,
+		isLocal: true,
+	}));
+
 export const ORDER_STATUS_OPTIONS = [
 	"All Status",
 	"Pending",
@@ -38,6 +46,10 @@ export const getDisplayDate = (order) =>
 	order.due_date?.slice(0, 10) || order.dueDate?.slice(0, 10) || "";
 
 export const getOrderFiles = (order, fileNamesById) => {
+	if (Array.isArray(order.frontendFiles)) {
+		return order.frontendFiles;
+	}
+
 	if (Array.isArray(order.uploadedFiles) && order.uploadedFiles.length > 0) {
 		return order.uploadedFiles.map((file, index) => ({
 			id: file.id || `${order.order_id || order.patient}-${index}`,
