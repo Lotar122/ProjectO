@@ -31,6 +31,21 @@ export async function GET(req) {
             });
         }
 
+		const [fileAccess] = await DB`
+			SELECT 1
+			FROM orders
+			WHERE user_id = ${userAuthSession.data.identity.id}
+				AND ${fileKey} = ANY(files)
+			LIMIT 1
+		`;
+
+		if (!fileAccess) {
+			return new Response(JSON.stringify({ error: "File not found" }), {
+				status: 404,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
 		const s3 = await createS3Client();
 
         // Fetch file from MinIO

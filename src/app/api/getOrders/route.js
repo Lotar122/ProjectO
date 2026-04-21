@@ -8,26 +8,29 @@ import postgres from "postgres";
 
 export async function GET() {
 	let payload = null;
+	let DB = null;
 
-	let cookieHeader = await cookies(); // get cookies from request
+	try {
+		let cookieHeader = await cookies(); // get cookies from request
 
-	let userAuthSession = await getUserAuthSession(cookieHeader);
+		let userAuthSession = await getUserAuthSession(cookieHeader);
 
-	if (!userAuthSession.loggedIn) {
-		return new Response(JSON.stringify({ error: "Forbidden" }), {
-			status: 403,
+		if (!userAuthSession.loggedIn) {
+			return new Response(JSON.stringify({ error: "Forbidden" }), {
+				status: 403,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
+
+		payload =
+			await DB`SELECT * FROM orders WHERE "user_id" = ${userAuthSession.data.identity.id};`;
+
+		return new Response(JSON.stringify(payload), {
 			headers: { "Content-Type": "application/json" },
 		});
+	} finally {
+		await DB?.end();
 	}
-
-	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
-
-	payload =
-		await DB`SELECT * FROM orders WHERE "user_id" = ${userAuthSession.data.identity.id};`;
-
-	DB.end();
-
-	return new Response(JSON.stringify(payload), {
-		headers: { "Content-Type": "application/json" },
-	});
 }
