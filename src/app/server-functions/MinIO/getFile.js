@@ -1,8 +1,12 @@
 "use server";
 
-import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+
+import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwnership";
 
 export async function getFile(s3, bucket, fileKey) {
+	await verifyFileOwnership(fileKey);
+
     const response = await s3.send(
         new GetObjectCommand({
             Bucket: bucket,

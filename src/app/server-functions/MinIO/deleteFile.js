@@ -1,6 +1,7 @@
 "use server";
 
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwnership";
 
 /**
  * Deletes a file from MinIO by its object ID/key.
@@ -10,6 +11,8 @@ import { DeleteObjectCommand } from "@aws-sdk/client-s3";
  */
 export async function deleteFileById(s3, bucket, fileId) {
 	try {
+		await verifyFileOwnership(fileId);
+
 		await s3.send(
 			new DeleteObjectCommand({
 				Bucket: bucket,
