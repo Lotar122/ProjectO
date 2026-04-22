@@ -52,6 +52,8 @@ function sanitizeFileName(patient, originalFileName) {
 		}
 	}
 
+	console.log(baseName ? `${baseName}${extension}` : `file${extension}`);
+
 	return baseName ? `${baseName}${extension}` : `file${extension}`;
 }
 
