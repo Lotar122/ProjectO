@@ -50,9 +50,9 @@ function sanitizeFileName(patient, originalFileName) {
 		if (/\blower\b/.test(normalizedBaseName)) {
 			return "LowerJawScan.stl";
 		}
-	}
 
-	console.log(baseName ? `${baseName}${extension}` : `file${extension}`);
+		console.log(baseName ? `${baseName}${extension}` : `file${extension}`);
+	}
 
 	return baseName ? `${baseName}${extension}` : `file${extension}`;
 }
