@@ -61,6 +61,36 @@ export default function Orders({ userName, userLastName }) {
 		return nextOrders;
 	}, [syncVisibleOrders]);
 
+	const loadFileNamesByIds = useCallback(async (fileIds) => {
+		const missingFileIds = [
+			...new Set(fileIds.filter((fileId) => fileId && !fileNamesById[fileId])),
+		];
+
+		if (missingFileIds.length === 0) {
+			return;
+		}
+
+		const responses = await Promise.all(
+			missingFileIds.map(async (fileId) => {
+				const response = await axios.get(`/api/getFileName?file_id=${fileId}`, {
+					withCredentials: true,
+				});
+
+				return [fileId, response.data.filename];
+			}),
+		);
+
+		setFileNamesById((current) => {
+			const next = { ...current };
+
+			responses.forEach(([fileId, filename]) => {
+				next[fileId] = filename || current[fileId] || "Attachment";
+			});
+
+			return next;
+		});
+	}, [fileNamesById]);
+
 	useEffect(() => {
 		void refreshOrders();
 	}, [refreshOrders]);
@@ -96,32 +126,11 @@ export default function Orders({ userName, userLastName }) {
 
 		const loadFileNames = async () => {
 			try {
-				const responses = await Promise.all(
-					missingFileIds.map(async (fileId) => {
-						const response = await axios.get(
-							`/api/getFileName?file_id=${fileId}`,
-							{
-								withCredentials: true,
-							},
-						);
-
-						return [fileId, response.data.filename];
-					}),
-				);
-
 				if (!isMounted) {
 					return;
 				}
 
-				setFileNamesById((current) => {
-					const next = { ...current };
-
-					responses.forEach(([fileId, filename]) => {
-						next[fileId] = filename || current[fileId] || "Attachment";
-					});
-
-					return next;
-				});
+				await loadFileNamesByIds(missingFileIds);
 			} catch (err) {
 				console.error("Failed to load file names:", err);
 			}
@@ -132,7 +141,7 @@ export default function Orders({ userName, userLastName }) {
 		return () => {
 			isMounted = false;
 		};
-	}, [allOrders, fileNamesById]);
+	}, [allOrders, fileNamesById, loadFileNamesByIds]);
 
 	const handleLogout = async () => {
 		try {
@@ -163,12 +172,6 @@ export default function Orders({ userName, userLastName }) {
 			dueDate: newOrder.dueDate,
 			issueDate: new Date().toISOString(),
 			progress: 0,
-			frontendFiles: createLocalAttachments(files, newOrder.patient),
-			uploadedFiles: files.map((file, index) => ({
-				id: `${file.name}-${index}-${file.size}`,
-				name: buildOrderFileName(newOrder.patient, file.name),
-				file,
-			})),
 		};
 
 		try {
@@ -192,16 +195,15 @@ export default function Orders({ userName, userLastName }) {
 				},
 			});
 
-			const nextOrders = [
-				{
-					...order,
-					order_id: response.data.orderID,
-				},
-				...allOrders,
-			];
+			const nextOrders = await refreshOrders();
+			const createdOrder = nextOrders.find(
+				(currentOrder) => currentOrder.order_id === response.data.orderID,
+			);
 
-			setAllOrders(nextOrders);
-			syncVisibleOrders(nextOrders);
+			if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0) {
+				await loadFileNamesByIds(createdOrder.files);
+			}
+
 			setNewOrder(INITIAL_ORDER);
 			setFiles([]);
 			setCurrentPage("orders");
