@@ -117,6 +117,8 @@ export async function POST(req) {
 					}),
 				);
 
+				console.log(fileName);
+
 				return fileKey;
 			}),
 		);
