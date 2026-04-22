@@ -73,13 +73,14 @@ export async function POST(req) {
 				{
 					fileName = files[index].name;
 
-					for(const name of names)
+					for(let i = 0; i < names.length; i++)
 					{
-						fileName.replace(name, '');
+						fileName.replace(names[i], '');
 					}
 				}
 
 				console.log(fileName);
+				console.log(names);
 
 				await s3.send(
 					new PutObjectCommand({
