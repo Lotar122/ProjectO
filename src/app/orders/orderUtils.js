@@ -10,10 +10,31 @@ export const INITIAL_EDIT_DRAFT = {
 	dueDate: "",
 };
 
-export const createLocalAttachments = (files) =>
+export const sanitizeDownloadPart = (value) =>
+	String(value ?? "")
+		.trim()
+		.replace(/[\\/:*?"<>|]+/g, " ")
+		.replace(/\s+/g, " ");
+
+export const buildOrderFileName = (patient, fileName) => {
+	const safePatient = sanitizeDownloadPart(patient);
+	const safeFileName = sanitizeDownloadPart(fileName);
+
+	if (!safePatient) {
+		return safeFileName || "download";
+	}
+
+	if (!safeFileName) {
+		return safePatient;
+	}
+
+	return `${safePatient} ${safeFileName}`;
+};
+
+export const createLocalAttachments = (files, patient) =>
 	files.map((file, index) => ({
 		id: `local-${file.name}-${file.size}-${file.lastModified}-${Date.now()}-${index}`,
-		name: file.name,
+		name: buildOrderFileName(patient, file.name),
 		file,
 		isLocal: true,
 	}));
@@ -53,7 +74,10 @@ export const getOrderFiles = (order, fileNamesById) => {
 	if (Array.isArray(order.uploadedFiles) && order.uploadedFiles.length > 0) {
 		return order.uploadedFiles.map((file, index) => ({
 			id: file.id || `${order.order_id || order.patient}-${index}`,
-			name: file.name || `Attachment ${index + 1}`,
+			name: buildOrderFileName(
+				order.patient,
+				file.name || `Attachment ${index + 1}`,
+			),
 			file,
 			isLocal: true,
 		}));
@@ -65,7 +89,10 @@ export const getOrderFiles = (order, fileNamesById) => {
 
 	return order.files.map((fileId, index) => ({
 		id: String(fileId),
-		name: fileNamesById[fileId] || `Attachment ${index + 1}`,
+		name: buildOrderFileName(
+			order.patient,
+			fileNamesById[fileId] || `Attachment ${index + 1}`,
+		),
 		fileId,
 		isLocal: false,
 	}));

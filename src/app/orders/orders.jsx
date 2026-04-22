@@ -11,6 +11,7 @@ import OrderForm from "./components/OrderForm";
 import OrdersHeader from "./components/OrdersHeader";
 import OrdersToolbar from "./components/OrdersToolbar";
 import {
+	buildOrderFileName,
 	INITIAL_EDIT_DRAFT,
 	INITIAL_ORDER,
 	createLocalAttachments,
@@ -162,10 +163,10 @@ export default function Orders({ userName, userLastName }) {
 			dueDate: newOrder.dueDate,
 			issueDate: new Date().toISOString(),
 			progress: 0,
-			frontendFiles: createLocalAttachments(files),
+			frontendFiles: createLocalAttachments(files, newOrder.patient),
 			uploadedFiles: files.map((file, index) => ({
 				id: `${file.name}-${index}-${file.size}`,
-				name: file.name,
+				name: buildOrderFileName(newOrder.patient, file.name),
 				file,
 			})),
 		};
@@ -288,7 +289,7 @@ export default function Orders({ userName, userLastName }) {
 			const objectUrl = URL.createObjectURL(attachment.file);
 			const link = document.createElement("a");
 			link.href = objectUrl;
-			link.download = attachment.name;
+			link.download = buildOrderFileName(order.patient, attachment.name);
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
@@ -310,12 +311,23 @@ export default function Orders({ userName, userLastName }) {
 			return;
 		}
 
+		const downloadOrder =
+			order.patient
+				? order
+				: allOrders.find((currentOrder) => currentOrder.order_id === order.order_id) ||
+					order;
+		const response = await axios.get(`/api/downloadFile?file_id=${fileId}`, {
+			withCredentials: true,
+			responseType: "blob",
+		});
+		const objectUrl = URL.createObjectURL(response.data);
 		const link = document.createElement("a");
-		link.href = `/api/downloadFile?file_id=${fileId}`;
-		link.setAttribute("download", "");
+		link.href = objectUrl;
+		link.download = buildOrderFileName(downloadOrder.patient, attachment.name);
 		document.body.appendChild(link);
 		link.click();
 		link.remove();
+		URL.revokeObjectURL(objectUrl);
 	};
 
 	return (
