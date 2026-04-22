@@ -291,7 +291,7 @@ export default function Orders({ userName, userLastName }) {
 			const objectUrl = URL.createObjectURL(attachment.file);
 			const link = document.createElement("a");
 			link.href = objectUrl;
-			link.download = buildOrderFileName(order.patient, attachment.name);
+			link.download = buildOrderFileName(order.patient, attachment.file.name);
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
@@ -323,9 +323,10 @@ export default function Orders({ userName, userLastName }) {
 			responseType: "blob",
 		});
 		const objectUrl = URL.createObjectURL(response.data);
+		const baseFileName = fileNamesById[fileId] || attachment.name;
 		const link = document.createElement("a");
 		link.href = objectUrl;
-		link.download = buildOrderFileName(downloadOrder.patient, attachment.name);
+		link.download = buildOrderFileName(downloadOrder.patient, baseFileName);
 		document.body.appendChild(link);
 		link.click();
 		link.remove();
