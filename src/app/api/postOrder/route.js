@@ -8,6 +8,53 @@ import { cookies } from "next/headers";
 import postgres from "postgres";
 import { v7 as uuid7 } from "uuid";
 
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeFileName(patient, originalFileName) {
+	const extensionIndex = originalFileName.lastIndexOf(".");
+	const hasExtension = extensionIndex !== -1;
+	const extension = hasExtension ? originalFileName.slice(extensionIndex) : "";
+	let baseName = hasExtension
+		? originalFileName.slice(0, extensionIndex)
+		: originalFileName;
+
+	const patientParts = patient
+		.split(/\s+/)
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.sort((a, b) => b.length - a.length);
+
+	for (const part of patientParts) {
+		const escapedPart = escapeRegExp(part);
+		baseName = baseName.replace(
+			new RegExp(`(^|[\\s_-])${escapedPart}(?=$|[\\s_-])`, "gi"),
+			"$1",
+		);
+	}
+
+	baseName = baseName
+		.replace(/[\s_-]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+
+	const normalizedBaseName = baseName.toLowerCase();
+	const normalizedExtension = extension.toLowerCase();
+
+	if (normalizedExtension === ".stl") {
+		if (/\bupper\b/.test(normalizedBaseName)) {
+			return "UpperJawScan.stl";
+		}
+
+		if (/\blower\b/.test(normalizedBaseName)) {
+			return "LowerJawScan.stl";
+		}
+	}
+
+	return baseName ? `${baseName}${extension}` : `file${extension}`;
+}
+
 // Server POST function for inserting orders
 export async function POST(req) {
 	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
@@ -57,30 +104,7 @@ export async function POST(req) {
 		const fileKeys = await Promise.all(
 			fileBuffers.map(async (file, index) => {
 				const fileKey = uuid7();
-
-				let fileName;
-				const names = patient.split(' ');
-				const lowerCaseName = files[index].name.toLowerCase();
-				if(lowerCaseName.includes("upper") && lowerCaseName.includes(".stl"))
-				{
-					fileName = "LowerJawScan.stl";
-				}
-				else if(lowerCaseName.toLowerCase().includes("lower") && lowerCaseName.includes(".stl"))
-				{
-					fileName = "UpperJawScan.stl";
-				}
-				else
-				{
-					fileName = files[index].name;
-
-					for(let i = 0; i < names.length; i++)
-					{
-						fileName = fileName.replace(names[i] + ' ', '');
-					}
-				}
-
-				console.log(fileName);
-				console.log(names);
+				const fileName = sanitizeFileName(patient, files[index].name);
 
 				await s3.send(
 					new PutObjectCommand({
