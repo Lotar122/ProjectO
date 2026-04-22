@@ -51,7 +51,7 @@ function sanitizeFileName(patient, originalFileName) {
 			return "LowerJawScan.stl";
 		}
 
-		console.log(baseName ? `${baseName}${extension}` : `file${extension}`);
+		console.log(normalizedBaseName);
 	}
 
 	return baseName ? `${baseName}${extension}` : `file${extension}`;
