@@ -75,7 +75,7 @@ export async function POST(req) {
 
 					for(let i = 0; i < names.length; i++)
 					{
-						fileName = fileName.replace(names[i], '');
+						fileName = fileName.replace(names[i] + ' ', '');
 					}
 				}
 
