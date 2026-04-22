@@ -43,15 +43,13 @@ function sanitizeFileName(patient, originalFileName) {
 	const normalizedExtension = extension.toLowerCase();
 
 	if (normalizedExtension === ".stl") {
-		if (/\bupper\b/.test(normalizedBaseName)) {
+		if (/upper/.test(normalizedBaseName)) {
 			return "UpperJawScan.stl";
 		}
 
-		if (/\blower\b/.test(normalizedBaseName)) {
+		if (/lower/.test(normalizedBaseName)) {
 			return "LowerJawScan.stl";
 		}
-
-		console.log(normalizedBaseName);
 	}
 
 	return baseName ? `${baseName}${extension}` : `file${extension}`;
