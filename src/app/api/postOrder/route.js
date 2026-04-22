@@ -58,13 +58,36 @@ export async function POST(req) {
 			fileBuffers.map(async (file, index) => {
 				const fileKey = uuid7();
 
+				let fileName;
+				const names = patient.split(' ');
+				const lowerCaseName = files[index].name.toLowerCase();
+				if(lowerCaseName.includes("upper") && lowerCaseName.includes(".stl"))
+				{
+					fileName = "LowerJawScan.stl";
+				}
+				else if(lowerCaseName.toLowerCase().includes("lower") && lowerCaseName.includes(".stl"))
+				{
+					fileName = "UpperJawScan.stl";
+				}
+				else
+				{
+					fileName = files[index].name;
+
+					for(const name of names)
+					{
+						fileName.replace(name, '');
+					}
+				}
+
+				console.log(fileName);
+
 				await s3.send(
 					new PutObjectCommand({
 						Bucket: "projecto",
 						Key: fileKey,
 						Body: file,
 						Metadata: {
-							"original_name": files[index].name,
+							"original_name": fileName,
 						},
 					}),
 				);
