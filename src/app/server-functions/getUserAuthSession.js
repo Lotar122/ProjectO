@@ -5,7 +5,8 @@ import postgres from "postgres";
 
 import { getNameFromEmail } from "./getUserName";
 
-export async function getUserAuthSession(cookie) {
+export async function getUserAuthSession(cookie)
+{
 	const cookieHeader = cookie.get("ory_kratos_session");
 	let res = null;
 	let loggedIn = false;
@@ -17,7 +18,8 @@ export async function getUserAuthSession(cookie) {
 			withCredentials: false,
 		});
 
-		if (res.data && res.data.active) {
+		if (res.data && res.data.active)
+		{
 			const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
 			let users = null;
@@ -28,7 +30,8 @@ export async function getUserAuthSession(cookie) {
 				console.error(err);
 			}
 
-			if (users.length == 0) {
+			if (users.length == 0)
+			{
 				const name = await getNameFromEmail(
 					res.data.identity.traits.email,
 				);

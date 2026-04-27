@@ -1,6 +1,7 @@
 "use server";
 
-async function folderExists(s3, bucket, prefix) {
+async function folderExists(s3, bucket, prefix)
+{
 	const res = await s3.send(
 		new ListObjectsV2Command({
 			Bucket: bucket,

@@ -6,7 +6,8 @@ import { cookies } from "next/headers";
 
 import postgres from "postgres";
 
-export async function GET() {
+export async function GET()
+{
 	let payload = null;
 	let DB = null;
 
@@ -15,7 +16,8 @@ export async function GET() {
 
 		let userAuthSession = await getUserAuthSession(cookieHeader);
 
-		if (!userAuthSession.loggedIn) {
+		if (!userAuthSession.loggedIn)
+		{
 			return new Response(JSON.stringify({ error: "Forbidden" }), {
 				status: 403,
 				headers: { "Content-Type": "application/json" },

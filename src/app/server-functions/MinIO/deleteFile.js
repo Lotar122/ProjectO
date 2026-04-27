@@ -9,7 +9,8 @@ import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwne
  * @param {string} bucket - Bucket name, e.g. "projecto"
  * @param {string} fileId - Object key / file ID stored in MinIO
  */
-export async function deleteFileById(s3, bucket, fileId) {
+export async function deleteFileById(s3, bucket, fileId)
+{
 	try {
 		await verifyFileOwnership(fileId);
 
@@ -30,6 +31,7 @@ export async function deleteFileById(s3, bucket, fileId) {
 	}
 }
 
-export async function deleteFileFromMinio(s3, bucket, fileId) {
+export async function deleteFileFromMinio(s3, bucket, fileId)
+{
 	return deleteFileById(s3, bucket, fileId);
 }

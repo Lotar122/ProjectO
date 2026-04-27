@@ -8,11 +8,13 @@ import Orders from "./orders";
 import { getUserAuthSession } from "../server-functions/getUserAuthSession";
 import { getNameFromEmail } from "../server-functions/getUserName";
 
-export default async function ProtectedPage() {
+export default async function ProtectedPage()
+{
 	const cookieHeader = await cookies();
 	const userAuthSession = await getUserAuthSession(cookieHeader);
 
-	if (userAuthSession.loggedIn) {
+	if (userAuthSession.loggedIn)
+	{
 		const name = await getNameFromEmail(
 			userAuthSession.data.identity.traits.email,
 		);

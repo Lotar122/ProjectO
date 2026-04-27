@@ -1,6 +1,7 @@
 "use server";
 
-async function uploadFile(s3, bucket, folder, fileName, content) {
+async function uploadFile(s3, bucket, folder, fileName, content)
+{
 	await s3.send(
 		new PutObjectCommand({
 			Bucket: bucket,

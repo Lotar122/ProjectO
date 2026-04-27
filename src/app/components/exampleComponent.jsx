@@ -1,5 +1,6 @@
 // placeholder
 
-export default function example() {
+export default function example()
+{
 	<div>Example components</div>;
 }

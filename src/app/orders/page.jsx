@@ -1,6 +1,7 @@
 import ProtectedPage from "./ordersServerWrapper";
 
-const Page = () => {
+const Page = () =>
+{
 	return <ProtectedPage />;
 };
 

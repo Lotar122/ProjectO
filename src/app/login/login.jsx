@@ -31,17 +31,20 @@ const item = {
 	},
 };
 
-const KratosLogin = ({ setCurrentPage }) => {
+const KratosLogin = ({ setCurrentPage }) =>
+{
 	const [flow, setFlow] = useState(null);
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState(null);
 	const router = useRouter();
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		let isMounted = true;
 
-		const initFlow = async () => {
+		const initFlow = async () =>
+		{
 			try {
 				await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 					withCredentials: true,
@@ -49,8 +52,10 @@ const KratosLogin = ({ setCurrentPage }) => {
 				router.push("/orders");
 				return;
 			} catch (err) {
-				if (err.response?.status !== 401) {
-					if (isMounted) {
+				if (err.response?.status !== 401)
+				{
+					if (isMounted)
+					{
 						setError(
 							err.response?.data?.error || "Failed to check session.",
 						);
@@ -65,11 +70,13 @@ const KratosLogin = ({ setCurrentPage }) => {
 					{ withCredentials: true },
 				);
 
-				if (isMounted) {
+				if (isMounted)
+				{
 					setFlow(response.data);
 				}
 			} catch (err) {
-				if (isMounted) {
+				if (isMounted)
+				{
 					setError(
 						err.response?.data?.error || "Failed to fetch login flow.",
 					);
@@ -79,15 +86,18 @@ const KratosLogin = ({ setCurrentPage }) => {
 
 		void initFlow();
 
-		return () => {
+		return () =>
+		{
 			isMounted = false;
 		};
 	}, [router]);
 
-	const handleLogin = async (e) => {
+	const handleLogin = async (e) =>
+	{
 		e.preventDefault();
 
-		if (!flow) {
+		if (!flow)
+		{
 			return;
 		}
 
@@ -115,7 +125,8 @@ const KratosLogin = ({ setCurrentPage }) => {
 		}
 	};
 
-	if (!flow) {
+	if (!flow)
+	{
 		return <Loading />;
 	}
 

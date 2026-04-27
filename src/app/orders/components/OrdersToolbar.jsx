@@ -9,7 +9,8 @@ export default function OrdersToolbar({
 	orderSearchRef,
 	onSearchChange,
 	onStatusChange,
-}) {
+})
+{
 	return (
 		<div className="mb-8 rounded-xl border border-slate-800 bg-slate-900/85 p-6 backdrop-blur">
 			<div className="flex flex-col gap-4 md:flex-row">

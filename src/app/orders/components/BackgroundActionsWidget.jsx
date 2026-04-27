@@ -21,8 +21,10 @@ const STATUS_STYLES = {
 	},
 };
 
-export default function BackgroundActionsWidget({ actions }) {
-	if (actions.length === 0) {
+export default function BackgroundActionsWidget({ actions })
+{
+	if (actions.length === 0)
+	{
 		return null;
 	}
 
@@ -49,7 +51,8 @@ export default function BackgroundActionsWidget({ actions }) {
 
 					<div className="max-h-72 space-y-2 overflow-y-auto p-3">
 						<AnimatePresence initial={false}>
-							{actions.map((action) => {
+							{actions.map((action) =>
+							{
 								const statusStyle = STATUS_STYLES[action.status];
 								const StatusIcon = statusStyle.icon;
 

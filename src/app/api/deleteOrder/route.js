@@ -9,14 +9,16 @@ import { cookies } from "next/headers";
 import postgres from "postgres";
 
 //Has to be used with credentials
-export async function DELETE(req) {
+export async function DELETE(req)
+{
 	let DB = null;
 
 	try {
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
 
-		if (!userAuthSession.loggedIn) {
+		if (!userAuthSession.loggedIn)
+		{
 			return new Response(JSON.stringify({ error: "Forbidden" }), {
 				status: 403,
 				headers: { "Content-Type": "application/json" },
@@ -26,7 +28,8 @@ export async function DELETE(req) {
 		const url = new URL(req.url);
 		const orderID = url.searchParams.get("orderID");
 
-		if (!orderID) {
+		if (!orderID)
+		{
 			return new Response(JSON.stringify({ error: "orderID is required" }), {
 				status: 400,
 				headers: { "Content-Type": "application/json" },
@@ -43,7 +46,8 @@ export async function DELETE(req) {
 			LIMIT 1
 		`;
 
-		if (!order) {
+		if (!order)
+		{
 			return new Response(JSON.stringify({ error: "Order not found" }), {
 				status: 404,
 				headers: { "Content-Type": "application/json" },

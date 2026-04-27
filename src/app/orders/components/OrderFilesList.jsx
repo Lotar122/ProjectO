@@ -12,8 +12,10 @@ export default function OrderFilesList({
 	onAction,
 	onDownload,
 	showDownloadButton = true,
-}) {
-	if (attachments.length === 0) {
+})
+{
+	if (attachments.length === 0)
+	{
 		return (
 			<div className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-sm text-slate-500">
 				{emptyMessage}

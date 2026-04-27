@@ -27,7 +27,8 @@ const pageTransition = {
 	},
 };
 
-export default function Main() {
+export default function Main()
+{
 	const [currentPage, setCurrentPage] = useState("landing");
 
 	return (

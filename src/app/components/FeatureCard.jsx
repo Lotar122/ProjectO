@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 
-export default function FeatureCard({ description, icon: Icon, title }) {
+export default function FeatureCard({ description, icon: Icon, title })
+{
 	return (
 		<motion.div
 			whileHover={{ y: -8, scale: 1.01 }}

@@ -1,7 +1,9 @@
 "use server";
 
-async function createFolder(s3, bucket, folder) {
-	if (!(await folderExists(bucket, folder))) {
+async function createFolder(s3, bucket, folder)
+{
+	if (!(await folderExists(bucket, folder)))
+	{
 		await s3.send(
 			new PutObjectCommand({
 				Bucket: bucket,
@@ -10,7 +12,9 @@ async function createFolder(s3, bucket, folder) {
 			}),
 		);
 		console.log(`Folder "${folder}" created`);
-	} else {
+	}
+	else
+	{
 		console.log(`Folder "${folder}" already exists`);
 	}
 }

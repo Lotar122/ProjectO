@@ -6,30 +6,33 @@ import { getFile } from "@/app/server-functions/MinIO/getFile";
 import { cookies } from "next/headers";
 import postgres from "postgres";
 
-export async function GET(req) {
-    const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
+export async function GET(req)
+{
+	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
-    try {
-        const { searchParams } = new URL(req.url);
-        const fileKey = searchParams.get("file_id");
+	try {
+		const { searchParams } = new URL(req.url);
+		const fileKey = searchParams.get("file_id");
 
-        if (!fileKey) {
-            return new Response(JSON.stringify({ error: "file_id is required" }), {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-            });
-        }
+		if (!fileKey)
+		{
+			return new Response(JSON.stringify({ error: "file_id is required" }), {
+				status: 400,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
 
-        // Auth check
-        const cookieHeader = await cookies();
-        const userAuthSession = await getUserAuthSession(cookieHeader);
+		// Auth check
+		const cookieHeader = await cookies();
+		const userAuthSession = await getUserAuthSession(cookieHeader);
 
-        if (!userAuthSession.loggedIn) {
-            return new Response(JSON.stringify({ error: "Forbidden" }), {
-                status: 403,
-                headers: { "Content-Type": "application/json" },
-            });
-        }
+		if (!userAuthSession.loggedIn)
+		{
+			return new Response(JSON.stringify({ error: "Forbidden" }), {
+				status: 403,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
 
 		const [fileAccess] = await DB`
 			SELECT 1
@@ -39,7 +42,8 @@ export async function GET(req) {
 			LIMIT 1
 		`;
 
-		if (!fileAccess) {
+		if (!fileAccess)
+		{
 			return new Response(JSON.stringify({ error: "File not found" }), {
 				status: 404,
 				headers: { "Content-Type": "application/json" },
@@ -48,24 +52,24 @@ export async function GET(req) {
 
 		const s3 = await createS3Client();
 
-        // Fetch file from MinIO
-        const file = await getFile(s3, "projecto", fileKey);
+		// Fetch file from MinIO
+		const file = await getFile(s3, "projecto", fileKey);
 
-        return new Response(file.data, {
-            status: 200,
-            headers: {
-                "Content-Type": file.contentType ?? "application/octet-stream",
-                "Content-Disposition": `attachment; filename="${file.metadata.original_name}"`,
-            },
-        });
+		return new Response(file.data, {
+			status: 200,
+			headers: {
+				"Content-Type": file.contentType ?? "application/octet-stream",
+				"Content-Disposition": `attachment; filename="${file.metadata.original_name}"`,
+			},
+		});
 
-    } catch (err) {
-        console.error("downloadFile error:", err);
-        return new Response(
-            JSON.stringify({ error: err.message }),
-            { status: 500, headers: { "Content-Type": "application/json" } }
-        );
-    } finally {
-        DB.end();
-    }
+	} catch (err) {
+		console.error("downloadFile error:", err);
+		return new Response(
+			JSON.stringify({ error: err.message }),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
+		);
+	} finally {
+		DB.end();
+	}
 }

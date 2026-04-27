@@ -30,7 +30,8 @@ const sectionTransition = {
 	},
 };
 
-export default function Orders({ userName, userLastName }) {
+export default function Orders({ userName, userLastName })
+{
 	const [currentPage, setCurrentPage] = useState("orders");
 	const [allOrders, setAllOrders] = useState([]);
 	const [orders, setOrders] = useState([]);
@@ -48,10 +49,12 @@ export default function Orders({ userName, userLastName }) {
 	const orderFilterRef = useRef(null);
 	const orderSearchRef = useRef(null);
 
-	const removeBackgroundAction = useCallback((actionId) => {
+	const removeBackgroundAction = useCallback((actionId) =>
+	{
 		const timeoutId = backgroundActionTimeoutsRef.current[actionId];
 
-		if (timeoutId) {
+		if (timeoutId)
+		{
 			clearTimeout(timeoutId);
 			delete backgroundActionTimeoutsRef.current[actionId];
 		}
@@ -62,21 +65,25 @@ export default function Orders({ userName, userLastName }) {
 	}, []);
 
 	const scheduleBackgroundActionRemoval = useCallback(
-		(actionId, delayMs) => {
+		(actionId, delayMs) =>
+		{
 			const existingTimeout = backgroundActionTimeoutsRef.current[actionId];
 
-			if (existingTimeout) {
+			if (existingTimeout)
+			{
 				clearTimeout(existingTimeout);
 			}
 
-			backgroundActionTimeoutsRef.current[actionId] = window.setTimeout(() => {
+			backgroundActionTimeoutsRef.current[actionId] = window.setTimeout(() =>
+			{
 				removeBackgroundAction(actionId);
 			}, delayMs);
 		},
 		[removeBackgroundAction],
 	);
 
-	const startBackgroundAction = useCallback((title, description) => {
+	const startBackgroundAction = useCallback((title, description) =>
+	{
 		const actionId =
 			globalThis.crypto?.randomUUID?.() ??
 			`${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -94,7 +101,8 @@ export default function Orders({ userName, userLastName }) {
 		return actionId;
 	}, []);
 
-	const updateBackgroundAction = useCallback((actionId, updates) => {
+	const updateBackgroundAction = useCallback((actionId, updates) =>
+	{
 		setBackgroundActions((current) =>
 			current.map((action) =>
 				action.id === actionId ? { ...action, ...updates } : action,
@@ -103,7 +111,8 @@ export default function Orders({ userName, userLastName }) {
 	}, []);
 
 	const completeBackgroundAction = useCallback(
-		(actionId, title, description) => {
+		(actionId, title, description) =>
+		{
 			updateBackgroundAction(actionId, {
 				title,
 				description,
@@ -115,7 +124,8 @@ export default function Orders({ userName, userLastName }) {
 	);
 
 	const failBackgroundAction = useCallback(
-		(actionId, title, description) => {
+		(actionId, title, description) =>
+		{
 			updateBackgroundAction(actionId, {
 				title,
 				description,
@@ -126,17 +136,20 @@ export default function Orders({ userName, userLastName }) {
 		[scheduleBackgroundActionRemoval, updateBackgroundAction],
 	);
 
-	const syncVisibleOrders = useCallback((sourceOrders) => {
+	const syncVisibleOrders = useCallback((sourceOrders) =>
+	{
 		const searchValue = orderSearchRef.current?.value || "";
 		const statusValue = orderFilterRef.current?.value || "All Status";
 		setOrders(getFilteredOrders(sourceOrders, searchValue, statusValue));
 	}, []);
 
-	const refreshOrders = useCallback(async () => {
+	const refreshOrders = useCallback(async () =>
+	{
 		const response = await axios.get("/api/getOrders", {
 			withCredentials: true,
 		});
-		const nextOrders = [...response.data].sort((left, right) => {
+		const nextOrders = [...response.data].sort((left, right) =>
+		{
 			const leftDate = new Date(
 				left.issue_date || left.issueDate || 0,
 			).getTime();
@@ -151,17 +164,20 @@ export default function Orders({ userName, userLastName }) {
 		return nextOrders;
 	}, [syncVisibleOrders]);
 
-	const loadFileNamesByIds = useCallback(async (fileIds) => {
+	const loadFileNamesByIds = useCallback(async (fileIds) =>
+	{
 		const missingFileIds = [
 			...new Set(fileIds.filter((fileId) => fileId && !fileNamesById[fileId])),
 		];
 
-		if (missingFileIds.length === 0) {
+		if (missingFileIds.length === 0)
+		{
 			return;
 		}
 
 		const responses = await Promise.all(
-			missingFileIds.map(async (fileId) => {
+			missingFileIds.map(async (fileId) =>
+			{
 				const response = await axios.get(`/api/getFileName?file_id=${fileId}`, {
 					withCredentials: true,
 				});
@@ -170,10 +186,12 @@ export default function Orders({ userName, userLastName }) {
 			}),
 		);
 
-		setFileNamesById((current) => {
+		setFileNamesById((current) =>
+		{
 			const next = { ...current };
 
-			responses.forEach(([fileId, filename]) => {
+			responses.forEach(([fileId, filename]) =>
+			{
 				next[fileId] = filename || current[fileId] || "Attachment";
 			});
 
@@ -181,21 +199,26 @@ export default function Orders({ userName, userLastName }) {
 		});
 	}, [fileNamesById]);
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		void refreshOrders();
 	}, [refreshOrders]);
 
 	useEffect(
-		() => () => {
-			Object.values(backgroundActionTimeoutsRef.current).forEach((timeoutId) => {
+		() => () =>
+		{
+			Object.values(backgroundActionTimeoutsRef.current).forEach((timeoutId) =>
+			{
 				clearTimeout(timeoutId);
 			});
 		},
 		[],
 	);
 
-	useEffect(() => {
-		if (!editedOrder) {
+	useEffect(() =>
+	{
+		if (!editedOrder)
+		{
 			setEditDraft(INITIAL_EDIT_DRAFT);
 			setEditFiles([]);
 			return;
@@ -208,7 +231,8 @@ export default function Orders({ userName, userLastName }) {
 		});
 	}, [editedOrder]);
 
-	useEffect(() => {
+	useEffect(() =>
+	{
 		const missingFileIds = [
 			...new Set(
 				allOrders
@@ -217,15 +241,18 @@ export default function Orders({ userName, userLastName }) {
 			),
 		];
 
-		if (missingFileIds.length === 0) {
+		if (missingFileIds.length === 0)
+		{
 			return;
 		}
 
 		let isMounted = true;
 
-		const loadFileNames = async () => {
+		const loadFileNames = async () =>
+		{
 			try {
-				if (!isMounted) {
+				if (!isMounted)
+				{
 					return;
 				}
 
@@ -237,12 +264,14 @@ export default function Orders({ userName, userLastName }) {
 
 		void loadFileNames();
 
-		return () => {
+		return () =>
+		{
 			isMounted = false;
 		};
 	}, [allOrders, fileNamesById, loadFileNamesByIds]);
 
-	const handleLogout = async () => {
+	const handleLogout = async () =>
+	{
 		try {
 			const response = await axios.get(
 				"https://orto.lotar122.dev/kratos/self-service/logout/browser",
@@ -257,10 +286,12 @@ export default function Orders({ userName, userLastName }) {
 		}
 	};
 
-	const handleCreateOrder = (e) => {
+	const handleCreateOrder = (e) =>
+	{
 		e.preventDefault();
 
-		if (!newOrder.patient || !newOrder.details) {
+		if (!newOrder.patient || !newOrder.details)
+		{
 			return;
 		}
 
@@ -279,7 +310,8 @@ export default function Orders({ userName, userLastName }) {
 		setNewOrder(INITIAL_ORDER);
 		setFiles([]);
 
-		void (async () => {
+		void (async () =>
+		{
 			const formData = new FormData();
 
 			formData.append("patient", order.patient);
@@ -289,7 +321,8 @@ export default function Orders({ userName, userLastName }) {
 			formData.append("issueDate", order.issueDate);
 			formData.append("progress", String(order.progress));
 
-			selectedFiles.forEach((file) => {
+			selectedFiles.forEach((file) =>
+			{
 				formData.append("files", file);
 			});
 
@@ -306,7 +339,8 @@ export default function Orders({ userName, userLastName }) {
 					(currentOrder) => currentOrder.order_id === response.data.orderID,
 				);
 
-				if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0) {
+				if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0)
+				{
 					await loadFileNamesByIds(createdOrder.files);
 				}
 
@@ -319,25 +353,30 @@ export default function Orders({ userName, userLastName }) {
 		})();
 	};
 
-	const handleSearchChange = (searchValue) => {
+	const handleSearchChange = (searchValue) =>
+	{
 		const statusValue = orderFilterRef.current?.value || "All Status";
 		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
 	};
 
-	const handleStatusChange = (statusValue) => {
+	const handleStatusChange = (statusValue) =>
+	{
 		const searchValue = orderSearchRef.current?.value || "";
 		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
 	};
 
-	const showOrdersPage = () => {
+	const showOrdersPage = () =>
+	{
 		setOpenEditMenuId(null);
 		setEditedOrder(null);
 		setCurrentPage("orders");
 		syncVisibleOrders(allOrders);
 	};
 
-	const confirmDelete = () => {
-		if (!deleteOrderId) {
+	const confirmDelete = () =>
+	{
+		if (!deleteOrderId)
+		{
 			return;
 		}
 
@@ -352,7 +391,8 @@ export default function Orders({ userName, userLastName }) {
 			current === deleteOrderId ? null : current,
 		);
 
-		void (async () => {
+		void (async () =>
+		{
 			try {
 				await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
 					withCredentials: true,
@@ -366,22 +406,26 @@ export default function Orders({ userName, userLastName }) {
 		})();
 	};
 
-	const toggleOrderExpanded = (orderId) => {
+	const toggleOrderExpanded = (orderId) =>
+	{
 		setOpenEditMenuId(null);
 		setExpandedOrderId((current) => (current === orderId ? null : orderId));
 	};
 
-	const openEditOrder = (order) => {
+	const openEditOrder = (order) =>
+	{
 		setEditFiles(getOrderFiles(order, fileNamesById));
 		setEditedOrder(order);
 		setOpenEditMenuId(null);
 		setCurrentPage("edit-order");
 	};
 
-	const handleEditOrderSave = (e) => {
+	const handleEditOrderSave = (e) =>
+	{
 		e.preventDefault();
 
-		if (!editedOrder?.order_id) {
+		if (!editedOrder?.order_id)
+		{
 			return;
 		}
 
@@ -397,20 +441,24 @@ export default function Orders({ userName, userLastName }) {
 		setEditDraft(INITIAL_EDIT_DRAFT);
 		setEditFiles([]);
 
-		void (async () => {
+		void (async () =>
+		{
 			const formData = new FormData();
 			formData.append("orderID", orderID);
 			formData.append("patient", patient);
 			formData.append("details", details);
 			formData.append("dueDate", dueDate);
 
-			attachments.forEach((attachment) => {
-				if (attachment.isLocal && attachment.file instanceof File) {
+			attachments.forEach((attachment) =>
+			{
+				if (attachment.isLocal && attachment.file instanceof File)
+				{
 					formData.append("files", attachment.file);
 					return;
 				}
 
-				if (attachment.fileId) {
+				if (attachment.fileId)
+				{
 					formData.append("existingFileIds", attachment.fileId);
 				}
 			});
@@ -423,11 +471,14 @@ export default function Orders({ userName, userLastName }) {
 					},
 				});
 
-				if (Array.isArray(response.data.uploadedFiles)) {
-					setFileNamesById((current) => {
+				if (Array.isArray(response.data.uploadedFiles))
+				{
+					setFileNamesById((current) =>
+					{
 						const next = { ...current };
 
-						response.data.uploadedFiles.forEach(({ fileID, fileName }) => {
+						response.data.uploadedFiles.forEach(({ fileID, fileName }) =>
+						{
 							next[fileID] = fileName;
 						});
 
@@ -441,7 +492,8 @@ export default function Orders({ userName, userLastName }) {
 					nextOrders.find((order) => order.order_id === updatedOrder.order_id) ||
 					updatedOrder;
 
-				if (Array.isArray(refreshedOrder.files) && refreshedOrder.files.length > 0) {
+				if (Array.isArray(refreshedOrder.files) && refreshedOrder.files.length > 0)
+				{
 					await loadFileNamesByIds(refreshedOrder.files);
 				}
 
@@ -454,8 +506,10 @@ export default function Orders({ userName, userLastName }) {
 		})();
 	};
 
-	const handleDownloadFile = async (order, attachment, index) => {
-		if (attachment.file instanceof File) {
+	const handleDownloadFile = async (order, attachment, index) =>
+	{
+		if (attachment.file instanceof File)
+		{
 			const objectUrl = URL.createObjectURL(attachment.file);
 			const link = document.createElement("a");
 			link.href = objectUrl;
@@ -469,7 +523,8 @@ export default function Orders({ userName, userLastName }) {
 
 		let fileId = attachment.fileId;
 
-		if (!fileId) {
+		if (!fileId)
+		{
 			const refreshedOrders = await refreshOrders();
 			const refreshedOrder = refreshedOrders.find(
 				(currentOrder) => currentOrder.order_id === order.order_id,
@@ -477,7 +532,8 @@ export default function Orders({ userName, userLastName }) {
 			fileId = refreshedOrder?.files?.[index];
 		}
 
-		if (!fileId) {
+		if (!fileId)
+		{
 			return;
 		}
 
@@ -570,7 +626,8 @@ export default function Orders({ userName, userLastName }) {
 										handleDownloadFile(order, attachment, index)
 									}
 									onOpenEdit={() => openEditOrder(order)}
-									onRequestDelete={() => {
+									onRequestDelete={() =>
+									{
 										setOpenEditMenuId(null);
 										setDeleteOrderId(order.order_id);
 									}}

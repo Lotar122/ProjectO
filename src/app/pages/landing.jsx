@@ -43,7 +43,8 @@ const cards = [
 	},
 ];
 
-export default function Landing({ setCurrentPage }) {
+export default function Landing({ setCurrentPage })
+{
 	return (
 		<motion.div
 			variants={container}
@@ -71,7 +72,8 @@ export default function Landing({ setCurrentPage }) {
 			<motion.div
 				variants={container}
 				className="mb-16 grid gap-8 md:mb-20 md:grid-cols-3">
-				{cards.map((card) => {
+				{cards.map((card) =>
+				{
 					return (
 						<motion.div key={card.title} variants={item}>
 							<FeatureCard

@@ -2,7 +2,8 @@
 
 import { HeadBucketCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
 
-export async function createBucket(s3, bucketName) {
+export async function createBucket(s3, bucketName)
+{
 	try {
 		// Check if exists
 		await s3.send(new HeadBucketCommand({ Bucket: bucketName }));
@@ -10,7 +11,8 @@ export async function createBucket(s3, bucketName) {
 		return false;
 	} catch (err) {
 		console.error('createBucket error:', err.$metadata, err.message, err.Code);
-		if (err.$metadata?.httpStatusCode !== 404) {
+		if (err.$metadata?.httpStatusCode !== 404)
+		{
 			throw err;
 		}
 	}

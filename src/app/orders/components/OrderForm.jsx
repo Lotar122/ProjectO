@@ -23,7 +23,8 @@ export default function OrderForm({
 	patient,
 	submitLabel,
 	title,
-}) {
+})
+{
 	return (
 		<>
 			<div className="mb-8">

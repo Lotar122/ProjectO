@@ -5,11 +5,13 @@ import postgres from "postgres";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 
-export async function verifyFileOwnership(fileId) {
+export async function verifyFileOwnership(fileId)
+{
 	const cookieStore = await cookies();
 	const userAuthSession = await getUserAuthSession(cookieStore);
 
-	if (!userAuthSession.loggedIn) {
+	if (!userAuthSession.loggedIn)
+	{
 		throw new Error("Forbidden");
 	}
 
@@ -25,7 +27,8 @@ export async function verifyFileOwnership(fileId) {
 			LIMIT 1
 		`;
 
-		if (!ownedFile) {
+		if (!ownedFile)
+		{
 			throw new Error("You do not have permission to access this file");
 		}
 	} finally {

@@ -2,7 +2,8 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 
-export default function DeleteOrderModal({ isOpen, onCancel, onConfirm }) {
+export default function DeleteOrderModal({ isOpen, onCancel, onConfirm })
+{
 	return (
 		<AnimatePresence>
 			{isOpen && (

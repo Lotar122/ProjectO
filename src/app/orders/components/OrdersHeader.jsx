@@ -10,7 +10,8 @@ export default function OrdersHeader({
 	onShowOrders,
 	userLastName,
 	userName,
-}) {
+})
+{
 	return (
 		<>
 			<motion.header

@@ -1,68 +1,36 @@
 "use server";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
-import { createBucket } from "@/app/server-functions/MinIO/createBucket";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+	deleteOrderFiles,
+	ensureOrderFilesBucket,
+	toISODate,
+	uploadOrderFiles,
+} from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
 import postgres from "postgres";
-import { v7 as uuid7 } from "uuid";
 
-function escapeRegExp(value) {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function getRetainedFileIds(currentFileIds, requestedFileIds)
+{
+	return currentFileIds.filter((fileId) => requestedFileIds.includes(fileId));
 }
 
-function sanitizeFileName(patient, originalFileName) {
-	const extensionIndex = originalFileName.lastIndexOf(".");
-	const hasExtension = extensionIndex !== -1;
-	const extension = hasExtension ? originalFileName.slice(extensionIndex) : "";
-	let baseName = hasExtension
-		? originalFileName.slice(0, extensionIndex)
-		: originalFileName;
-
-	const patientParts = String(patient || "")
-		.split(/\s+/)
-		.map((part) => part.trim())
-		.filter(Boolean)
-		.sort((a, b) => b.length - a.length);
-
-	for (const part of patientParts) {
-		const escapedPart = escapeRegExp(part);
-		baseName = baseName.replace(
-			new RegExp(`(^|[\\s_-])${escapedPart}(?=$|[\\s_-])`, "gi"),
-			"$1",
-		);
-	}
-
-	baseName = baseName
-		.replace(/[\s_-]+/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-
-	const normalizedBaseName = baseName.toLowerCase();
-	const normalizedExtension = extension.toLowerCase();
-
-	if (normalizedExtension === ".stl") {
-		if (/upper/.test(normalizedBaseName)) {
-			return "UpperJawScan.stl";
-		}
-
-		if (/lower/.test(normalizedBaseName)) {
-			return "LowerJawScan.stl";
-		}
-	}
-
-	return baseName ? `${baseName}${extension}` : `file${extension}`;
+function getRemovedFileIds(currentFileIds, retainedFileIds)
+{
+	return currentFileIds.filter((fileId) => !retainedFileIds.includes(fileId));
 }
 
-export async function PUT(req) {
+export async function PUT(req)
+{
 	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
 
 	try {
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
 
-		if (!userAuthSession.loggedIn) {
+		if (!userAuthSession.loggedIn)
+		{
 			return new Response(JSON.stringify({ error: "Forbidden" }), {
 				status: 403,
 				headers: { "Content-Type": "application/json" },
@@ -81,7 +49,8 @@ export async function PUT(req) {
 		const newFiles = formData.getAll("files");
 		const userID = userAuthSession.data.identity.id;
 
-		if (!orderID) {
+		if (!orderID)
+		{
 			return new Response(JSON.stringify({ error: "orderID is required" }), {
 				status: 400,
 				headers: { "Content-Type": "application/json" },
@@ -96,7 +65,8 @@ export async function PUT(req) {
 			LIMIT 1
 		`;
 
-		if (!order) {
+		if (!order)
+		{
 			return new Response(JSON.stringify({ error: "Order not found" }), {
 				status: 404,
 				headers: { "Content-Type": "application/json" },
@@ -104,57 +74,20 @@ export async function PUT(req) {
 		}
 
 		const currentFileIds = Array.isArray(order.files) ? order.files : [];
-		const retainedFileIds = currentFileIds.filter((fileId) =>
-			existingFileIds.includes(fileId),
-		);
-		const removedFileIds = currentFileIds.filter(
-			(fileId) => !retainedFileIds.includes(fileId),
-		);
+		const retainedFileIds = getRetainedFileIds(currentFileIds, existingFileIds);
+		const removedFileIds = getRemovedFileIds(currentFileIds, retainedFileIds);
+		const due_date = toISODate(dueDate);
 
 		const s3 = await createS3Client();
-		await createBucket(s3, "projecto");
+		await ensureOrderFilesBucket(s3);
 
-		const uploadedFiles = await Promise.all(
-			newFiles.map(async (file) => {
-				const fileID = uuid7();
-				const fileBuffer = Buffer.from(await file.arrayBuffer());
-				const fileName = sanitizeFileName(patient, file.name);
-
-				await s3.send(
-					new PutObjectCommand({
-						Bucket: "projecto",
-						Key: fileID,
-						Body: fileBuffer,
-						Metadata: {
-							original_name: fileName,
-						},
-					}),
-				);
-
-				return { fileID, fileName };
-			}),
-		);
-
-		if (removedFileIds.length > 0) {
-			await Promise.all(
-				removedFileIds.map((fileId) =>
-					s3.send(
-						new DeleteObjectCommand({
-							Bucket: "projecto",
-							Key: fileId,
-						}),
-					),
-				),
-			);
-		}
+		const uploadedFiles = await uploadOrderFiles(s3, newFiles, patient);
+		await deleteOrderFiles(s3, removedFileIds);
 
 		const nextFileIds = [
 			...retainedFileIds,
 			...uploadedFiles.map((file) => file.fileID),
 		];
-		const due_date = dueDate
-			? new Date(dueDate).toISOString().split("T")[0]
-			: null;
 
 		const [updatedOrder] = await DB`
 			UPDATE orders

@@ -4,7 +4,8 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwnership";
 
-async function readFile(s3, bucket, key) {
+async function readFile(s3, bucket, key)
+{
 	await verifyFileOwnership(key);
 
 	const res = await s3.send(

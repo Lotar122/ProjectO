@@ -15,8 +15,10 @@ import {
 import { getDisplayDate, getOrderFiles, getStatusTheme } from "../orderUtils";
 import OrderFilesList from "./OrderFilesList";
 
-const getStatusIcon = (status) => {
-	switch (status) {
+const getStatusIcon = (status) =>
+{
+	switch (status)
+	{
 		case "completed":
 			return <CheckCircle className="h-4 w-4" />;
 		case "in-progress":
@@ -39,7 +41,8 @@ export default function OrderCard({
 	onToggleExpanded,
 	onToggleMenu,
 	order,
-}) {
+})
+{
 	const orderFiles = getOrderFiles(order, fileNamesById);
 	const statusTheme = getStatusTheme(order.status);
 
@@ -61,7 +64,7 @@ export default function OrderCard({
 						<h3 className="text-lg font-semibold text-white">{order.patient}</h3>
 						<p className="text-slate-300">{order.details || order.type}</p>
 						<p className="text-sm text-slate-500">
-							Order #{order.order_id} • {getDisplayDate(order)}
+							Order #{order.order_id} Ă˘â‚¬Ë {getDisplayDate(order)}
 						</p>
 					</div>
 				</div>

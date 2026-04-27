@@ -9,7 +9,8 @@ import { cookies } from "next/headers";
 import postgres from "postgres";
 
 //Has to be used with credentials
-export async function GET(req) {
+export async function GET(req)
+{
 	let payload = null;
 	let DB = null;
 
@@ -17,7 +18,8 @@ export async function GET(req) {
 		const url = new URL(req.url);
 		const file_id = url.searchParams.get("file_id");
 
-		if (!file_id) {
+		if (!file_id)
+		{
 			return new Response(JSON.stringify({ error: "file_id is required" }), {
 				status: 400,
 				headers: { "Content-Type": "application/json" },
@@ -28,7 +30,8 @@ export async function GET(req) {
 
 		let userAuthSession = await getUserAuthSession(cookieHeader);
 
-		if (!userAuthSession.loggedIn) {
+		if (!userAuthSession.loggedIn)
+		{
 			return new Response(JSON.stringify({ error: "Forbidden" }), {
 				status: 403,
 				headers: { "Content-Type": "application/json" },
@@ -45,7 +48,8 @@ export async function GET(req) {
 			LIMIT 1
 		`;
 
-		if (!fileAccess) {
+		if (!fileAccess)
+		{
 			return new Response(JSON.stringify({ error: "File not found" }), {
 				status: 404,
 				headers: { "Content-Type": "application/json" },

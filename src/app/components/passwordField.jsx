@@ -3,7 +3,8 @@
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 
-export default function PasswordField({ password, setPassword }) {
+export default function PasswordField({ password, setPassword })
+{
 	const [showPassword, setShowPassword] = useState(false);
 
 	return (

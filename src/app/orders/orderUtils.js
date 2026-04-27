@@ -16,15 +16,18 @@ export const sanitizeDownloadPart = (value) =>
 		.replace(/[\\/:*?"<>|]+/g, " ")
 		.replace(/\s+/g, " ");
 
-export const buildOrderFileName = (patient, fileName) => {
+export const buildOrderFileName = (patient, fileName) =>
+{
 	const safePatient = sanitizeDownloadPart(patient);
 	const safeFileName = sanitizeDownloadPart(fileName);
 
-	if (!safePatient) {
+	if (!safePatient)
+	{
 		return safeFileName || "download";
 	}
 
-	if (!safeFileName) {
+	if (!safeFileName)
+	{
 		return safePatient;
 	}
 
@@ -47,11 +50,13 @@ export const ORDER_STATUS_OPTIONS = [
 	"Completed",
 ];
 
-export const getFilteredOrders = (orders, searchValue, statusValue) => {
+export const getFilteredOrders = (orders, searchValue, statusValue) =>
+{
 	const normalizedSearch = searchValue.trim().toLowerCase();
 	const normalizedStatus = statusValue.toLowerCase().replace(" ", "-");
 
-	return orders.filter((order) => {
+	return orders.filter((order) =>
+	{
 		const matchesSearch =
 			normalizedSearch === "" ||
 			order.patient.toLowerCase().includes(normalizedSearch);
@@ -66,12 +71,15 @@ export const getFilteredOrders = (orders, searchValue, statusValue) => {
 export const getDisplayDate = (order) =>
 	order.due_date?.slice(0, 10) || order.dueDate?.slice(0, 10) || "";
 
-export const getOrderFiles = (order, fileNamesById) => {
-	if (Array.isArray(order.frontendFiles)) {
+export const getOrderFiles = (order, fileNamesById) =>
+{
+	if (Array.isArray(order.frontendFiles))
+	{
 		return order.frontendFiles;
 	}
 
-	if (Array.isArray(order.uploadedFiles) && order.uploadedFiles.length > 0) {
+	if (Array.isArray(order.uploadedFiles) && order.uploadedFiles.length > 0)
+	{
 		return order.uploadedFiles.map((file, index) => ({
 			id: file.id || `${order.order_id || order.patient}-${index}`,
 			name: buildOrderFileName(
@@ -83,7 +91,8 @@ export const getOrderFiles = (order, fileNamesById) => {
 		}));
 	}
 
-	if (!Array.isArray(order.files)) {
+	if (!Array.isArray(order.files))
+	{
 		return [];
 	}
 
@@ -98,8 +107,10 @@ export const getOrderFiles = (order, fileNamesById) => {
 	}));
 };
 
-export const getStatusTheme = (status) => {
-	switch (status) {
+export const getStatusTheme = (status) =>
+{
+	switch (status)
+	{
 		case "completed":
 			return {
 				badgeClass: "bg-green-100 text-green-800",
