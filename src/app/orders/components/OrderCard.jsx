@@ -129,9 +129,6 @@ export default function OrderCard({
 										<Trash2 className="h-4 w-4" />
 										Delete order
 									</button>
-									<p className="px-3 pb-1 pt-2 text-xs text-slate-500">
-										Saves and deletes continue in the background.
-									</p>
 								</motion.div>
 							)}
 						</AnimatePresence>
