@@ -259,31 +259,61 @@ export default function Orders({ userName, userLastName }) {
 		setCurrentPage("edit-order");
 	};
 
-	const handleEditOrderSave = (e) => {
+	const handleEditOrderSave = async (e) => {
 		e.preventDefault();
 
 		if (!editedOrder?.order_id) {
 			return;
 		}
 
-		const updatedOrder = {
-			...editedOrder,
-			patient: editDraft.patient,
-			details: editDraft.details,
-			dueDate: editDraft.dueDate,
-			due_date: editDraft.dueDate,
-			frontendFiles: editFiles,
-		};
+		try {
+			const formData = new FormData();
+			formData.append("orderID", editedOrder.order_id);
+			formData.append("patient", editDraft.patient);
+			formData.append("details", editDraft.details);
+			formData.append("dueDate", editDraft.dueDate);
 
-		const nextOrders = allOrders.map((order) =>
-			order.order_id === editedOrder.order_id ? updatedOrder : order,
-		);
+			editFiles.forEach((attachment) => {
+				if (attachment.isLocal && attachment.file instanceof File) {
+					formData.append("files", attachment.file);
+					return;
+				}
 
-		setAllOrders(nextOrders);
-		syncVisibleOrders(nextOrders);
-		setEditedOrder(updatedOrder);
-		setExpandedOrderId(updatedOrder.order_id);
-		setCurrentPage("orders");
+				if (attachment.fileId) {
+					formData.append("existingFileIds", attachment.fileId);
+				}
+			});
+
+			const response = await axios.put("/api/modifyOrder", formData, {
+				withCredentials: true,
+				headers: {
+					"Content-Type": "multipart/form-data",
+				},
+			});
+
+			const updatedOrder = response.data.order;
+			const nextFileNamesById = { ...fileNamesById };
+
+			if (Array.isArray(response.data.uploadedFiles)) {
+				response.data.uploadedFiles.forEach(({ fileID, fileName }) => {
+					nextFileNamesById[fileID] = fileName;
+				});
+				setFileNamesById(nextFileNamesById);
+			}
+
+			const nextOrders = allOrders.map((order) =>
+				order.order_id === updatedOrder.order_id ? updatedOrder : order,
+			);
+
+			setAllOrders(nextOrders);
+			syncVisibleOrders(nextOrders);
+			setEditedOrder(updatedOrder);
+			setEditFiles(getOrderFiles(updatedOrder, nextFileNamesById));
+			setExpandedOrderId(updatedOrder.order_id);
+			setCurrentPage("orders");
+		} catch (err) {
+			console.error("Order update failed:", err);
+		}
 	};
 
 	const handleDownloadFile = async (order, attachment, index) => {
@@ -471,7 +501,7 @@ export default function Orders({ userName, userLastName }) {
 						initial="initial"
 						animate="animate">
 						<OrderForm
-							description={`Update order details on the frontend for order #${editedOrder.order_id}`}
+							description={`Update order details and files for order #${editedOrder.order_id}`}
 							details={editDraft.details}
 							dueDate={editDraft.dueDate}
 							fileSectionMode="edit"
@@ -497,7 +527,10 @@ export default function Orders({ userName, userLastName }) {
 							onFilesSelected={(selectedFiles) =>
 								setEditFiles((current) => [
 									...current,
-									...createLocalAttachments(selectedFiles),
+									...createLocalAttachments(
+										selectedFiles,
+										editDraft.patient || editedOrder.patient,
+									),
 								])
 							}
 							onRemoveAttachment={(_, index) =>

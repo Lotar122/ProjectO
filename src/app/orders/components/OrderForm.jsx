@@ -119,7 +119,7 @@ export default function OrderForm({
 										Click or drag files
 									</span>
 									<span className="mt-1 text-xs text-slate-500">
-										Frontend-only changes until backend editing is added
+										Remove missing files and add new ones on save
 									</span>
 									<input
 										type="file"
