@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import axios from "axios";
 
+import BackgroundActionsWidget from "./components/BackgroundActionsWidget";
 import DeleteOrderModal from "./components/DeleteOrderModal";
 import OrderCard from "./components/OrderCard";
 import OrderForm from "./components/OrderForm";
@@ -41,9 +42,89 @@ export default function Orders({ userName, userLastName }) {
 	const [editFiles, setEditFiles] = useState([]);
 	const [expandedOrderId, setExpandedOrderId] = useState(null);
 	const [fileNamesById, setFileNamesById] = useState({});
+	const [backgroundActions, setBackgroundActions] = useState([]);
 	const [openEditMenuId, setOpenEditMenuId] = useState(null);
+	const backgroundActionTimeoutsRef = useRef({});
 	const orderFilterRef = useRef(null);
 	const orderSearchRef = useRef(null);
+
+	const removeBackgroundAction = useCallback((actionId) => {
+		const timeoutId = backgroundActionTimeoutsRef.current[actionId];
+
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+			delete backgroundActionTimeoutsRef.current[actionId];
+		}
+
+		setBackgroundActions((current) =>
+			current.filter((action) => action.id !== actionId),
+		);
+	}, []);
+
+	const scheduleBackgroundActionRemoval = useCallback(
+		(actionId, delayMs) => {
+			const existingTimeout = backgroundActionTimeoutsRef.current[actionId];
+
+			if (existingTimeout) {
+				clearTimeout(existingTimeout);
+			}
+
+			backgroundActionTimeoutsRef.current[actionId] = window.setTimeout(() => {
+				removeBackgroundAction(actionId);
+			}, delayMs);
+		},
+		[removeBackgroundAction],
+	);
+
+	const startBackgroundAction = useCallback((title, description) => {
+		const actionId =
+			globalThis.crypto?.randomUUID?.() ??
+			`${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+		setBackgroundActions((current) => [
+			...current,
+			{
+				id: actionId,
+				title,
+				description,
+				status: "pending",
+			},
+		]);
+
+		return actionId;
+	}, []);
+
+	const updateBackgroundAction = useCallback((actionId, updates) => {
+		setBackgroundActions((current) =>
+			current.map((action) =>
+				action.id === actionId ? { ...action, ...updates } : action,
+			),
+		);
+	}, []);
+
+	const completeBackgroundAction = useCallback(
+		(actionId, title, description) => {
+			updateBackgroundAction(actionId, {
+				title,
+				description,
+				status: "success",
+			});
+			scheduleBackgroundActionRemoval(actionId, 1800);
+		},
+		[scheduleBackgroundActionRemoval, updateBackgroundAction],
+	);
+
+	const failBackgroundAction = useCallback(
+		(actionId, title, description) => {
+			updateBackgroundAction(actionId, {
+				title,
+				description,
+				status: "error",
+			});
+			scheduleBackgroundActionRemoval(actionId, 5000);
+		},
+		[scheduleBackgroundActionRemoval, updateBackgroundAction],
+	);
 
 	const syncVisibleOrders = useCallback((sourceOrders) => {
 		const searchValue = orderSearchRef.current?.value || "";
@@ -94,6 +175,15 @@ export default function Orders({ userName, userLastName }) {
 	useEffect(() => {
 		void refreshOrders();
 	}, [refreshOrders]);
+
+	useEffect(
+		() => () => {
+			Object.values(backgroundActionTimeoutsRef.current).forEach((timeoutId) => {
+				clearTimeout(timeoutId);
+			});
+		},
+		[],
+	);
 
 	useEffect(() => {
 		if (!editedOrder) {
@@ -158,7 +248,7 @@ export default function Orders({ userName, userLastName }) {
 		}
 	};
 
-	const handleCreateOrder = async (e) => {
+	const handleCreateOrder = (e) => {
 		e.preventDefault();
 
 		if (!newOrder.patient || !newOrder.details) {
@@ -173,8 +263,14 @@ export default function Orders({ userName, userLastName }) {
 			issueDate: new Date().toISOString(),
 			progress: 0,
 		};
+		const actionId = startBackgroundAction("Creating order", order.patient);
+		const selectedFiles = [...files];
 
-		try {
+		setCurrentPage("orders");
+		setNewOrder(INITIAL_ORDER);
+		setFiles([]);
+
+		void (async () => {
 			const formData = new FormData();
 
 			formData.append("patient", order.patient);
@@ -184,33 +280,34 @@ export default function Orders({ userName, userLastName }) {
 			formData.append("issueDate", order.issueDate);
 			formData.append("progress", String(order.progress));
 
-			files.forEach((file) => {
+			selectedFiles.forEach((file) => {
 				formData.append("files", file);
 			});
 
-			const response = await axios.post("/api/postOrder", formData, {
-				withCredentials: true,
-				headers: {
-					"Content-Type": "multipart/form-data",
-				},
-			});
+			try {
+				const response = await axios.post("/api/postOrder", formData, {
+					withCredentials: true,
+					headers: {
+						"Content-Type": "multipart/form-data",
+					},
+				});
 
-			const nextOrders = await refreshOrders();
-			const createdOrder = nextOrders.find(
-				(currentOrder) => currentOrder.order_id === response.data.orderID,
-			);
+				const nextOrders = await refreshOrders();
+				const createdOrder = nextOrders.find(
+					(currentOrder) => currentOrder.order_id === response.data.orderID,
+				);
 
-			if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0) {
-				await loadFileNamesByIds(createdOrder.files);
+				if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0) {
+					await loadFileNamesByIds(createdOrder.files);
+				}
+
+				setExpandedOrderId(response.data.orderID);
+				completeBackgroundAction(actionId, "Order created", order.patient);
+			} catch (err) {
+				console.error("Order creation failed:", err);
+				failBackgroundAction(actionId, "Order creation failed", order.patient);
 			}
-
-			setNewOrder(INITIAL_ORDER);
-			setFiles([]);
-			setCurrentPage("orders");
-			setExpandedOrderId(response.data.orderID);
-		} catch (err) {
-			console.error("Order creation failed:", err);
-		}
+		})();
 	};
 
 	const handleSearchChange = (searchValue) => {
@@ -230,21 +327,34 @@ export default function Orders({ userName, userLastName }) {
 		syncVisibleOrders(allOrders);
 	};
 
-	const confirmDelete = async () => {
+	const confirmDelete = () => {
 		if (!deleteOrderId) {
 			return;
 		}
 
-		try {
-			await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
-				withCredentials: true,
-			});
-			await refreshOrders();
-		} catch (err) {
-			console.error(err);
-		} finally {
-			setDeleteOrderId(null);
-		}
+		const orderToDelete = allOrders.find(
+			(order) => order.order_id === deleteOrderId,
+		);
+		const orderLabel = orderToDelete?.patient || `Order #${deleteOrderId}`;
+		const actionId = startBackgroundAction("Deleting order", orderLabel);
+
+		setDeleteOrderId(null);
+		setExpandedOrderId((current) =>
+			current === deleteOrderId ? null : current,
+		);
+
+		void (async () => {
+			try {
+				await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
+					withCredentials: true,
+				});
+				await refreshOrders();
+				completeBackgroundAction(actionId, "Order deleted", orderLabel);
+			} catch (err) {
+				console.error(err);
+				failBackgroundAction(actionId, "Order deletion failed", orderLabel);
+			}
+		})();
 	};
 
 	const toggleOrderExpanded = (orderId) => {
@@ -259,21 +369,33 @@ export default function Orders({ userName, userLastName }) {
 		setCurrentPage("edit-order");
 	};
 
-	const handleEditOrderSave = async (e) => {
+	const handleEditOrderSave = (e) => {
 		e.preventDefault();
 
 		if (!editedOrder?.order_id) {
 			return;
 		}
 
-		try {
-			const formData = new FormData();
-			formData.append("orderID", editedOrder.order_id);
-			formData.append("patient", editDraft.patient);
-			formData.append("details", editDraft.details);
-			formData.append("dueDate", editDraft.dueDate);
+		const orderID = editedOrder.order_id;
+		const patient = editDraft.patient || editedOrder.patient;
+		const details = editDraft.details;
+		const dueDate = editDraft.dueDate;
+		const attachments = [...editFiles];
+		const actionId = startBackgroundAction("Saving changes", patient);
 
-			editFiles.forEach((attachment) => {
+		setCurrentPage("orders");
+		setEditedOrder(null);
+		setEditDraft(INITIAL_EDIT_DRAFT);
+		setEditFiles([]);
+
+		void (async () => {
+			const formData = new FormData();
+			formData.append("orderID", orderID);
+			formData.append("patient", patient);
+			formData.append("details", details);
+			formData.append("dueDate", dueDate);
+
+			attachments.forEach((attachment) => {
 				if (attachment.isLocal && attachment.file instanceof File) {
 					formData.append("files", attachment.file);
 					return;
@@ -284,36 +406,43 @@ export default function Orders({ userName, userLastName }) {
 				}
 			});
 
-			const response = await axios.put("/api/modifyOrder", formData, {
-				withCredentials: true,
-				headers: {
-					"Content-Type": "multipart/form-data",
-				},
-			});
-
-			const updatedOrder = response.data.order;
-			const nextFileNamesById = { ...fileNamesById };
-
-			if (Array.isArray(response.data.uploadedFiles)) {
-				response.data.uploadedFiles.forEach(({ fileID, fileName }) => {
-					nextFileNamesById[fileID] = fileName;
+			try {
+				const response = await axios.put("/api/modifyOrder", formData, {
+					withCredentials: true,
+					headers: {
+						"Content-Type": "multipart/form-data",
+					},
 				});
-				setFileNamesById(nextFileNamesById);
+
+				if (Array.isArray(response.data.uploadedFiles)) {
+					setFileNamesById((current) => {
+						const next = { ...current };
+
+						response.data.uploadedFiles.forEach(({ fileID, fileName }) => {
+							next[fileID] = fileName;
+						});
+
+						return next;
+					});
+				}
+
+				const updatedOrder = response.data.order;
+				const nextOrders = await refreshOrders();
+				const refreshedOrder =
+					nextOrders.find((order) => order.order_id === updatedOrder.order_id) ||
+					updatedOrder;
+
+				if (Array.isArray(refreshedOrder.files) && refreshedOrder.files.length > 0) {
+					await loadFileNamesByIds(refreshedOrder.files);
+				}
+
+				setExpandedOrderId(updatedOrder.order_id);
+				completeBackgroundAction(actionId, "Changes saved", patient);
+			} catch (err) {
+				console.error("Order update failed:", err);
+				failBackgroundAction(actionId, "Order update failed", patient);
 			}
-
-			const nextOrders = allOrders.map((order) =>
-				order.order_id === updatedOrder.order_id ? updatedOrder : order,
-			);
-
-			setAllOrders(nextOrders);
-			syncVisibleOrders(nextOrders);
-			setEditedOrder(updatedOrder);
-			setEditFiles(getOrderFiles(updatedOrder, nextFileNamesById));
-			setExpandedOrderId(updatedOrder.order_id);
-			setCurrentPage("orders");
-		} catch (err) {
-			console.error("Order update failed:", err);
-		}
+		})();
 	};
 
 	const handleDownloadFile = async (order, attachment, index) => {
@@ -547,6 +676,8 @@ export default function Orders({ userName, userLastName }) {
 					</motion.div>
 				)}
 			</main>
+
+			<BackgroundActionsWidget actions={backgroundActions} />
 		</motion.div>
 	);
 }

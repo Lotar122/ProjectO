@@ -130,7 +130,7 @@ export default function OrderCard({
 										Delete order
 									</button>
 									<p className="px-3 pb-1 pt-2 text-xs text-slate-500">
-										File actions are UI-only for now.
+										Saves and deletes continue in the background.
 									</p>
 								</motion.div>
 							)}
