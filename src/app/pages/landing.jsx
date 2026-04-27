@@ -1,43 +1,99 @@
-import { User, Package, Calendar, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
+import { motion } from "framer-motion";
+import { Calendar, LogIn, Package, User } from "lucide-react";
 
-export default function Landing({currentPage, setCurrentPage})
-{
-    return (
-	  <div className="container mx-auto px-4 py-16">
-			<div className="text-center mb-16">
-			  <h1 className="text-5xl font-bold text-white mb-6">ProjectO</h1>
-			  <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-				Advanced orthodontic management system for streamlined patient care and order tracking
-			  </p>
-			</div>
- 
-			<div className="grid md:grid-cols-3 gap-8 mb-16">
-			  <div className="bg-gray-900 rounded-xl p-8 text-center text-white">
-				<Package className="w-12 h-12 mx-auto mb-4 text-white" />
-				<h3 className="text-xl font-semibold mb-2">Order Management</h3>
-				<p>Track and manage all orthodontic appliance orders efficiently</p>
-			  </div>
-			  <div className="bg-gray-900 rounded-xl p-8 text-center text-white">
-				<Calendar className="w-12 h-12 mx-auto mb-4 text-white" />
-				<h3 className="text-xl font-semibold mb-2">Progress Tracking</h3>
-				<p>Monitor treatment progress and order status in real-time</p>
-			  </div>
-			  <div className="bg-gray-900 rounded-xl p-8 text-center text-white">
-				<User className="w-12 h-12 mx-auto mb-4 text-white" />
-				<h3 className="text-xl font-semibold mb-2">Patient Care</h3>
-				<p>Enhanced patient management and treatment coordination</p>
-			  </div>
-			</div>
- 
-			<div className="text-center">
-			  <button
-				onClick={() => setCurrentPage('login')}
-				className="bg-white text-black px-8 py-4 rounded-xl font-semibold text-lg hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 mx-auto"
-			  >
-				<LogIn className="w-5 h-5" />
-				Access Dashboard
-			  </button>
-			</div>
-		  </div>
+import FeatureCard from "../components/FeatureCard";
+
+const container = {
+	hidden: {},
+	show: {
+		transition: {
+			staggerChildren: 0.1,
+			delayChildren: 0.08,
+		},
+	},
+};
+
+const item = {
+	hidden: { opacity: 0, y: 28 },
+	show: {
+		opacity: 1,
+		y: 0,
+		transition: {
+			duration: 0.55,
+			ease: [0.22, 1, 0.36, 1],
+		},
+	},
+};
+
+const cards = [
+	{
+		title: "Order Management",
+		description: "Track and manage all orthodontic appliance orders efficiently",
+		icon: Package,
+	},
+	{
+		title: "Progress Tracking",
+		description: "Monitor treatment progress and order status in real-time",
+		icon: Calendar,
+	},
+	{
+		title: "Patient Care",
+		description: "Enhanced patient management and treatment coordination",
+		icon: User,
+	},
+];
+
+export default function Landing({ setCurrentPage }) {
+	return (
+		<motion.div
+			variants={container}
+			initial="hidden"
+			animate="show"
+			className="container mx-auto px-4 py-16 md:py-24">
+			<motion.div variants={item} className="text-center mb-16 md:mb-20">
+				<motion.div
+					initial={{ scale: 0.92, opacity: 0 }}
+					animate={{ scale: 1, opacity: 1 }}
+					transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+					className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300 backdrop-blur">
+					<span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(74,222,128,0.8)]"></span>
+					Orthodontic workflow, elevated
+				</motion.div>
+				<h1 className="mb-6 bg-gradient-to-b from-white to-gray-400 bg-clip-text text-5xl font-bold text-transparent md:text-7xl">
+					ProjectO
+				</h1>
+				<p className="mx-auto max-w-2xl text-lg text-gray-400 md:text-xl">
+					Advanced orthodontic management system for streamlined patient
+					care, faster coordination, and order tracking that feels instant.
+				</p>
+			</motion.div>
+
+			<motion.div
+				variants={container}
+				className="mb-16 grid gap-8 md:mb-20 md:grid-cols-3">
+				{cards.map((card) => {
+					return (
+						<motion.div key={card.title} variants={item}>
+							<FeatureCard
+								description={card.description}
+								icon={card.icon}
+								title={card.title}
+							/>
+						</motion.div>
+					);
+				})}
+			</motion.div>
+
+			<motion.div variants={item} className="text-center">
+				<motion.button
+					onClick={() => setCurrentPage("login")}
+					whileHover={{ scale: 1.03, y: -2 }}
+					whileTap={{ scale: 0.98 }}
+					className="mx-auto flex items-center gap-3 rounded-2xl bg-white px-8 py-4 text-lg font-semibold text-black shadow-[0_18px_60px_rgba(255,255,255,0.16)] transition-colors duration-200 hover:bg-gray-200">
+					<LogIn className="h-5 w-5" />
+					Access Dashboard
+				</motion.button>
+			</motion.div>
+		</motion.div>
 	);
 }

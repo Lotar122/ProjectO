@@ -3,58 +3,58 @@
 import axios from "axios";
 import postgres from "postgres";
 
-export async function getUserAuthSession(cookie)
-{
-  const cookieHeader = cookie.get("ory_kratos_session");
-  let res = null;
-  let loggedIn = false;
-  try {
-    res = await axios.get(`http://localhost:4433/sessions/whoami`, {
-      headers: {
-        cookie: `${cookieHeader.name}=${cookieHeader.value}`,
-      },
-      withCredentials: false,
-    });
+import { getNameFromEmail } from "./getUserName";
 
-    if (res.data && res.data.active) {
-	  const DB = postgres(Bun.env.DB_URL, {prepare: true});
+export async function getUserAuthSession(cookie) {
+	const cookieHeader = cookie.get("ory_kratos_session");
+	let res = null;
+	let loggedIn = false;
+	try {
+		res = await axios.get(`http://localhost:4433/sessions/whoami`, {
+			headers: {
+				cookie: `${cookieHeader.name}=${cookieHeader.value}`,
+			},
+			withCredentials: false,
+		});
 
-	  let users = null;
-	  try {
-		users = await DB`SELECT * FROM users WHERE "UUID" = ${res.data.identity.id}`;
-	  }
-	  catch(err) {
-		console.error(err);
-	  }
+		if (res.data && res.data.active) {
+			const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
-	  if(users.length == 0)
-	  {
-		try {
-			await DB`
-			INSERT INTO users ("UUID", email)
-			VALUES (${res.data.identity.id}, ${res.data.identity.traits.email})
+			let users = null;
+			try {
+				users =
+					await DB`SELECT * FROM users WHERE "user_id" = ${res.data.identity.id}`;
+			} catch (err) {
+				console.error(err);
+			}
+
+			if (users.length == 0) {
+				const name = await getNameFromEmail(
+					res.data.identity.traits.email,
+				);
+				try {
+					await DB`
+			INSERT INTO users (user_id, email, name, last_name)
+			VALUES (${res.data.identity.id}, ${res.data.identity.traits.email}, ${name.first}, ${name.last})
 			`;
+				} catch (err) {
+					console.error(err);
+				}
+			}
+
+			await DB.end();
+
+			loggedIn = true;
 		}
-		catch(err) {
-			console.error(err);
-		}
-	  }
+	} catch (err) {
+		loggedIn = false;
+		throw err;
+	}
 
-	  await DB.end();
+	let result = {
+		loggedIn: loggedIn,
+		data: res?.data,
+	};
 
-      loggedIn = true;
-    }
-  } 
-  catch (err) {
-    loggedIn = false;
-	throw err;
-  }
-
-  let result = 
-  {
-	loggedIn: loggedIn,
-	data: res?.data
-  };
-
-  return result;
+	return result;
 }

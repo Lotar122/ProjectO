@@ -1,14 +1,12 @@
-import { Metadata } from 'next';
 import Main from "@/app/pages/main";
 
 const App = () => {
-  return <Main/>;
+	return <Main />;
 };
- 
+
 export const metadata = {
-  title: 'ProjectO',
-  description:
-    'A website for managing orders in orthodontics.',
+	title: "ProjectO",
+	description: "A website for managing orders in orthodontics.",
 };
 
 export default App;

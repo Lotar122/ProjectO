@@ -1,441 +1,519 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { User, Package, Calendar, Trash2, CheckCircle, Clock, XCircle, Eye, EyeOff, LogIn, LogOut, Plus, Search, Filter, ChevronDown, Home, FileText, UserCircle } from 'lucide-react';
-
+import { motion } from "framer-motion";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import axios from "axios";
 
-let ordersArray = [];
-let ordersToBeDisplayed = structuredClone(ordersArray);
+import DeleteOrderModal from "./components/DeleteOrderModal";
+import OrderCard from "./components/OrderCard";
+import OrderForm from "./components/OrderForm";
+import OrdersHeader from "./components/OrdersHeader";
+import OrdersToolbar from "./components/OrdersToolbar";
+import {
+	buildOrderFileName,
+	INITIAL_EDIT_DRAFT,
+	INITIAL_ORDER,
+	createLocalAttachments,
+	getDisplayDate,
+	getFilteredOrders,
+	getOrderFiles,
+} from "./orderUtils";
 
-export default function Orders()
-{
-    const [currentPage, setCurrentPage] = useState('orders');
-    const [orders, setOrders] = useState(ordersToBeDisplayed);
-    const [newOrder, setNewOrder] = useState({ patient: '', type: '', dueDate: new Date() });
-    const orderFilterRef = useRef(null);
-    const orderSearchRef = useRef(null);
-
-    const [hoveredOrder, setHoveredOrder] = useState(null);
-    const [deleteOrderId, setDeleteOrderId] = useState(null);
-
-    useEffect(() => {
-      //const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data;  ordersArray.reverse(); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
-      console.log("get orders");
-    }, []);
- 
-  const handleLogout = async () => {
-    try {
-      const KRATOS_PUBLIC = "https://orto.lotar122.dev/kratos"; 
-
-      const res = await axios.get(
-        `${KRATOS_PUBLIC}/self-service/logout/browser`,
-        {
-          withCredentials: true, // important so session cookies are included
-        }
-      );
-
-      window.location.href = res.data.logout_url;
-    } catch (err) {
-      console.error("Logout error:", err);
-    }
-
-    console.log("logout");
-  };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-          case 'completed': return 'bg-green-100 text-green-800';
-          case 'in-progress': return 'bg-blue-100 text-blue-800';
-          case 'pending': return 'bg-yellow-100 text-yellow-800';
-          case 'shipped': return 'bg-purple-100 text-purple-800';
-          default: return 'bg-gray-100 text-gray-800';
-        }
-      };
-     
-      const getStatusIcon = (status) => {
-        switch (status) {
-          case 'completed': return <CheckCircle className="w-4 h-4" />;
-          case 'in-progress': return <Clock className="w-4 h-4" />;
-          case 'pending': return <Clock className="w-4 h-4" />;
-          case 'shipped': return <Package className="w-4 h-4" />;
-          default: return <XCircle className="w-4 h-4" />;
-        }
-      };
-
-      const handleCreateOrder = async (e) => {
-        e.preventDefault();
-        if (newOrder.patient && newOrder.type) {
-          const order = {
-            patient: newOrder.patient,
-            type: newOrder.type,
-            status: 'pending',
-            dueDate: newOrder.dueDate,
-            issueDate: new Date(),
-            progress: 0
-          };
-          ordersArray.push(order);
-
-          console.log(ordersArray);
-
-          const res = await axios.post("/api/postOrder", ordersArray[ordersArray.length - 1], { withCredentials: true });
-          order.id = res.data.orderID;
-
-          ordersToBeDisplayed = structuredClone(ordersArray);
-          setOrders(ordersToBeDisplayed);
-          setNewOrder({ patient: '', type: '', notes: '' });
-          setCurrentPage('orders');
-        }
-        };
-      
-        const searchOrdersByString = (str) => {
-        if(str.trim() === "")
-        {
-            ordersToBeDisplayed = structuredClone(ordersArray);
-            setOrders(ordersToBeDisplayed);
-            return;
-        }
-        ordersToBeDisplayed = [];
-        ordersArray.forEach((val) => {if(val.patient.toLowerCase().includes(str.toLowerCase())) {ordersToBeDisplayed.push(val)}});
-      
-        setOrders(ordersToBeDisplayed);
-        };
-      
-        const searchOrdersByStatus = (status) => {
-        if(status === "All Status")
-        {
-            return;
-        }
-        let newOrdersToBeDisplayed = [];
-        ordersToBeDisplayed.forEach((val) => {if(val.status.toLowerCase().includes(status.toLowerCase().replace(' ', '-'))) {newOrdersToBeDisplayed.push(val)}});
-      
-        ordersToBeDisplayed = structuredClone(newOrdersToBeDisplayed);
-      
-        setOrders(ordersToBeDisplayed);
-        };
-
-  const handleDeleteClick = (id) => {
-    setDeleteOrderId(id);
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteOrderId) return;
-
-    try {
-      await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {withCredentials: true});
-
-      const res = axios.get('/api/getOrders', {withCredentials: true}).then(r => {ordersArray = r.data; ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersArray)});
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setDeleteOrderId(null);
-    }
-  };
-
-  const cancelDelete = () => setDeleteOrderId(null);
-
-    return (
-    <div className="min-h-screen bg-black text-white">
-      {deleteOrderId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-900 p-6 rounded-xl w-80">
-            <h2 className="text-lg font-semibold text-white mb-4">Delete Order?</h2>
-            <p className="text-gray-400 mb-6">Are you sure you want to delete this order? This action cannot be undone.</p>
-            <div className="flex justify-end gap-4">
-              <button
-                onClick={cancelDelete}
-                className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 rounded hover:bg-red-500 text-white transition-colors"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                <Package className="w-6 h-6 text-black" />
-              </div>
-              <h1 className="text-2xl font-bold text-white">ProjectO</h1>
-            </div>
- 
-            <nav className="hidden md:flex items-center gap-6">
-              <button
-                onClick={() => {setCurrentPage('orders'); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersToBeDisplayed);}}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                  currentPage === 'orders' ? 'bg-white text-black' : 'text-gray-300 hover:text-white'
-                }`}
-              >
-                <Package className="w-4 h-4" />
-                Orders
-              </button>
-              <button
-                onClick={() => setCurrentPage('create-order')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                  currentPage === 'create-order' ? 'bg-white text-black' : 'text-gray-300 hover:text-white'
-                }`}
-              >
-                <Plus className="w-4 h-4" />
-                New Order
-              </button>
-            </nav>
- 
-            <div className="flex items-center gap-4">
-              <div className="hidden md:flex items-center gap-2 text-sm text-gray-300">
-                <UserCircle className="w-5 h-5" />
-                Dr. Smith
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
- 
-      {/* Mobile Navigation */}
-      <div className="md:hidden bg-gray-900 border-b border-gray-800">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex gap-2">
-            <button
-              onClick={() => {setCurrentPage('orders'); ordersToBeDisplayed = structuredClone(ordersArray); setOrders(ordersToBeDisplayed);}}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                currentPage === 'orders' ? 'bg-white text-black' : 'text-gray-300'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              Orders
-            </button>
-            <button
-              onClick={() => setCurrentPage('create-order')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                currentPage === 'create-order' ? 'bg-white text-black' : 'text-gray-300'
-              }`}
-            >
-              <Plus className="w-4 h-4" />
-              New
-            </button>
-          </div>
-        </div>
-      </div>
- 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {currentPage === 'orders' && (
-          <div>
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-3xl font-bold text-white">Treatment Orders</h2>
-                <p className="text-gray-400">Manage and track all orthodontic appliance orders</p>
-              </div>
-              <button
-                onClick={() => setCurrentPage('create-order')}
-                className="bg-white text-black px-6 py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                New Order
-              </button>
-            </div>
- 
-            {/* Search and Filter */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-8">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <input
-                    ref={orderSearchRef}
-                    onChange={(e) => {searchOrdersByString(e.target.value); searchOrdersByStatus(orderFilterRef.current.value);}}
-                    type="text"
-                    placeholder="Search orders..."
-                    className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <select 
-                    onChange={(e) => {searchOrdersByString(orderSearchRef.current.value); searchOrdersByStatus(e.target.value);}} 
-                    ref={orderFilterRef} 
-                    className="px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white">
-                    <option className="bg-gray-900">All Status</option>
-                    <option className="bg-gray-900">Pending</option>
-                    <option className="bg-gray-900">In Progress</option>
-                    <option className="bg-gray-900">Shipped</option>
-                    <option className="bg-gray-900">Completed</option>
-                  </select>
-                </div>
-              </div>
-            </div>
- 
-            {/* Orders Grid */}
-            <div className="grid gap-6">
-        {orders.map((order) => (
-          <div
-            key={order.id}
-            className="relative bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-600 transition-colors duration-200"
-            onMouseEnter={() => setHoveredOrder(order.id)}
-            onMouseLeave={() => setHoveredOrder(null)}
-          >
-            {console.log(order)}
-            {/* Trash icon on hover */}
-            {hoveredOrder === order.id && (
-              <button
-                onClick={() => handleDeleteClick(order.id)}
-                className="absolute top-3 left-3 p-2 rounded-full hover:bg-gray-800 transition-colors"
-              >
-                <Trash2 className="w-5 h-5 text-red-500" />
-              </button>
-            )}
-
-            <div className="flex items-center justify-between ml-8">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-                  <Package className="w-6 h-6 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white">{order.patient}</h3>
-                  <p className="text-gray-400">{order.type}</p>
-                  <p className="text-sm text-gray-500">Order #{order.id} • {order.due_date.slice(0, 10)}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-6">
-                <div className="text-right">
-                  <span
-                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(order.status)}`}
-                  >
-                    {getStatusIcon(order.status)}
-                    {order.status.replace("-", " ").toUpperCase()}
-                  </span>
-                  <div className="mt-2 w-32 bg-gray-700 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all duration-300 ${
-                        order.status === "completed"
-                          ? "bg-green-500"
-                          : order.status === "in-progress"
-                          ? "bg-blue-500"
-                          : order.status === "shipped"
-                          ? "bg-purple-500"
-                          : "bg-yellow-500"
-                      }`}
-                      style={{ width: `${order.progress}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">{order.progress}% Complete</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-          </div>
-        )}
- 
-        {currentPage === 'create-order' && (
-          <div>
-            <div className="mb-8">
-              <h2 className="text-3xl font-bold text-white mb-2">Create New Order</h2>
-              <p className="text-gray-400">Enter patient details and appliance information</p>
-            </div>
- 
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-8 max-w-2xl mx-auto">
-              <form onSubmit={handleCreateOrder} className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Patient Name
-                  </label>
-                  <input
-                    type="text"
-                    value={newOrder.patient}
-                    onChange={(e) => setNewOrder({...newOrder, patient: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter patient full name"
-                    required
-                  />
-                </div>
- 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Type of service
-                  </label>
-                  <input
-                    type="text"
-                    value={newOrder.type}
-                    onChange={(e) => setNewOrder({...newOrder, type: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter type"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Due date
-                  </label>
-                  <input
-                    type="date"
-                    value={newOrder.dueDate}
-                    onChange={(e) => setNewOrder({...newOrder, dueDate: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white"
-                    placeholder="Enter type"
-                    required
-                  />
-                </div>
- 
-                {/* <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Additional Notes
-                  </label>
-                  <textarea
-                    value={newOrder.notes}
-                    onChange={(e) => setNewOrder({...newOrder, notes: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-white focus:border-transparent bg-black text-white h-32 resize-none"
-                    placeholder="Any special instructions or notes..."
-                  />
-                </div> */}
- 
-                <div className="flex gap-4">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-white text-black py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors duration-200"
-                  >
-                    Create Order
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setCurrentPage('orders'); 
-                      ordersToBeDisplayed = structuredClone(ordersArray); 
-                      setOrders(ordersToBeDisplayed);
-                    }}
-                    className="flex-1 bg-gray-700 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition-colors duration-200"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
-
-export const metadata = {
-  title: 'ProjectO - Orders',
-  description:
-    'A website for managing orders in orthodontics.',
+const sectionTransition = {
+	initial: { opacity: 0, y: 24 },
+	animate: {
+		opacity: 1,
+		y: 0,
+		transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+	},
 };
+
+export default function Orders({ userName, userLastName }) {
+	const [currentPage, setCurrentPage] = useState("orders");
+	const [allOrders, setAllOrders] = useState([]);
+	const [orders, setOrders] = useState([]);
+	const [newOrder, setNewOrder] = useState(INITIAL_ORDER);
+	const [files, setFiles] = useState([]);
+	const [deleteOrderId, setDeleteOrderId] = useState(null);
+	const [editedOrder, setEditedOrder] = useState(null);
+	const [editDraft, setEditDraft] = useState(INITIAL_EDIT_DRAFT);
+	const [editFiles, setEditFiles] = useState([]);
+	const [expandedOrderId, setExpandedOrderId] = useState(null);
+	const [fileNamesById, setFileNamesById] = useState({});
+	const [openEditMenuId, setOpenEditMenuId] = useState(null);
+	const orderFilterRef = useRef(null);
+	const orderSearchRef = useRef(null);
+
+	const syncVisibleOrders = useCallback((sourceOrders) => {
+		const searchValue = orderSearchRef.current?.value || "";
+		const statusValue = orderFilterRef.current?.value || "All Status";
+		setOrders(getFilteredOrders(sourceOrders, searchValue, statusValue));
+	}, []);
+
+	const refreshOrders = useCallback(async () => {
+		const response = await axios.get("/api/getOrders", {
+			withCredentials: true,
+		});
+		const nextOrders = [...response.data].reverse();
+		setAllOrders(nextOrders);
+		syncVisibleOrders(nextOrders);
+		return nextOrders;
+	}, [syncVisibleOrders]);
+
+	const loadFileNamesByIds = useCallback(async (fileIds) => {
+		const missingFileIds = [
+			...new Set(fileIds.filter((fileId) => fileId && !fileNamesById[fileId])),
+		];
+
+		if (missingFileIds.length === 0) {
+			return;
+		}
+
+		const responses = await Promise.all(
+			missingFileIds.map(async (fileId) => {
+				const response = await axios.get(`/api/getFileName?file_id=${fileId}`, {
+					withCredentials: true,
+				});
+
+				return [fileId, response.data.filename];
+			}),
+		);
+
+		setFileNamesById((current) => {
+			const next = { ...current };
+
+			responses.forEach(([fileId, filename]) => {
+				next[fileId] = filename || current[fileId] || "Attachment";
+			});
+
+			return next;
+		});
+	}, [fileNamesById]);
+
+	useEffect(() => {
+		void refreshOrders();
+	}, [refreshOrders]);
+
+	useEffect(() => {
+		if (!editedOrder) {
+			setEditDraft(INITIAL_EDIT_DRAFT);
+			setEditFiles([]);
+			return;
+		}
+
+		setEditDraft({
+			patient: editedOrder.patient || "",
+			details: editedOrder.details || editedOrder.type || "",
+			dueDate: getDisplayDate(editedOrder),
+		});
+	}, [editedOrder]);
+
+	useEffect(() => {
+		const missingFileIds = [
+			...new Set(
+				allOrders
+					.flatMap((order) => (Array.isArray(order.files) ? order.files : []))
+					.filter((fileId) => fileId && !fileNamesById[fileId]),
+			),
+		];
+
+		if (missingFileIds.length === 0) {
+			return;
+		}
+
+		let isMounted = true;
+
+		const loadFileNames = async () => {
+			try {
+				if (!isMounted) {
+					return;
+				}
+
+				await loadFileNamesByIds(missingFileIds);
+			} catch (err) {
+				console.error("Failed to load file names:", err);
+			}
+		};
+
+		void loadFileNames();
+
+		return () => {
+			isMounted = false;
+		};
+	}, [allOrders, fileNamesById, loadFileNamesByIds]);
+
+	const handleLogout = async () => {
+		try {
+			const response = await axios.get(
+				"https://orto.lotar122.dev/kratos/self-service/logout/browser",
+				{
+					withCredentials: true,
+				},
+			);
+
+			window.location.href = response.data.logout_url;
+		} catch (err) {
+			console.error("Logout error:", err);
+		}
+	};
+
+	const handleCreateOrder = async (e) => {
+		e.preventDefault();
+
+		if (!newOrder.patient || !newOrder.details) {
+			return;
+		}
+
+		const order = {
+			patient: newOrder.patient,
+			details: newOrder.details,
+			status: "pending",
+			dueDate: newOrder.dueDate,
+			issueDate: new Date().toISOString(),
+			progress: 0,
+		};
+
+		try {
+			const formData = new FormData();
+
+			formData.append("patient", order.patient);
+			formData.append("details", order.details);
+			formData.append("status", order.status);
+			formData.append("dueDate", order.dueDate);
+			formData.append("issueDate", order.issueDate);
+			formData.append("progress", String(order.progress));
+
+			files.forEach((file) => {
+				formData.append("files", file);
+			});
+
+			const response = await axios.post("/api/postOrder", formData, {
+				withCredentials: true,
+				headers: {
+					"Content-Type": "multipart/form-data",
+				},
+			});
+
+			const nextOrders = await refreshOrders();
+			const createdOrder = nextOrders.find(
+				(currentOrder) => currentOrder.order_id === response.data.orderID,
+			);
+
+			if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0) {
+				await loadFileNamesByIds(createdOrder.files);
+			}
+
+			setNewOrder(INITIAL_ORDER);
+			setFiles([]);
+			setCurrentPage("orders");
+			setExpandedOrderId(response.data.orderID);
+		} catch (err) {
+			console.error("Order creation failed:", err);
+		}
+	};
+
+	const handleSearchChange = (searchValue) => {
+		const statusValue = orderFilterRef.current?.value || "All Status";
+		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
+	};
+
+	const handleStatusChange = (statusValue) => {
+		const searchValue = orderSearchRef.current?.value || "";
+		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
+	};
+
+	const showOrdersPage = () => {
+		setOpenEditMenuId(null);
+		setEditedOrder(null);
+		setCurrentPage("orders");
+		syncVisibleOrders(allOrders);
+	};
+
+	const confirmDelete = async () => {
+		if (!deleteOrderId) {
+			return;
+		}
+
+		try {
+			await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
+				withCredentials: true,
+			});
+			await refreshOrders();
+		} catch (err) {
+			console.error(err);
+		} finally {
+			setDeleteOrderId(null);
+		}
+	};
+
+	const toggleOrderExpanded = (orderId) => {
+		setOpenEditMenuId(null);
+		setExpandedOrderId((current) => (current === orderId ? null : orderId));
+	};
+
+	const openEditOrder = (order) => {
+		setEditFiles(getOrderFiles(order, fileNamesById));
+		setEditedOrder(order);
+		setOpenEditMenuId(null);
+		setCurrentPage("edit-order");
+	};
+
+	const handleEditOrderSave = (e) => {
+		e.preventDefault();
+
+		if (!editedOrder?.order_id) {
+			return;
+		}
+
+		const updatedOrder = {
+			...editedOrder,
+			patient: editDraft.patient,
+			details: editDraft.details,
+			dueDate: editDraft.dueDate,
+			due_date: editDraft.dueDate,
+			frontendFiles: editFiles,
+		};
+
+		const nextOrders = allOrders.map((order) =>
+			order.order_id === editedOrder.order_id ? updatedOrder : order,
+		);
+
+		setAllOrders(nextOrders);
+		syncVisibleOrders(nextOrders);
+		setEditedOrder(updatedOrder);
+		setExpandedOrderId(updatedOrder.order_id);
+		setCurrentPage("orders");
+	};
+
+	const handleDownloadFile = async (order, attachment, index) => {
+		if (attachment.file instanceof File) {
+			const objectUrl = URL.createObjectURL(attachment.file);
+			const link = document.createElement("a");
+			link.href = objectUrl;
+			link.download = buildOrderFileName(order.patient, attachment.file.name);
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(objectUrl);
+			return;
+		}
+
+		let fileId = attachment.fileId;
+
+		if (!fileId) {
+			const refreshedOrders = await refreshOrders();
+			const refreshedOrder = refreshedOrders.find(
+				(currentOrder) => currentOrder.order_id === order.order_id,
+			);
+			fileId = refreshedOrder?.files?.[index];
+		}
+
+		if (!fileId) {
+			return;
+		}
+
+		const downloadOrder =
+			order.patient
+				? order
+				: allOrders.find((currentOrder) => currentOrder.order_id === order.order_id) ||
+					order;
+		const response = await axios.get(`/api/downloadFile?file_id=${fileId}`, {
+			withCredentials: true,
+			responseType: "blob",
+		});
+		const objectUrl = URL.createObjectURL(response.data);
+		const baseFileName = fileNamesById[fileId] || attachment.name;
+		const link = document.createElement("a");
+		link.href = objectUrl;
+		link.download = buildOrderFileName(downloadOrder.patient, baseFileName);
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		URL.revokeObjectURL(objectUrl);
+	};
+
+	return (
+		<motion.div
+			initial={{ opacity: 0 }}
+			animate={{ opacity: 1 }}
+			transition={{ duration: 0.45 }}
+			className="min-h-screen bg-transparent text-white">
+			<DeleteOrderModal
+				isOpen={Boolean(deleteOrderId)}
+				onCancel={() => setDeleteOrderId(null)}
+				onConfirm={confirmDelete}
+			/>
+
+			<OrdersHeader
+				currentPage={currentPage}
+				onLogout={handleLogout}
+				onShowCreateOrder={() => setCurrentPage("create-order")}
+				onShowOrders={showOrdersPage}
+				userLastName={userLastName}
+				userName={userName}
+			/>
+
+			<main className="container mx-auto px-4 py-8">
+				{currentPage === "orders" && (
+					<motion.div
+						variants={sectionTransition}
+						initial="initial"
+						animate="animate">
+						<div className="mb-8 flex items-center justify-between">
+							<div>
+								<h2 className="text-3xl font-bold text-white">
+									Treatment Orders
+								</h2>
+								<p className="text-slate-400">
+									Manage and track all orthodontic appliance orders
+								</p>
+							</div>
+							<motion.button
+								whileHover={{ scale: 1.02, y: -2 }}
+								whileTap={{ scale: 0.985 }}
+								onClick={() => setCurrentPage("create-order")}
+								className="flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
+								<Plus className="h-5 w-5" />
+								New Order
+							</motion.button>
+						</div>
+
+						<motion.div
+							initial={{ opacity: 0, y: 12 }}
+							animate={{ opacity: 1, y: 0 }}
+							transition={{ duration: 0.45, delay: 0.05 }}>
+							<OrdersToolbar
+								orderFilterRef={orderFilterRef}
+								orderSearchRef={orderSearchRef}
+								onSearchChange={handleSearchChange}
+								onStatusChange={handleStatusChange}
+							/>
+						</motion.div>
+
+						<div className="grid gap-6">
+							{orders.map((order) => (
+								<OrderCard
+									key={order.order_id}
+									fileNamesById={fileNamesById}
+									isExpanded={expandedOrderId === order.order_id}
+									isMenuOpen={openEditMenuId === order.order_id}
+									onDownloadFile={(attachment, index) =>
+										handleDownloadFile(order, attachment, index)
+									}
+									onOpenEdit={() => openEditOrder(order)}
+									onRequestDelete={() => {
+										setOpenEditMenuId(null);
+										setDeleteOrderId(order.order_id);
+									}}
+									onToggleExpanded={() => toggleOrderExpanded(order.order_id)}
+									onToggleMenu={() =>
+										setOpenEditMenuId((current) =>
+											current === order.order_id ? null : order.order_id,
+										)
+									}
+									order={order}
+								/>
+							))}
+						</div>
+					</motion.div>
+				)}
+
+				{currentPage === "create-order" && (
+					<motion.div
+						variants={sectionTransition}
+						initial="initial"
+						animate="animate">
+						<OrderForm
+							description="Enter patient details and appliance information"
+							details={newOrder.details}
+							dueDate={newOrder.dueDate}
+							fileSectionMode="create"
+							files={files}
+							onCancel={showOrdersPage}
+							onDetailsChange={(details) =>
+								setNewOrder((current) => ({
+									...current,
+									details,
+								}))
+							}
+							onDueDateChange={(dueDate) =>
+								setNewOrder((current) => ({
+									...current,
+									dueDate,
+								}))
+							}
+							onFilesSelected={(selectedFiles) =>
+								setFiles((previous) => [...previous, ...selectedFiles])
+							}
+							onPatientChange={(patient) =>
+								setNewOrder((current) => ({
+									...current,
+									patient,
+								}))
+							}
+							onRemoveFile={(index) =>
+								setFiles((previous) =>
+									previous.filter((_, currentIndex) => currentIndex !== index),
+								)
+							}
+							onSubmit={handleCreateOrder}
+							patient={newOrder.patient}
+							submitLabel="Create Order"
+							title="Create New Order"
+						/>
+					</motion.div>
+				)}
+
+				{currentPage === "edit-order" && editedOrder && (
+					<motion.div
+						variants={sectionTransition}
+						initial="initial"
+						animate="animate">
+						<OrderForm
+							description={`Update order details on the frontend for order #${editedOrder.order_id}`}
+							details={editDraft.details}
+							dueDate={editDraft.dueDate}
+							fileSectionMode="edit"
+							onCancel={showOrdersPage}
+							onDetailsChange={(details) =>
+								setEditDraft((current) => ({
+									...current,
+									details,
+								}))
+							}
+							onDueDateChange={(dueDate) =>
+								setEditDraft((current) => ({
+									...current,
+									dueDate,
+								}))
+							}
+							onPatientChange={(patient) =>
+								setEditDraft((current) => ({
+									...current,
+									patient,
+								}))
+							}
+							onFilesSelected={(selectedFiles) =>
+								setEditFiles((current) => [
+									...current,
+									...createLocalAttachments(selectedFiles),
+								])
+							}
+							onRemoveAttachment={(_, index) =>
+								setEditFiles((current) =>
+									current.filter((_, currentIndex) => currentIndex !== index),
+								)
+							}
+							onSubmit={handleEditOrderSave}
+							patient={editDraft.patient}
+							submitLabel="Save Changes"
+							title="Edit Order"
+							attachments={editFiles}
+						/>
+					</motion.div>
+				)}
+			</main>
+		</motion.div>
+	);
+}
