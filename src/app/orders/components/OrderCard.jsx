@@ -64,7 +64,7 @@ export default function OrderCard({
 						<h3 className="text-lg font-semibold text-white">{order.patient}</h3>
 						<p className="text-slate-300">{order.details || order.type}</p>
 						<p className="text-sm text-slate-500">
-							Order #{order.order_id} Ă˘â‚¬Ë {getDisplayDate(order)}
+							Order #{order.order_id} - {getDisplayDate(order)}
 						</p>
 					</div>
 				</div>

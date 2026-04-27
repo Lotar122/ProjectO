@@ -52,14 +52,6 @@ export default function Landing({ setCurrentPage })
 			animate="show"
 			className="container mx-auto px-4 py-16 md:py-24">
 			<motion.div variants={item} className="text-center mb-16 md:mb-20">
-				<motion.div
-					initial={{ scale: 0.92, opacity: 0 }}
-					animate={{ scale: 1, opacity: 1 }}
-					transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-					className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300 backdrop-blur">
-					<span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(74,222,128,0.8)]"></span>
-					Orthodontic workflow, elevated
-				</motion.div>
 				<h1 className="mb-6 bg-gradient-to-b from-white to-gray-400 bg-clip-text text-5xl font-bold text-transparent md:text-7xl">
 					ProjectO
 				</h1>
