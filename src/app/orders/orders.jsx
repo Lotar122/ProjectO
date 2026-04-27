@@ -136,7 +136,16 @@ export default function Orders({ userName, userLastName }) {
 		const response = await axios.get("/api/getOrders", {
 			withCredentials: true,
 		});
-		const nextOrders = [...response.data].reverse();
+		const nextOrders = [...response.data].sort((left, right) => {
+			const leftDate = new Date(
+				left.issue_date || left.issueDate || 0,
+			).getTime();
+			const rightDate = new Date(
+				right.issue_date || right.issueDate || 0,
+			).getTime();
+
+			return rightDate - leftDate;
+		});
 		setAllOrders(nextOrders);
 		syncVisibleOrders(nextOrders);
 		return nextOrders;
