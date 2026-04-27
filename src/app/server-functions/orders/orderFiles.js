@@ -1,5 +1,3 @@
-"use server";
-
 import { createBucket } from "@/app/server-functions/MinIO/createBucket";
 import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { v7 as uuid7 } from "uuid";
