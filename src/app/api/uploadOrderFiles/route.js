@@ -48,11 +48,11 @@ export async function POST(req) {
         })
     );
 
-    //Check if the order exists in db and if it belongs to this user. So check both id and user
+    //TODO: Check if the order exists in db and if it belongs to this user. So check both id and user
 
-    //If its valid create a new entry in the files table (create it actually).
+    //TODO: If its valid create a new entry in the files table (create it actually).
 
-    //The files table stores the orderID, fileID, filePath.
+    //TODO: The files table stores the orderID, fileID, filePath.
 
     return Response.json(
       { success: true, orderID: orderID, body },
