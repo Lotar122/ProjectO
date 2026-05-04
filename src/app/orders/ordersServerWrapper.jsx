@@ -18,7 +18,13 @@ export default async function ProtectedPage()
 		const name = await getNameFromEmail(
 			userAuthSession.data.identity.traits.email,
 		);
-		return <Orders userName={name.first} userLastName={name.last} />;
+		return (
+			<Orders
+				userEmail={userAuthSession.data.identity.traits.email}
+				userName={name.first}
+				userLastName={name.last}
+			/>
+		);
 	}
 
 	redirect("/");

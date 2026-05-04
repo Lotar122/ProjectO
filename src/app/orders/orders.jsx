@@ -11,6 +11,12 @@ import OrderCard from "./components/OrderCard";
 import OrderForm from "./components/OrderForm";
 import OrdersHeader from "./components/OrdersHeader";
 import OrdersToolbar from "./components/OrdersToolbar";
+import PasswordSettingsForm from "./components/PasswordSettingsForm";
+import {
+	KRATOS_PUBLIC,
+	getKratosFlowMessages,
+	getKratosNodeValue,
+} from "@/app/lib/kratos";
 import {
 	buildOrderFileName,
 	INITIAL_EDIT_DRAFT,
@@ -30,7 +36,13 @@ const sectionTransition = {
 	},
 };
 
-export default function Orders({ userName, userLastName })
+const INITIAL_PASSWORD_FORM = {
+	currentPassword: "",
+	newPassword: "",
+	confirmPassword: "",
+};
+
+export default function Orders({ userEmail, userName, userLastName })
 {
 	const [currentPage, setCurrentPage] = useState("orders");
 	const [allOrders, setAllOrders] = useState([]);
@@ -45,9 +57,46 @@ export default function Orders({ userName, userLastName })
 	const [fileNamesById, setFileNamesById] = useState({});
 	const [backgroundActions, setBackgroundActions] = useState([]);
 	const [openEditMenuId, setOpenEditMenuId] = useState(null);
+	const [passwordForm, setPasswordForm] = useState(INITIAL_PASSWORD_FORM);
+	const [passwordChangeError, setPasswordChangeError] = useState(null);
+	const [isPasswordChangeSubmitting, setIsPasswordChangeSubmitting] =
+		useState(false);
 	const backgroundActionTimeoutsRef = useRef({});
 	const orderFilterRef = useRef(null);
 	const orderSearchRef = useRef(null);
+
+	const updatePasswordForm = useCallback((field, value) =>
+	{
+		setPasswordForm((current) => ({
+			...current,
+			[field]: value,
+		}));
+	}, []);
+
+	const resetPasswordForm = useCallback(() =>
+	{
+		setPasswordForm(INITIAL_PASSWORD_FORM);
+		setPasswordChangeError(null);
+		setIsPasswordChangeSubmitting(false);
+	}, []);
+
+	const getKratosErrorMessage = useCallback((error, group) =>
+	{
+		const flowMessages = getKratosFlowMessages(error?.response?.data, group);
+
+		if (flowMessages.length > 0)
+		{
+			return flowMessages[0];
+		}
+
+		return (
+			error?.response?.data?.error?.reason ||
+			error?.response?.data?.error?.message ||
+			error?.response?.data?.message ||
+			error?.message ||
+			"Something went wrong while updating your password."
+		);
+	}, []);
 
 	const removeBackgroundAction = useCallback((actionId) =>
 	{
@@ -273,17 +322,24 @@ export default function Orders({ userName, userLastName })
 	const handleLogout = async () =>
 	{
 		try {
-			const response = await axios.get(
-				"https://orto.lotar122.dev/kratos/self-service/logout/browser",
-				{
-					withCredentials: true,
-				},
-			);
+			const response = await axios.get(`${KRATOS_PUBLIC}/self-service/logout/browser`, {
+				withCredentials: true,
+			});
 
 			window.location.href = response.data.logout_url;
 		} catch (err) {
 			console.error("Logout error:", err);
 		}
+	};
+
+	const showChangePasswordPage = () =>
+	{
+		setOpenEditMenuId(null);
+		setEditedOrder(null);
+		setDeleteOrderId(null);
+		setExpandedOrderId(null);
+		resetPasswordForm();
+		setCurrentPage("change-password");
 	};
 
 	const handleCreateOrder = (e) =>
@@ -369,8 +425,97 @@ export default function Orders({ userName, userLastName })
 	{
 		setOpenEditMenuId(null);
 		setEditedOrder(null);
+		resetPasswordForm();
 		setCurrentPage("orders");
 		syncVisibleOrders(allOrders);
+	};
+
+	const handlePasswordChange = async (e) =>
+	{
+		e.preventDefault();
+
+		const { confirmPassword, currentPassword, newPassword } = passwordForm;
+
+		if (!currentPassword || !newPassword || !confirmPassword)
+		{
+			setPasswordChangeError("Fill in all password fields.");
+			return;
+		}
+
+		if (newPassword !== confirmPassword)
+		{
+			setPasswordChangeError("New password confirmation does not match.");
+			return;
+		}
+
+		if (currentPassword === newPassword)
+		{
+			setPasswordChangeError("Choose a different password than your current one.");
+			return;
+		}
+
+		const actionId = startBackgroundAction("Updating password", userEmail);
+		setIsPasswordChangeSubmitting(true);
+		setPasswordChangeError(null);
+
+		try {
+			const refreshFlowResponse = await axios.get(
+				`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
+				{
+					withCredentials: true,
+				},
+			);
+			const refreshCsrfToken = getKratosNodeValue(
+				refreshFlowResponse.data,
+				"csrf_token",
+			);
+
+			await axios.post(
+				refreshFlowResponse.data.ui.action,
+				{
+					method: "password",
+					identifier: userEmail,
+					password: currentPassword,
+					csrf_token: refreshCsrfToken,
+				},
+				{
+					withCredentials: true,
+				},
+			);
+
+			const settingsFlowResponse = await axios.get(
+				`${KRATOS_PUBLIC}/self-service/settings/browser`,
+				{
+					withCredentials: true,
+				},
+			);
+			const settingsCsrfToken = getKratosNodeValue(
+				settingsFlowResponse.data,
+				"csrf_token",
+			);
+
+			await axios.post(
+				settingsFlowResponse.data.ui.action,
+				{
+					method: "password",
+					password: newPassword,
+					csrf_token: settingsCsrfToken,
+				},
+				{
+					withCredentials: true,
+				},
+			);
+
+			completeBackgroundAction(actionId, "Password updated", userEmail);
+			showOrdersPage();
+		} catch (err) {
+			console.error("Password update failed:", err);
+			const message = getKratosErrorMessage(err, "password");
+			setPasswordChangeError(message);
+			failBackgroundAction(actionId, "Password update failed", message);
+		} finally {
+			setIsPasswordChangeSubmitting(false);
+		}
 	};
 
 	const confirmDelete = () =>
@@ -572,6 +717,7 @@ export default function Orders({ userName, userLastName })
 			<OrdersHeader
 				currentPage={currentPage}
 				onLogout={handleLogout}
+				onShowChangePassword={showChangePasswordPage}
 				onShowCreateOrder={() => setCurrentPage("create-order")}
 				onShowOrders={showOrdersPage}
 				userLastName={userLastName}
@@ -740,6 +886,27 @@ export default function Orders({ userName, userLastName })
 							attachments={editFiles}
 						/>
 					</motion.div>
+				)}
+
+				{currentPage === "change-password" && (
+					<PasswordSettingsForm
+						confirmPassword={passwordForm.confirmPassword}
+						currentPassword={passwordForm.currentPassword}
+						errorMessage={passwordChangeError}
+						isSubmitting={isPasswordChangeSubmitting}
+						newPassword={passwordForm.newPassword}
+						onCancel={showOrdersPage}
+						onConfirmPasswordChange={(value) =>
+							updatePasswordForm("confirmPassword", value)
+						}
+						onCurrentPasswordChange={(value) =>
+							updatePasswordForm("currentPassword", value)
+						}
+						onNewPasswordChange={(value) =>
+							updatePasswordForm("newPassword", value)
+						}
+						onSubmit={handlePasswordChange}
+					/>
 				)}
 			</main>
 

@@ -3,22 +3,29 @@
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 
-export default function PasswordField({ password, setPassword })
+export default function PasswordField({
+	autoComplete = "current-password",
+	label = "Password",
+	password,
+	placeholder = "Enter your password",
+	setPassword,
+})
 {
 	const [showPassword, setShowPassword] = useState(false);
 
 	return (
 		<div>
 			<label className="mb-2 block text-sm font-medium text-slate-300">
-				Password
+				{label}
 			</label>
 			<div className="relative">
 				<input
+					autoComplete={autoComplete}
 					type={showPassword ? "text" : "password"}
 					value={password}
 					onChange={(e) => setPassword(e.target.value)}
 					className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 pr-12 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
-					placeholder="Enter your password"
+					placeholder={placeholder}
 					required
 				/>
 				<button

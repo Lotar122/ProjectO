@@ -6,8 +6,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import PasswordField from "../components/passwordField";
 import Loading from "../pages/loading";
-
-const KRATOS_PUBLIC = "https://orto.lotar122.dev/kratos";
+import { KRATOS_PUBLIC, getKratosNodeValue } from "../lib/kratos";
 
 const container = {
 	hidden: {},
@@ -102,9 +101,7 @@ const KratosLogin = ({ setCurrentPage }) =>
 		}
 
 		try {
-			const csrf = flow.ui.nodes.find(
-				(node) => node.attributes.name === "csrf_token",
-			)?.attributes.value;
+			const csrf = getKratosNodeValue(flow, "csrf_token");
 
 			await axios.post(
 				flow.ui.action,
