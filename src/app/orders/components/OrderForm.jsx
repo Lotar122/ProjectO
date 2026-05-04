@@ -52,12 +52,12 @@ export default function OrderForm({
 						<label className="mb-2 block text-sm font-medium text-slate-300">
 							Details
 						</label>
-						<input
-							type="text"
+						<textarea
 							value={details}
 							onChange={(event) => onDetailsChange(event.target.value)}
-							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
-							placeholder="Enter type"
+							rows={5}
+							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none resize-y"
+							placeholder="Enter order details"
 							required
 						/>
 					</div>
