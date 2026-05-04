@@ -10,6 +10,7 @@ import DeleteOrderModal from "./components/DeleteOrderModal";
 import OrderCard from "./components/OrderCard";
 import OrderForm from "./components/OrderForm";
 import OrdersHeader from "./components/OrdersHeader";
+import OrdersPagination from "./components/OrdersPagination";
 import OrdersToolbar from "./components/OrdersToolbar";
 import PasswordSettingsForm from "./components/PasswordSettingsForm";
 import {
@@ -23,7 +24,6 @@ import {
 	INITIAL_ORDER,
 	createLocalAttachments,
 	getDisplayDate,
-	getFilteredOrders,
 	getOrderFiles,
 } from "./orderUtils";
 
@@ -42,11 +42,32 @@ const INITIAL_PASSWORD_FORM = {
 	confirmPassword: "",
 };
 
+const ORDERS_PAGE_SIZE = 25;
+
+const normalizeStatusValue = (value) =>
+	String(value ?? "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, "-");
+
+const createOrdersCacheKey = ({ page, search, status }) =>
+	JSON.stringify({
+		page,
+		search: search.trim().toLowerCase(),
+		status: normalizeStatusValue(status),
+	});
+
 export default function Orders({ userEmail, userName, userLastName })
 {
 	const [currentPage, setCurrentPage] = useState("orders");
-	const [allOrders, setAllOrders] = useState([]);
 	const [orders, setOrders] = useState([]);
+	const [currentOrdersPage, setCurrentOrdersPage] = useState(1);
+	const [totalOrdersCount, setTotalOrdersCount] = useState(0);
+	const [totalOrdersPages, setTotalOrdersPages] = useState(1);
+	const [isOrdersLoading, setIsOrdersLoading] = useState(false);
+	const [orderSearchValue, setOrderSearchValue] = useState("");
+	const [debouncedOrderSearchValue, setDebouncedOrderSearchValue] = useState("");
+	const [orderStatusValue, setOrderStatusValue] = useState("All Status");
 	const [newOrder, setNewOrder] = useState(INITIAL_ORDER);
 	const [files, setFiles] = useState([]);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
@@ -62,8 +83,8 @@ export default function Orders({ userEmail, userName, userLastName })
 	const [isPasswordChangeSubmitting, setIsPasswordChangeSubmitting] =
 		useState(false);
 	const backgroundActionTimeoutsRef = useRef({});
-	const orderFilterRef = useRef(null);
-	const orderSearchRef = useRef(null);
+	const ordersCacheRef = useRef(new Map());
+	const latestOrdersRequestRef = useRef(0);
 
 	const updatePasswordForm = useCallback((field, value) =>
 	{
@@ -185,33 +206,106 @@ export default function Orders({ userEmail, userName, userLastName })
 		[scheduleBackgroundActionRemoval, updateBackgroundAction],
 	);
 
-	const syncVisibleOrders = useCallback((sourceOrders) =>
+	const clearOrdersCache = useCallback(() =>
 	{
-		const searchValue = orderSearchRef.current?.value || "";
-		const statusValue = orderFilterRef.current?.value || "All Status";
-		setOrders(getFilteredOrders(sourceOrders, searchValue, statusValue));
+		ordersCacheRef.current.clear();
 	}, []);
 
-	const refreshOrders = useCallback(async () =>
+	const applyOrdersPayload = useCallback((payload) =>
 	{
-		const response = await axios.get("/api/getOrders", {
-			withCredentials: true,
-		});
-		const nextOrders = [...response.data].sort((left, right) =>
-		{
-			const leftDate = new Date(
-				left.issue_date || left.issueDate || 0,
-			).getTime();
-			const rightDate = new Date(
-				right.issue_date || right.issueDate || 0,
-			).getTime();
+		setOrders(payload.orders || []);
+		setTotalOrdersCount(payload.totalCount || 0);
+		setTotalOrdersPages(payload.totalPages || 1);
+		setCurrentOrdersPage(payload.page || 1);
+	}, []);
 
-			return rightDate - leftDate;
-		});
-		setAllOrders(nextOrders);
-		syncVisibleOrders(nextOrders);
-		return nextOrders;
-	}, [syncVisibleOrders]);
+	const loadOrdersPage = useCallback(
+		async ({
+			force = false,
+			page = currentOrdersPage,
+			search = debouncedOrderSearchValue,
+			status = orderStatusValue,
+		} = {}) =>
+		{
+			const cacheKey = createOrdersCacheKey({
+				page,
+				search,
+				status,
+			});
+
+			if (!force && ordersCacheRef.current.has(cacheKey))
+			{
+				const cachedPayload = ordersCacheRef.current.get(cacheKey);
+				applyOrdersPayload(cachedPayload);
+				return cachedPayload.orders || [];
+			}
+
+			const requestId = latestOrdersRequestRef.current + 1;
+			latestOrdersRequestRef.current = requestId;
+			setIsOrdersLoading(true);
+
+			try {
+				const params = new URLSearchParams({
+					page: String(page),
+					limit: String(ORDERS_PAGE_SIZE),
+				});
+
+				if (search.trim())
+				{
+					params.set("search", search.trim());
+				}
+
+				if (status !== "All Status")
+				{
+					params.set("status", normalizeStatusValue(status));
+				}
+
+				const response = await axios.get(`/api/getOrders?${params.toString()}`, {
+					withCredentials: true,
+				});
+
+				const payload = {
+					orders: response.data.orders || [],
+					page: response.data.page || page,
+					pageSize: response.data.pageSize || ORDERS_PAGE_SIZE,
+					totalCount: response.data.totalCount || 0,
+					totalPages: response.data.totalPages || 1,
+				};
+				const resolvedCacheKey = createOrdersCacheKey({
+					page: payload.page,
+					search,
+					status,
+				});
+
+				ordersCacheRef.current.set(resolvedCacheKey, payload);
+
+				if (requestId === latestOrdersRequestRef.current)
+				{
+					applyOrdersPayload(payload);
+				}
+
+				return payload.orders;
+			} finally {
+				if (requestId === latestOrdersRequestRef.current)
+				{
+					setIsOrdersLoading(false);
+				}
+			}
+		},
+		[applyOrdersPayload, currentOrdersPage, debouncedOrderSearchValue, orderStatusValue],
+	);
+
+	const refreshOrders = useCallback(
+		async ({ page = currentOrdersPage } = {}) =>
+		{
+			clearOrdersCache();
+			return loadOrdersPage({
+				force: true,
+				page,
+			});
+		},
+		[clearOrdersCache, currentOrdersPage, loadOrdersPage],
+	);
 
 	const loadFileNamesByIds = useCallback(async (fileIds) =>
 	{
@@ -250,8 +344,39 @@ export default function Orders({ userEmail, userName, userLastName })
 
 	useEffect(() =>
 	{
-		void refreshOrders();
-	}, [refreshOrders]);
+		const timeoutId = window.setTimeout(() =>
+		{
+			setDebouncedOrderSearchValue(orderSearchValue);
+		}, 250);
+
+		return () =>
+		{
+			window.clearTimeout(timeoutId);
+		};
+	}, [orderSearchValue]);
+
+	useEffect(() =>
+	{
+		if (currentPage !== "orders")
+		{
+			return;
+		}
+
+		void loadOrdersPage({
+			page: currentOrdersPage,
+			search: debouncedOrderSearchValue,
+			status: orderStatusValue,
+		}).catch((err) =>
+		{
+			console.error("Failed to load orders:", err);
+		});
+	}, [
+		currentOrdersPage,
+		currentPage,
+		debouncedOrderSearchValue,
+		loadOrdersPage,
+		orderStatusValue,
+	]);
 
 	useEffect(
 		() => () =>
@@ -284,7 +409,7 @@ export default function Orders({ userEmail, userName, userLastName })
 	{
 		const missingFileIds = [
 			...new Set(
-				allOrders
+				orders
 					.flatMap((order) => (Array.isArray(order.files) ? order.files : []))
 					.filter((fileId) => fileId && !fileNamesById[fileId]),
 			),
@@ -317,7 +442,7 @@ export default function Orders({ userEmail, userName, userLastName })
 		{
 			isMounted = false;
 		};
-	}, [allOrders, fileNamesById, loadFileNamesByIds]);
+	}, [fileNamesById, loadFileNamesByIds, orders]);
 
 	const handleLogout = async () =>
 	{
@@ -363,6 +488,7 @@ export default function Orders({ userEmail, userName, userLastName })
 		const selectedFiles = [...files];
 
 		setCurrentPage("orders");
+		setCurrentOrdersPage(1);
 		setNewOrder(INITIAL_ORDER);
 		setFiles([]);
 
@@ -390,7 +516,7 @@ export default function Orders({ userEmail, userName, userLastName })
 					},
 				});
 
-				const nextOrders = await refreshOrders();
+				const nextOrders = await refreshOrders({ page: 1 });
 				const createdOrder = nextOrders.find(
 					(currentOrder) => currentOrder.order_id === response.data.orderID,
 				);
@@ -411,14 +537,18 @@ export default function Orders({ userEmail, userName, userLastName })
 
 	const handleSearchChange = (searchValue) =>
 	{
-		const statusValue = orderFilterRef.current?.value || "All Status";
-		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
+		setOrderSearchValue(searchValue);
+		setCurrentOrdersPage(1);
+		setExpandedOrderId(null);
+		setOpenEditMenuId(null);
 	};
 
 	const handleStatusChange = (statusValue) =>
 	{
-		const searchValue = orderSearchRef.current?.value || "";
-		setOrders(getFilteredOrders(allOrders, searchValue, statusValue));
+		setOrderStatusValue(statusValue);
+		setCurrentOrdersPage(1);
+		setExpandedOrderId(null);
+		setOpenEditMenuId(null);
 	};
 
 	const showOrdersPage = () =>
@@ -427,7 +557,6 @@ export default function Orders({ userEmail, userName, userLastName })
 		setEditedOrder(null);
 		resetPasswordForm();
 		setCurrentPage("orders");
-		syncVisibleOrders(allOrders);
 	};
 
 	const handlePasswordChange = async (e) =>
@@ -445,12 +574,6 @@ export default function Orders({ userEmail, userName, userLastName })
 		if (newPassword !== confirmPassword)
 		{
 			setPasswordChangeError("New password confirmation does not match.");
-			return;
-		}
-
-		if (currentPassword === newPassword)
-		{
-			setPasswordChangeError("Choose a different password than your current one.");
 			return;
 		}
 
@@ -525,7 +648,7 @@ export default function Orders({ userEmail, userName, userLastName })
 			return;
 		}
 
-		const orderToDelete = allOrders.find(
+		const orderToDelete = orders.find(
 			(order) => order.order_id === deleteOrderId,
 		);
 		const orderLabel = orderToDelete?.patient || `Order #${deleteOrderId}`;
@@ -542,7 +665,7 @@ export default function Orders({ userEmail, userName, userLastName })
 				await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
 					withCredentials: true,
 				});
-				await refreshOrders();
+				await refreshOrders({ page: currentOrdersPage });
 				completeBackgroundAction(actionId, "Order deleted", orderLabel);
 			} catch (err) {
 				console.error(err);
@@ -632,7 +755,7 @@ export default function Orders({ userEmail, userName, userLastName })
 				}
 
 				const updatedOrder = response.data.order;
-				const nextOrders = await refreshOrders();
+				const nextOrders = await refreshOrders({ page: currentOrdersPage });
 				const refreshedOrder =
 					nextOrders.find((order) => order.order_id === updatedOrder.order_id) ||
 					updatedOrder;
@@ -670,7 +793,7 @@ export default function Orders({ userEmail, userName, userLastName })
 
 		if (!fileId)
 		{
-			const refreshedOrders = await refreshOrders();
+			const refreshedOrders = await refreshOrders({ page: currentOrdersPage });
 			const refreshedOrder = refreshedOrders.find(
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
@@ -685,7 +808,7 @@ export default function Orders({ userEmail, userName, userLastName })
 		const downloadOrder =
 			order.patient
 				? order
-				: allOrders.find((currentOrder) => currentOrder.order_id === order.order_id) ||
+				: orders.find((currentOrder) => currentOrder.order_id === order.order_id) ||
 					order;
 		const response = await axios.get(`/api/downloadFile?file_id=${fileId}`, {
 			withCredentials: true,
@@ -754,12 +877,18 @@ export default function Orders({ userEmail, userName, userLastName })
 							animate={{ opacity: 1, y: 0 }}
 							transition={{ duration: 0.45, delay: 0.05 }}>
 							<OrdersToolbar
-								orderFilterRef={orderFilterRef}
-								orderSearchRef={orderSearchRef}
 								onSearchChange={handleSearchChange}
 								onStatusChange={handleStatusChange}
+								searchValue={orderSearchValue}
+								statusValue={orderStatusValue}
 							/>
 						</motion.div>
+
+						{isOrdersLoading && (
+							<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-400">
+								Loading orders...
+							</div>
+						)}
 
 						<div className="grid gap-6">
 							{orders.map((order) => (
@@ -787,6 +916,21 @@ export default function Orders({ userEmail, userName, userLastName })
 								/>
 							))}
 						</div>
+
+						{!isOrdersLoading && orders.length === 0 && (
+							<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/55 px-6 py-12 text-center text-slate-400">
+								No orders found for this page or filter.
+							</div>
+						)}
+
+						<OrdersPagination
+							currentPage={currentOrdersPage}
+							isLoading={isOrdersLoading}
+							onPageChange={(page) => setCurrentOrdersPage(page)}
+							pageSize={ORDERS_PAGE_SIZE}
+							totalCount={totalOrdersCount}
+							totalPages={totalOrdersPages}
+						/>
 					</motion.div>
 				)}
 
