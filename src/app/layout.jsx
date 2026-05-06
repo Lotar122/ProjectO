@@ -1,6 +1,7 @@
 //default layout
 
 import { Geist, Geist_Mono } from "next/font/google";
+import ScrollPerfDiagnostics from "./components/perf/ScrollPerfDiagnostics";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,6 +24,7 @@ export default function RootLayout({ children })
 	return (
 		<html lang="en-GB">
 			<body className={`${geistSans.variable} ${geistMono.variable}`}>
+				<ScrollPerfDiagnostics />
 				{children}
 			</body>
 		</html>

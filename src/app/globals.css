@@ -58,6 +58,26 @@ body::-webkit-scrollbar-corner {
 	background: transparent;
 }
 
+html[data-perf-disable-visual-effects="true"] *,
+html[data-perf-disable-visual-effects="true"] *::before,
+html[data-perf-disable-visual-effects="true"] *::after {
+	box-shadow: none !important;
+	backdrop-filter: none !important;
+	filter: none !important;
+}
+
+html[data-perf-disable-motion="true"] {
+	scroll-behavior: auto !important;
+}
+
+html[data-perf-disable-motion="true"] *,
+html[data-perf-disable-motion="true"] *::before,
+html[data-perf-disable-motion="true"] *::after {
+	transition-duration: 0.01ms !important;
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	html {
 		scroll-behavior: auto;

@@ -52,7 +52,7 @@ export default function OrderCard({
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
 			whileHover={{ y: -4 }}
-			className={`relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 backdrop-blur transition-colors duration-200 hover:border-slate-700 ${
+			className={`relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 transition-colors duration-200 hover:border-slate-700 ${
 				isMenuOpen ? "z-30" : "z-0"
 			}`}>
 			<div className="flex items-start justify-between gap-6">
@@ -147,7 +147,7 @@ export default function OrderCard({
 						exit={{ opacity: 0, height: 0, y: -8 }}
 						transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
 						className="overflow-hidden">
-						<div className="mt-6 ml-8 rounded-xl border border-slate-800 bg-slate-950 p-5 backdrop-blur">
+						<div className="mt-6 ml-8 rounded-xl border border-slate-800 bg-slate-950 p-5">
 							<div className="grid gap-5 md:grid-cols-2">
 								<div className="space-y-3">
 									<div>

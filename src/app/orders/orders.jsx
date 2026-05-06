@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { MotionConfig, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import axios from "axios";
@@ -13,6 +13,8 @@ import OrdersHeader from "./components/OrdersHeader";
 import OrdersPagination from "./components/OrdersPagination";
 import OrdersToolbar from "./components/OrdersToolbar";
 import PasswordSettingsForm from "./components/PasswordSettingsForm";
+import PerfProfiler from "@/app/components/perf/PerfProfiler";
+import { getPerfFlags } from "@/app/components/perf/perfFlags";
 import {
 	KRATOS_PUBLIC,
 	getKratosFlowMessages,
@@ -59,6 +61,7 @@ const createOrdersCacheKey = ({ page, search, status }) =>
 
 export default function Orders({ userEmail, userName, userLastName })
 {
+	const { disableMotion } = getPerfFlags();
 	const [currentPage, setCurrentPage] = useState("orders");
 	const [orders, setOrders] = useState([]);
 	const [currentOrdersPage, setCurrentOrdersPage] = useState(1);
@@ -826,235 +829,249 @@ export default function Orders({ userEmail, userName, userLastName })
 	};
 
 	return (
-		<motion.div
-			initial={{ opacity: 0 }}
-			animate={{ opacity: 1 }}
-			transition={{ duration: 0.45 }}
-			className="min-h-screen bg-transparent text-white">
-			<DeleteOrderModal
-				isOpen={Boolean(deleteOrderId)}
-				onCancel={() => setDeleteOrderId(null)}
-				onConfirm={confirmDelete}
-			/>
+		<MotionConfig reducedMotion={disableMotion ? "always" : "never"}>
+			<PerfProfiler id="OrdersPage">
+				<motion.div
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ duration: disableMotion ? 0 : 0.45 }}
+					className="min-h-screen bg-transparent text-white">
+					<DeleteOrderModal
+						isOpen={Boolean(deleteOrderId)}
+						onCancel={() => setDeleteOrderId(null)}
+						onConfirm={confirmDelete}
+					/>
 
-			<OrdersHeader
-				currentPage={currentPage}
-				onLogout={handleLogout}
-				onShowChangePassword={showChangePasswordPage}
-				onShowCreateOrder={() => setCurrentPage("create-order")}
-				onShowOrders={showOrdersPage}
-				userLastName={userLastName}
-				userName={userName}
-			/>
+					<OrdersHeader
+						currentPage={currentPage}
+						onLogout={handleLogout}
+						onShowChangePassword={showChangePasswordPage}
+						onShowCreateOrder={() => setCurrentPage("create-order")}
+						onShowOrders={showOrdersPage}
+						userLastName={userLastName}
+						userName={userName}
+					/>
 
-			<main className="container mx-auto px-4 py-8">
-				{currentPage === "orders" && (
-					<motion.div
-						variants={sectionTransition}
-						initial="initial"
-						animate="animate">
-						<div className="mb-8 flex items-center justify-between">
-							<div>
-								<h2 className="text-3xl font-bold text-white">
-									Treatment Orders
-								</h2>
-								<p className="text-slate-400">
-									Manage and track all orthodontic appliance orders
-								</p>
-							</div>
-							<motion.button
-								whileHover={{ scale: 1.02, y: -2 }}
-								whileTap={{ scale: 0.985 }}
-								onClick={() => setCurrentPage("create-order")}
-								className="flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
-								<Plus className="h-5 w-5" />
-								New Order
-							</motion.button>
-						</div>
+					<main className="container mx-auto px-4 py-8">
+						{currentPage === "orders" && (
+							<motion.div
+								variants={sectionTransition}
+								initial="initial"
+								animate="animate">
+								<div className="mb-8 flex items-center justify-between">
+									<div>
+										<h2 className="text-3xl font-bold text-white">
+											Treatment Orders
+										</h2>
+										<p className="text-slate-400">
+											Manage and track all orthodontic appliance orders
+										</p>
+									</div>
+									<motion.button
+										whileHover={{ scale: 1.02, y: -2 }}
+										whileTap={{ scale: 0.985 }}
+										onClick={() => setCurrentPage("create-order")}
+										className="flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
+										<Plus className="h-5 w-5" />
+										New Order
+									</motion.button>
+								</div>
 
-						<motion.div
-							initial={{ opacity: 0, y: 12 }}
-							animate={{ opacity: 1, y: 0 }}
-							transition={{ duration: 0.45, delay: 0.05 }}>
-							<OrdersToolbar
-								onSearchChange={handleSearchChange}
-								onStatusChange={handleStatusChange}
-								searchValue={orderSearchValue}
-								statusValue={orderStatusValue}
-							/>
-						</motion.div>
+								<motion.div
+									initial={{ opacity: 0, y: 12 }}
+									animate={{ opacity: 1, y: 0 }}
+									transition={{ duration: 0.45, delay: 0.05 }}>
+									<OrdersToolbar
+										onSearchChange={handleSearchChange}
+										onStatusChange={handleStatusChange}
+										searchValue={orderSearchValue}
+										statusValue={orderStatusValue}
+									/>
+								</motion.div>
 
-						{isOrdersLoading && (
-							<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-400">
-								Loading orders...
-							</div>
+								{isOrdersLoading && (
+									<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-400">
+										Loading orders...
+									</div>
+								)}
+
+								<PerfProfiler id="OrdersList">
+									<div className="grid gap-6">
+										{orders.map((order) => (
+											<OrderCard
+												key={order.order_id}
+												fileNamesById={fileNamesById}
+												isExpanded={expandedOrderId === order.order_id}
+												isMenuOpen={openEditMenuId === order.order_id}
+												onDownloadFile={(attachment, index) =>
+													handleDownloadFile(order, attachment, index)
+												}
+												onOpenEdit={() => openEditOrder(order)}
+												onRequestDelete={() =>
+												{
+													setOpenEditMenuId(null);
+													setDeleteOrderId(order.order_id);
+												}}
+												onToggleExpanded={() =>
+													toggleOrderExpanded(order.order_id)
+												}
+												onToggleMenu={() =>
+													setOpenEditMenuId((current) =>
+														current === order.order_id
+															? null
+															: order.order_id,
+													)
+												}
+												order={order}
+											/>
+										))}
+									</div>
+								</PerfProfiler>
+
+								{!isOrdersLoading && orders.length === 0 && (
+									<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/55 px-6 py-12 text-center text-slate-400">
+										No orders found for this page or filter.
+									</div>
+								)}
+
+								<OrdersPagination
+									currentPage={currentOrdersPage}
+									isLoading={isOrdersLoading}
+									onPageChange={(page) => setCurrentOrdersPage(page)}
+									pageSize={ORDERS_PAGE_SIZE}
+									totalCount={totalOrdersCount}
+									totalPages={totalOrdersPages}
+								/>
+							</motion.div>
 						)}
 
-						<div className="grid gap-6">
-							{orders.map((order) => (
-								<OrderCard
-									key={order.order_id}
-									fileNamesById={fileNamesById}
-									isExpanded={expandedOrderId === order.order_id}
-									isMenuOpen={openEditMenuId === order.order_id}
-									onDownloadFile={(attachment, index) =>
-										handleDownloadFile(order, attachment, index)
+						{currentPage === "create-order" && (
+							<motion.div
+								variants={sectionTransition}
+								initial="initial"
+								animate="animate">
+								<OrderForm
+									description="Enter patient details and appliance information"
+									details={newOrder.details}
+									dueDate={newOrder.dueDate}
+									fileSectionMode="create"
+									files={files}
+									onCancel={showOrdersPage}
+									onDetailsChange={(details) =>
+										setNewOrder((current) => ({
+											...current,
+											details,
+										}))
 									}
-									onOpenEdit={() => openEditOrder(order)}
-									onRequestDelete={() =>
-									{
-										setOpenEditMenuId(null);
-										setDeleteOrderId(order.order_id);
-									}}
-									onToggleExpanded={() => toggleOrderExpanded(order.order_id)}
-									onToggleMenu={() =>
-										setOpenEditMenuId((current) =>
-											current === order.order_id ? null : order.order_id,
+									onDueDateChange={(dueDate) =>
+										setNewOrder((current) => ({
+											...current,
+											dueDate,
+										}))
+									}
+									onFilesSelected={(selectedFiles) =>
+										setFiles((previous) => [...previous, ...selectedFiles])
+									}
+									onPatientChange={(patient) =>
+										setNewOrder((current) => ({
+											...current,
+											patient,
+										}))
+									}
+									onRemoveFile={(index) =>
+										setFiles((previous) =>
+											previous.filter(
+												(_, currentIndex) => currentIndex !== index,
+											),
 										)
 									}
-									order={order}
+									onSubmit={handleCreateOrder}
+									patient={newOrder.patient}
+									submitLabel="Create Order"
+									title="Create New Order"
 								/>
-							))}
-						</div>
-
-						{!isOrdersLoading && orders.length === 0 && (
-							<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/55 px-6 py-12 text-center text-slate-400">
-								No orders found for this page or filter.
-							</div>
+							</motion.div>
 						)}
 
-						<OrdersPagination
-							currentPage={currentOrdersPage}
-							isLoading={isOrdersLoading}
-							onPageChange={(page) => setCurrentOrdersPage(page)}
-							pageSize={ORDERS_PAGE_SIZE}
-							totalCount={totalOrdersCount}
-							totalPages={totalOrdersPages}
-						/>
-					</motion.div>
-				)}
+						{currentPage === "edit-order" && editedOrder && (
+							<motion.div
+								variants={sectionTransition}
+								initial="initial"
+								animate="animate">
+								<OrderForm
+									description={`Update order details and files for order #${editedOrder.order_id}`}
+									details={editDraft.details}
+									dueDate={editDraft.dueDate}
+									fileSectionMode="edit"
+									onCancel={showOrdersPage}
+									onDetailsChange={(details) =>
+										setEditDraft((current) => ({
+											...current,
+											details,
+										}))
+									}
+									onDueDateChange={(dueDate) =>
+										setEditDraft((current) => ({
+											...current,
+											dueDate,
+										}))
+									}
+									onPatientChange={(patient) =>
+										setEditDraft((current) => ({
+											...current,
+											patient,
+										}))
+									}
+									onFilesSelected={(selectedFiles) =>
+										setEditFiles((current) => [
+											...current,
+											...createLocalAttachments(
+												selectedFiles,
+												editDraft.patient || editedOrder.patient,
+											),
+										])
+									}
+									onRemoveAttachment={(_, index) =>
+										setEditFiles((current) =>
+											current.filter(
+												(_, currentIndex) => currentIndex !== index,
+											),
+										)
+									}
+									onSubmit={handleEditOrderSave}
+									patient={editDraft.patient}
+									submitLabel="Save Changes"
+									title="Edit Order"
+									attachments={editFiles}
+								/>
+							</motion.div>
+						)}
 
-				{currentPage === "create-order" && (
-					<motion.div
-						variants={sectionTransition}
-						initial="initial"
-						animate="animate">
-						<OrderForm
-							description="Enter patient details and appliance information"
-							details={newOrder.details}
-							dueDate={newOrder.dueDate}
-							fileSectionMode="create"
-							files={files}
-							onCancel={showOrdersPage}
-							onDetailsChange={(details) =>
-								setNewOrder((current) => ({
-									...current,
-									details,
-								}))
-							}
-							onDueDateChange={(dueDate) =>
-								setNewOrder((current) => ({
-									...current,
-									dueDate,
-								}))
-							}
-							onFilesSelected={(selectedFiles) =>
-								setFiles((previous) => [...previous, ...selectedFiles])
-							}
-							onPatientChange={(patient) =>
-								setNewOrder((current) => ({
-									...current,
-									patient,
-								}))
-							}
-							onRemoveFile={(index) =>
-								setFiles((previous) =>
-									previous.filter((_, currentIndex) => currentIndex !== index),
-								)
-							}
-							onSubmit={handleCreateOrder}
-							patient={newOrder.patient}
-							submitLabel="Create Order"
-							title="Create New Order"
-						/>
-					</motion.div>
-				)}
+						{currentPage === "change-password" && (
+							<PasswordSettingsForm
+								confirmPassword={passwordForm.confirmPassword}
+								currentPassword={passwordForm.currentPassword}
+								errorMessage={passwordChangeError}
+								isSubmitting={isPasswordChangeSubmitting}
+								newPassword={passwordForm.newPassword}
+								onCancel={showOrdersPage}
+								onConfirmPasswordChange={(value) =>
+									updatePasswordForm("confirmPassword", value)
+								}
+								onCurrentPasswordChange={(value) =>
+									updatePasswordForm("currentPassword", value)
+								}
+								onNewPasswordChange={(value) =>
+									updatePasswordForm("newPassword", value)
+								}
+								onSubmit={handlePasswordChange}
+							/>
+						)}
+					</main>
 
-				{currentPage === "edit-order" && editedOrder && (
-					<motion.div
-						variants={sectionTransition}
-						initial="initial"
-						animate="animate">
-						<OrderForm
-							description={`Update order details and files for order #${editedOrder.order_id}`}
-							details={editDraft.details}
-							dueDate={editDraft.dueDate}
-							fileSectionMode="edit"
-							onCancel={showOrdersPage}
-							onDetailsChange={(details) =>
-								setEditDraft((current) => ({
-									...current,
-									details,
-								}))
-							}
-							onDueDateChange={(dueDate) =>
-								setEditDraft((current) => ({
-									...current,
-									dueDate,
-								}))
-							}
-							onPatientChange={(patient) =>
-								setEditDraft((current) => ({
-									...current,
-									patient,
-								}))
-							}
-							onFilesSelected={(selectedFiles) =>
-								setEditFiles((current) => [
-									...current,
-									...createLocalAttachments(
-										selectedFiles,
-										editDraft.patient || editedOrder.patient,
-									),
-								])
-							}
-							onRemoveAttachment={(_, index) =>
-								setEditFiles((current) =>
-									current.filter((_, currentIndex) => currentIndex !== index),
-								)
-							}
-							onSubmit={handleEditOrderSave}
-							patient={editDraft.patient}
-							submitLabel="Save Changes"
-							title="Edit Order"
-							attachments={editFiles}
-						/>
-					</motion.div>
-				)}
-
-				{currentPage === "change-password" && (
-					<PasswordSettingsForm
-						confirmPassword={passwordForm.confirmPassword}
-						currentPassword={passwordForm.currentPassword}
-						errorMessage={passwordChangeError}
-						isSubmitting={isPasswordChangeSubmitting}
-						newPassword={passwordForm.newPassword}
-						onCancel={showOrdersPage}
-						onConfirmPasswordChange={(value) =>
-							updatePasswordForm("confirmPassword", value)
-						}
-						onCurrentPasswordChange={(value) =>
-							updatePasswordForm("currentPassword", value)
-						}
-						onNewPasswordChange={(value) =>
-							updatePasswordForm("newPassword", value)
-						}
-						onSubmit={handlePasswordChange}
-					/>
-				)}
-			</main>
-
-			<BackgroundActionsWidget actions={backgroundActions} />
-		</motion.div>
+					<BackgroundActionsWidget actions={backgroundActions} />
+				</motion.div>
+			</PerfProfiler>
+		</MotionConfig>
 	);
 }
