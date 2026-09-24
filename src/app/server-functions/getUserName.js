@@ -3,7 +3,7 @@
 export async function getNameFromEmail(email)
 {
 	const url =
-		"http://host.docker.internal:4434/admin/identities?credentials_identifier=" +
+		"http://kratos:4434/admin/identities?credentials_identifier=" +
 		encodeURIComponent(email);
 
 	console.log("[KRATOS-ADMIN] Looking up identity");

@@ -24,7 +24,7 @@ export async function getUserAuthSession(cookie)
 	}
 
 	const kratosUrl =
-		"http://host.docker.internal:4433/sessions/whoami";
+		"http://kratos:4433/sessions/whoami";
 
 	console.log("[AUTH] Requesting Kratos:", kratosUrl);
 
