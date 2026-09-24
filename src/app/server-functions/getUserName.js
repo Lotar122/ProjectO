@@ -3,7 +3,7 @@
 export async function getNameFromEmail(email)
 {
 	const res = await fetch(
-		"http://localhost:4434/admin/identities?credentials_identifier=" +
+		"http://host.docker.internal:4434/admin/identities?credentials_identifier=" +
 			encodeURIComponent(email),
 		{
 			headers: {

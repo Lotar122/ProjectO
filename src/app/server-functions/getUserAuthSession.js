@@ -11,7 +11,7 @@ export async function getUserAuthSession(cookie)
 	let res = null;
 	let loggedIn = false;
 	try {
-		res = await axios.get(`http://localhost:4433/sessions/whoami`, {
+		res = await axios.get(`http://host.docker.internal:4433/sessions/whoami`, {
 			headers: {
 				cookie: `${cookieHeader.name}=${cookieHeader.value}`,
 			},
