@@ -8,7 +8,7 @@ import postgres from "postgres";
 
 export async function GET(req)
 {
-	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: 'require'*/ });
+	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: 'require' });
 
 	try {
 		const { searchParams } = new URL(req.url);

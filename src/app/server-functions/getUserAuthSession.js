@@ -77,7 +77,7 @@ export async function getUserAuthSession(cookie)
 
 		const DB = postgres(process.env.DB_URL, {
 			prepare: true,
-			/*ssl: "require",*/
+			ssl: "require",
 		});
 
 		try
