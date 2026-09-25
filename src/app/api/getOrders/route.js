@@ -42,7 +42,7 @@ export async function GET(request)
 			});
 		}
 
-		DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
+		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const userId = userAuthSession.data.identity.id;
 		const searchPattern = `%${searchValue}%`;

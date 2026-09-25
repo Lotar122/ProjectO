@@ -36,7 +36,7 @@ export async function DELETE(req)
 			});
 		}
 
-		DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
+		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const [order] = await DB`
 			SELECT order_id, files
