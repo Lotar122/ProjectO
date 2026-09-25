@@ -16,7 +16,7 @@ export async function verifyFileOwnership(fileId)
 	}
 
 	const userId = userAuthSession.data.identity.id;
-	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
+	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 	try {
 		const [ownedFile] = await DB`

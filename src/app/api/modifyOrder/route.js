@@ -23,7 +23,7 @@ function getRemovedFileIds(currentFileIds, retainedFileIds)
 
 export async function PUT(req)
 {
-	const DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
+	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 	try {
 		const cookieHeader = await cookies();

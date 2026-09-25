@@ -38,7 +38,7 @@ export async function GET(req)
 			});
 		}
 
-		DB = postgres(process.env.DB_URL, { prepare: true, ssl: "require" });
+		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const [fileAccess] = await DB`
 			SELECT 1
