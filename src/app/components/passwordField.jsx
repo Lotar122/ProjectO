@@ -5,9 +5,9 @@ import { useState } from "react";
 
 export default function PasswordField({
 	autoComplete = "current-password",
-	label = "Password",
+	label = "Hasło",
 	password,
-	placeholder = "Enter your password",
+	placeholder = "Wpisz hasło",
 	setPassword,
 })
 {

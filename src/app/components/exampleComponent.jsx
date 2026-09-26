@@ -2,5 +2,5 @@
 
 export default function example()
 {
-	<div>Example components</div>;
+	<div>Przykładowe komponenty</div>;
 }

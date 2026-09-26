@@ -22,7 +22,7 @@ export default function OrdersPagination({
 	return (
 		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/85 px-5 py-4 backdrop-blur md:flex-row md:items-center md:justify-between">
 			<p className="text-sm text-slate-400">
-				Showing {startItem}-{endItem} of {totalCount} orders
+				Wyświetlono {startItem}-{endItem} z {totalCount} zamówień
 			</p>
 
 			<div className="flex items-center justify-between gap-3 md:justify-end">
@@ -32,11 +32,11 @@ export default function OrdersPagination({
 					disabled={currentPage <= 1 || isLoading}
 					className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50">
 					<ChevronLeft className="h-4 w-4" />
-					Previous
+					Poprzednia
 				</button>
 
 				<span className="min-w-28 text-center text-sm font-medium text-slate-200">
-					Page {currentPage} of {totalPages}
+					Strona {currentPage} z {totalPages}
 				</span>
 
 				<button
@@ -44,7 +44,7 @@ export default function OrdersPagination({
 					onClick={() => onPageChange(currentPage + 1)}
 					disabled={currentPage >= totalPages || isLoading}
 					className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50">
-					Next
+					Następna
 					<ChevronRight className="h-4 w-4" />
 				</button>
 			</div>

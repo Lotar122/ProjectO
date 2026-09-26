@@ -14,24 +14,24 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm })
 						exit={{ opacity: 0, scale: 0.96 }}
 						className="w-80 rounded-xl bg-gray-900 p-6">
 						<h2 className="mb-4 text-lg font-semibold text-white">
-							Delete Order?
+							Usunąć zamówienie?
 						</h2>
 						<p className="mb-6 text-gray-400">
-							Are you sure you want to delete this order? This action cannot be
-							undone.
+							Czy na pewno chcesz usunąć to zamówienie? Tej operacji nie można
+							cofnąć.
 						</p>
 						<div className="flex justify-end gap-4">
 							<button
 								type="button"
 								onClick={onCancel}
 								className="rounded bg-gray-700 px-4 py-2 transition-colors hover:bg-gray-600">
-								Cancel
+								Anuluj
 							</button>
 							<button
 								type="button"
 								onClick={onConfirm}
 								className="rounded bg-red-600 px-4 py-2 text-white transition-colors hover:bg-red-500">
-								Delete
+								Usuń
 							</button>
 						</div>
 					</motion.div>

@@ -31,10 +31,10 @@ export default function PasswordSettingsForm({
 							<KeyRound className="h-6 w-6" />
 						</div>
 						<div>
-							<h2 className="text-2xl font-bold text-white">Change Password</h2>
+							<h2 className="text-2xl font-bold text-white">Zmień hasło</h2>
 							<p className="mt-2 max-w-xl text-sm text-slate-400">
-								Confirm your current password first, then choose a new one for
-								your Ory account.
+								Najpierw potwierdź obecne hasło, a następnie ustaw nowe hasło do
+								konta Ory.
 							</p>
 						</div>
 					</div>
@@ -45,8 +45,7 @@ export default function PasswordSettingsForm({
 						<div className="flex items-start gap-3">
 							<ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
 							<p>
-								Your session will be re-verified with Ory before the password is
-								updated.
+								Przed zmianą hasła sesja zostanie ponownie zweryfikowana przez Ory.
 							</p>
 						</div>
 					</div>
@@ -62,25 +61,25 @@ export default function PasswordSettingsForm({
 
 					<PasswordField
 						autoComplete="current-password"
-						label="Current Password"
+						label="Obecne hasło"
 						password={currentPassword}
-						placeholder="Enter your current password"
+						placeholder="Wpisz obecne hasło"
 						setPassword={onCurrentPasswordChange}
 					/>
 
 					<PasswordField
 						autoComplete="new-password"
-						label="New Password"
+						label="Nowe hasło"
 						password={newPassword}
-						placeholder="Choose a new password"
+						placeholder="Wybierz nowe hasło"
 						setPassword={onNewPasswordChange}
 					/>
 
 					<PasswordField
 						autoComplete="new-password"
-						label="Confirm New Password"
+						label="Potwierdź nowe hasło"
 						password={confirmPassword}
-						placeholder="Repeat your new password"
+						placeholder="Powtórz nowe hasło"
 						setPassword={onConfirmPasswordChange}
 					/>
 
@@ -89,13 +88,13 @@ export default function PasswordSettingsForm({
 							type="button"
 							onClick={onCancel}
 							className="rounded-xl border border-slate-700 px-5 py-3 font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
-							Cancel
+							Anuluj
 						</button>
 						<button
 							type="submit"
 							disabled={isSubmitting}
 							className="rounded-xl bg-sky-100 px-5 py-3 font-semibold text-slate-950 transition-colors hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-70">
-							{isSubmitting ? "Updating..." : "Update Password"}
+							{isSubmitting ? "Zapisywanie..." : "Zmień hasło"}
 						</button>
 					</div>
 				</form>

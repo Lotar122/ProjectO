@@ -6,7 +6,7 @@ import OrderFilesList from "./OrderFilesList";
 
 export default function OrderForm({
 	attachments = [],
-	cancelLabel = "Cancel",
+	cancelLabel = "Anuluj",
 	description,
 	details,
 	dueDate,
@@ -36,35 +36,35 @@ export default function OrderForm({
 				<form onSubmit={onSubmit} className="space-y-6">
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
-							Patient Name
+							Imię i nazwisko pacjenta
 						</label>
 						<input
 							type="text"
 							value={patient}
 							onChange={(event) => onPatientChange(event.target.value)}
 							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
-							placeholder="Enter patient full name"
+							placeholder="Wpisz imię i nazwisko pacjenta"
 							required
 						/>
 					</div>
 
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
-							Details
+							Szczegóły
 						</label>
 						<textarea
 							value={details}
 							onChange={(event) => onDetailsChange(event.target.value)}
 							rows={5}
 							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none resize-y"
-							placeholder="Enter order details"
+							placeholder="Wpisz szczegóły zamówienia"
 							required
 						/>
 					</div>
 
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
-							Due date
+							Termin realizacji
 						</label>
 						<input
 							type="date"
@@ -78,15 +78,15 @@ export default function OrderForm({
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
 							{fileSectionMode === "create"
-								? "Attach Files"
-								: "File Management"}
+								? "Dodaj pliki"
+								: "Zarządzanie plikami"}
 						</label>
 
 						{fileSectionMode === "create" ? (
 							<>
 								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
 									<span className="text-sm text-slate-400">
-										Click or drag files
+										Kliknij lub przeciągnij pliki
 									</span>
 									<input
 										type="file"
@@ -106,8 +106,8 @@ export default function OrderForm({
 										}))}
 										actionLabel="X"
 										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
-										emptyMessage="No files attached yet."
-										metaText="Ready in the current session"
+										emptyMessage="Nie dodano jeszcze plików."
+										metaText="Gotowe w bieżącej sesji"
 										onAction={(_, index) => onRemoveFile?.(index)}
 										showDownloadButton={false}
 									/>
@@ -117,10 +117,10 @@ export default function OrderForm({
 							<>
 								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
 									<span className="text-sm text-slate-400">
-										Click or drag files
+										Kliknij lub przeciągnij pliki
 									</span>
 									<span className="mt-1 text-xs text-slate-500">
-										Remove missing files and add new ones on save
+										Usuń niepotrzebne pliki i dodaj nowe przed zapisaniem
 									</span>
 									<input
 										type="file"
@@ -137,8 +137,8 @@ export default function OrderForm({
 										attachments={attachments}
 										actionLabel="X"
 										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
-										emptyMessage="No files attached to this order yet."
-										metaText="Ready in the current session"
+										emptyMessage="Do tego zamówienia nie dodano jeszcze plików."
+										metaText="Gotowe w bieżącej sesji"
 										onAction={onRemoveAttachment}
 										showDownloadButton={false}
 									/>

@@ -66,7 +66,7 @@ export default function OrdersHeader({
 									href="/orders"
 									className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-300 transition-colors hover:text-white">
 									<Package className="h-4 w-4" />
-									Orders
+									Zamówienia
 								</a>
 							)}
 							{!isAdminPage && <button
@@ -78,7 +78,7 @@ export default function OrdersHeader({
 										: "text-gray-300 hover:text-white"
 								}`}>
 								<Package className="h-4 w-4" />
-								Orders
+								Zamówienia
 							</button>}
 							{!isAdminPage && <button
 								type="button"
@@ -89,7 +89,7 @@ export default function OrdersHeader({
 										: "text-gray-300 hover:text-white"
 								}`}>
 								<Plus className="h-4 w-4" />
-								New Order
+								Nowe zamówienie
 							</button>}
 							{isAdmin && (
 								<a
@@ -100,7 +100,7 @@ export default function OrdersHeader({
 											: "text-gray-300 hover:text-white"
 									}`}>
 									<ShieldCheck className="h-4 w-4" />
-									Admin
+									Administracja
 								</a>
 							)}
 						</nav>
@@ -117,7 +117,7 @@ export default function OrdersHeader({
 									className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-gray-300 transition-colors hover:border-slate-600 hover:text-white"
 									aria-expanded={isSettingsOpen}
 									aria-haspopup="menu"
-									aria-label="Open settings">
+								aria-label="Otwórz ustawienia">
 									<Settings className="h-4 w-4" />
 								</button>
 
@@ -133,7 +133,7 @@ export default function OrdersHeader({
 											className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white"
 											role="menuitem">
 											<Settings className="h-4 w-4" />
-											Change password
+											Zmień hasło
 										</button>
 									</div>
 								)}
@@ -143,7 +143,7 @@ export default function OrdersHeader({
 								onClick={onLogout}
 								className="flex items-center gap-2 px-4 py-2 text-gray-300 transition-colors hover:text-white">
 								<LogOut className="h-4 w-4" />
-								Logout
+								Wyloguj się
 							</button>
 						</div>
 					</div>
@@ -158,7 +158,7 @@ export default function OrdersHeader({
 								href="/orders"
 								className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-slate-300 transition-colors">
 								<Package className="h-4 w-4" />
-								Orders
+								Zamówienia
 							</a>
 						)}
 						{!isAdminPage && <button
@@ -170,7 +170,7 @@ export default function OrdersHeader({
 									: "text-slate-300"
 							}`}>
 							<Package className="h-4 w-4" />
-							Orders
+							Zamówienia
 						</button>}
 						{isAdmin && (
 							<a
@@ -181,7 +181,7 @@ export default function OrdersHeader({
 										: "text-slate-300"
 								}`}>
 								<ShieldCheck className="h-4 w-4" />
-								Admin
+								Administracja
 							</a>
 						)}
 						{!isAdminPage && <button
@@ -193,7 +193,7 @@ export default function OrdersHeader({
 									: "text-slate-300"
 							}`}>
 							<Plus className="h-4 w-4" />
-							New
+							Nowe
 						</button>}
 					</div>
 				</div>

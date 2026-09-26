@@ -30,7 +30,7 @@ const item = {
 	},
 };
 
-const KratosLogin = ({ setCurrentPage }) =>
+const KratosLogin = () =>
 {
 	const [flow, setFlow] = useState(null);
 	const [email, setEmail] = useState("");
@@ -56,7 +56,7 @@ const KratosLogin = ({ setCurrentPage }) =>
 					if (isMounted)
 					{
 						setError(
-							err.response?.data?.error || "Failed to check session.",
+							err.response?.data?.error || "Nie udało się sprawdzić sesji.",
 						);
 					}
 					return;
@@ -77,7 +77,7 @@ const KratosLogin = ({ setCurrentPage }) =>
 				if (isMounted)
 				{
 					setError(
-						err.response?.data?.error || "Failed to fetch login flow.",
+						err.response?.data?.error || "Nie udało się pobrać formularza logowania.",
 					);
 				}
 			}
@@ -118,7 +118,7 @@ const KratosLogin = ({ setCurrentPage }) =>
 			router.push("/orders");
 		} catch (err) {
 			console.error(err);
-			setError(err.response?.data?.error || "Login failed.");
+			setError(err.response?.data?.error || "Logowanie nie powiodło się.");
 		}
 	};
 
@@ -135,9 +135,9 @@ const KratosLogin = ({ setCurrentPage }) =>
 				animate="show"
 				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/80 p-8 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl">
 				<motion.div variants={item} className="mb-8 text-center">
-					<h2 className="mb-2 text-3xl font-bold text-white">Welcome Back</h2>
+					<h2 className="mb-2 text-3xl font-bold text-white">Witaj ponownie</h2>
 					<p className="text-slate-400">
-						Sign in to the dashboard
+						Zaloguj się do panelu
 					</p>
 				</motion.div>
 
@@ -153,14 +153,14 @@ const KratosLogin = ({ setCurrentPage }) =>
 				<motion.form variants={item} onSubmit={handleLogin} className="space-y-6">
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
-							Email Address
+							Adres e-mail
 						</label>
 						<input
 							type="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
-							placeholder="Enter your email"
+							placeholder="Wpisz adres e-mail"
 							required
 						/>
 					</div>
@@ -172,17 +172,9 @@ const KratosLogin = ({ setCurrentPage }) =>
 						whileHover={{ scale: 1.02, y: -1 }}
 						whileTap={{ scale: 0.985 }}
 						className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 shadow-[0_14px_40px_rgba(125,211,252,0.14)] transition-colors duration-200 hover:bg-sky-200">
-						Sign In
+						Zaloguj się
 					</motion.button>
 				</motion.form>
-
-				<motion.div variants={item} className="mt-6 text-center">
-					<button
-						onClick={() => setCurrentPage("landing")}
-						className="font-medium text-slate-200 transition-colors hover:text-white">
-						{"<-"} Back to Home
-					</button>
-				</motion.div>
 			</motion.div>
 		</div>
 	);

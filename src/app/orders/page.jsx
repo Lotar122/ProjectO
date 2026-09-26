@@ -6,8 +6,8 @@ const Page = () =>
 };
 
 export const metadata = {
-	title: "ProjectO - Orders",
-	description: "A website for managing orders in orthodontics.",
+	title: "ProjectO - Zamówienia",
+	description: "System do zarządzania zamówieniami ortodontycznymi.",
 };
 
 export default Page;

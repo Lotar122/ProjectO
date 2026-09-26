@@ -1,13 +1,16 @@
-import Main from "@/app/pages/main";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-const App = () =>
+import { getUserAuthSession } from "./server-functions/getUserAuthSession";
+
+export default async function HomePage()
 {
-	return <Main />;
-};
+	const userAuthSession = await getUserAuthSession(await cookies());
+
+	redirect(userAuthSession.loggedIn ? "/orders" : "/login");
+}
 
 export const metadata = {
 	title: "ProjectO",
-	description: "A website for managing orders in orthodontics.",
+	description: "System do zarządzania zamówieniami ortodontycznymi.",
 };
-
-export default App;

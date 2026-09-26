@@ -8,7 +8,7 @@ export default function OrderFilesList({
 	actionTextClassName = "text-sm text-slate-400 hover:text-red-400",
 	attachments,
 	emptyMessage,
-	metaText = "Ready to download in this session",
+	metaText = "Gotowe do pobrania w tej sesji",
 	onAction,
 	onDownload,
 	showDownloadButton = true,
@@ -47,7 +47,7 @@ export default function OrderFilesList({
 							onClick={() => onDownload?.(attachment, index)}
 							className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200">
 							<Download className="h-4 w-4" />
-							Download
+							Pobierz
 						</button>
 					) : actionLabel && onAction ? (
 						<button
@@ -57,7 +57,7 @@ export default function OrderFilesList({
 							{actionLabel}
 						</button>
 					) : (
-						<span className="text-xs text-slate-500">Available</span>
+						<span className="text-xs text-slate-500">Dostępny</span>
 					)}
 				</motion.div>
 			))}

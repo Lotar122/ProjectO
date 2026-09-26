@@ -40,12 +40,12 @@ export default function BackgroundActionsWidget({ actions })
 					className="pointer-events-auto overflow-hidden rounded-xl border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur-xl">
 					<div className="border-b border-slate-800 px-4 py-3">
 						<p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-							Background Activity
+							Działania w tle
 						</p>
 						<p className="mt-1 text-sm text-slate-300">
 							{pendingCount > 0
-								? `${pendingCount} action${pendingCount === 1 ? "" : "s"} running`
-								: "Wrapping up"}
+								? `W toku: ${pendingCount} ${pendingCount === 1 ? "działanie" : "działania"}`
+								: "Kończenie działań"}
 						</p>
 					</div>
 

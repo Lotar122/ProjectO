@@ -23,7 +23,7 @@ export const buildOrderFileName = (patient, fileName) =>
 
 	if (!safePatient)
 	{
-		return safeFileName || "download";
+		return safeFileName || "pobierz";
 	}
 
 	if (!safeFileName)
@@ -43,11 +43,11 @@ export const createLocalAttachments = (files, patient) =>
 	}));
 
 export const ORDER_STATUS_OPTIONS = [
-	"All Status",
-	"Pending",
-	"In Progress",
-	"Shipped",
-	"Completed",
+	"Wszystkie statusy",
+	"Oczekujące",
+	"W realizacji",
+	"Wysłane",
+	"Zakończone",
 ];
 
 export const ORDER_STATUS_VALUES = [
@@ -57,10 +57,24 @@ export const ORDER_STATUS_VALUES = [
 	"completed",
 ];
 
+const POLISH_STATUS_VALUES = {
+	"oczekujące": "pending",
+	"w realizacji": "in-progress",
+	"wysłane": "shipped",
+	"zakończone": "completed",
+};
+
+export const normalizeOrderStatus = (value) =>
+{
+	const normalizedValue = String(value ?? "").trim().toLowerCase();
+
+	return POLISH_STATUS_VALUES[normalizedValue] || normalizedValue.replace(/\s+/g, "-");
+};
+
 export const getFilteredOrders = (orders, searchValue, statusValue) =>
 {
 	const normalizedSearch = searchValue.trim().toLowerCase();
-	const normalizedStatus = statusValue.toLowerCase().replace(" ", "-");
+	const normalizedStatus = normalizeOrderStatus(statusValue);
 
 	return orders.filter((order) =>
 	{
@@ -68,7 +82,7 @@ export const getFilteredOrders = (orders, searchValue, statusValue) =>
 			normalizedSearch === "" ||
 			order.patient.toLowerCase().includes(normalizedSearch);
 		const matchesStatus =
-			statusValue === "All Status" ||
+		statusValue === "Wszystkie statusy" ||
 			order.status.toLowerCase() === normalizedStatus;
 
 		return matchesSearch && matchesStatus;

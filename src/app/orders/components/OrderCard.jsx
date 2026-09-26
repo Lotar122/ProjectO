@@ -73,14 +73,14 @@ export default function OrderCard({
 						<p className="text-slate-300">{order.details || order.type}</p>
 						{(order.owner_email || order.owner_user_id) && (
 							<p className="text-sm text-sky-300">
-								Submitted by {order.owner_name || order.owner_last_name
+								Złożone przez: {order.owner_name || order.owner_last_name
 									? `${order.owner_name || ""} ${order.owner_last_name || ""}`.trim()
 									: order.owner_email || order.owner_user_id}
 								{order.owner_email ? ` (${order.owner_email})` : ""}
 							</p>
 						)}
 						<p className="text-sm text-slate-500">
-							Order #{order.order_id} - {getDisplayDate(order)}
+							Zamówienie #{order.order_id} - {getDisplayDate(order)}
 						</p>
 					</div>
 				</div>
@@ -92,11 +92,17 @@ export default function OrderCard({
 								value={order.status}
 								disabled={isStatusUpdating}
 								onChange={(event) => onStatusChange?.(event.target.value)}
-								aria-label={`Change status for order ${order.order_id}`}
+								aria-label={`Zmień status zamówienia ${order.order_id}`}
 								className={`rounded-full border-0 px-3 py-1 text-sm font-medium ${statusTheme.badgeClass} focus:outline-none disabled:cursor-wait disabled:opacity-60`}>
 								{ORDER_STATUS_VALUES.map((status) => (
 									<option key={status} value={status} className="bg-slate-950 text-slate-100">
-										{status.replace("-", " ").toUpperCase()}
+										{status === "pending"
+											? "OCZEKUJĄCE"
+											: status === "in-progress"
+												? "W REALIZACJI"
+												: status === "shipped"
+													? "WYSŁANE"
+													: "ZAKOŃCZONE"}
 									</option>
 								))}
 							</select>
@@ -104,7 +110,13 @@ export default function OrderCard({
 							<span
 								className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${statusTheme.badgeClass}`}>
 								{getStatusIcon(order.status)}
-								{order.status.replace("-", " ").toUpperCase()}
+							{order.status === "pending"
+								? "OCZEKUJĄCE"
+								: order.status === "in-progress"
+									? "W REALIZACJI"
+									: order.status === "shipped"
+										? "WYSŁANE"
+										: "ZAKOŃCZONE"}
 							</span>
 						)}
 						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">
@@ -116,7 +128,7 @@ export default function OrderCard({
 							/>
 						</div>
 						<p className="mt-1 text-sm text-slate-500">
-							{order.progress}% Complete
+							{order.progress}% ukończono
 						</p>
 					</div>
 
@@ -124,7 +136,7 @@ export default function OrderCard({
 						type="button"
 						onClick={onToggleExpanded}
 						className="inline-flex items-center gap-2 self-start rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
-						{isExpanded ? "Hide details" : "View details"}
+						{isExpanded ? "Ukryj szczegóły" : "Zobacz szczegóły"}
 						<ChevronDown
 							className={`h-4 w-4 transition-transform ${
 								isExpanded ? "rotate-180" : ""
@@ -137,7 +149,7 @@ export default function OrderCard({
 							type="button"
 							onClick={onToggleMenu}
 							className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-							aria-label={`Open actions for order ${order.order_id}`}>
+							aria-label={`Otwórz działania dla zamówienia ${order.order_id}`}>
 							<Ellipsis className="h-4 w-4" />
 						</button>
 
@@ -154,14 +166,14 @@ export default function OrderCard({
 										onClick={onOpenEdit}
 										className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white">
 										<PencilLine className="h-4 w-4" />
-										Edit order
+										Edytuj zamówienie
 									</button>
 									<button
 										type="button"
 										onClick={onRequestDelete}
 										className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
 										<Trash2 className="h-4 w-4" />
-										Delete order
+										Usuń zamówienie
 									</button>
 								</motion.div>
 							)}
@@ -183,32 +195,32 @@ export default function OrderCard({
 								<div className="space-y-3">
 									<div>
 										<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-											Patient Name
+											Pacjent
 										</p>
 										<p className="mt-1 text-sm text-white">{order.patient}</p>
 									</div>
 									<div>
 										<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-											Details
+											Szczegóły
 										</p>
 										<p className="mt-1 text-sm leading-6 text-slate-300">
-											{order.details || "No additional details yet."}
+											{order.details || "Brak dodatkowych szczegółów."}
 										</p>
 									</div>
 								</div>
 
 								<div>
 									<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-										Attached Files
+										Załączone pliki
 									</p>
 									<p className="mt-1 text-sm text-slate-400">
-										{orderFiles.length} file{orderFiles.length === 1 ? "" : "s"}
+										{orderFiles.length} {orderFiles.length === 1 ? "plik" : "plików"}
 									</p>
 
 									<div className="mt-4">
 										<OrderFilesList
 											attachments={orderFiles}
-											emptyMessage="No files attached to this order yet."
+											emptyMessage="Do tego zamówienia nie dodano jeszcze plików."
 											onDownload={onDownloadFile}
 										/>
 									</div>

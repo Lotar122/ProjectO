@@ -1,11 +1,11 @@
-import LoginRoute from "./loginClientWrapper";
+import Login from "./login";
 
 export default async function Page()
 {
-	return <LoginRoute />;
+	return <Login />;
 }
 
 export const metadata = {
-	title: "ProjectO - Login",
-	description: "A website for managing orders in orthodontics.",
+	title: "ProjectO - Logowanie",
+	description: "System do zarządzania zamówieniami ortodontycznymi.",
 };

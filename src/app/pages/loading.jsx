@@ -22,7 +22,7 @@ export default function Loading()
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.5, delay: 0.08 }}
 					className="text-gray-400">
-					Orthodontic Management System
+					System zarządzania ortodontycznego
 				</motion.p>
 			</div>
 		</div>
