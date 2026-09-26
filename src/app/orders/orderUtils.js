@@ -50,6 +50,13 @@ export const ORDER_STATUS_OPTIONS = [
 	"Completed",
 ];
 
+export const ORDER_STATUS_VALUES = [
+	"pending",
+	"in-progress",
+	"shipped",
+	"completed",
+];
+
 export const getFilteredOrders = (orders, searchValue, statusValue) =>
 {
 	const normalizedSearch = searchValue.trim().toLowerCase();

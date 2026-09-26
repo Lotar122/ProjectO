@@ -87,6 +87,7 @@ export default function Orders({
 	const [fileNamesById, setFileNamesById] = useState({});
 	const [backgroundActions, setBackgroundActions] = useState([]);
 	const [openEditMenuId, setOpenEditMenuId] = useState(null);
+	const [statusUpdatingOrderId, setStatusUpdatingOrderId] = useState(null);
 	const [passwordForm, setPasswordForm] = useState(INITIAL_PASSWORD_FORM);
 	const [passwordChangeError, setPasswordChangeError] = useState(null);
 	const [isPasswordChangeSubmitting, setIsPasswordChangeSubmitting] =
@@ -561,7 +562,7 @@ export default function Orders({
 		setOpenEditMenuId(null);
 	};
 
-	const handleStatusChange = (statusValue) =>
+	const handleOrderStatusFilterChange = (statusValue) =>
 	{
 		setOrderStatusValue(statusValue);
 		setCurrentOrdersPage(1);
@@ -850,6 +851,32 @@ export default function Orders({
 		URL.revokeObjectURL(objectUrl);
 	};
 
+	const handleStatusChange = async (order, status) =>
+	{
+		if (!adminMode || !order?.order_id || order.status === status)
+		{
+			return;
+		}
+
+		const actionId = startBackgroundAction("Updating order status", order.patient);
+		setStatusUpdatingOrderId(order.order_id);
+
+		try {
+			await axios.put(
+				"/api/admin/updateOrderStatus",
+				{ orderID: order.order_id, status },
+				{ withCredentials: true },
+			);
+			await refreshOrders({ page: currentOrdersPage });
+			completeBackgroundAction(actionId, "Order status updated", order.patient);
+		} catch (err) {
+			console.error("Order status update failed:", err);
+			failBackgroundAction(actionId, "Order status update failed", order.patient);
+		} finally {
+			setStatusUpdatingOrderId(null);
+		}
+	};
+
 	return (
 		<MotionConfig reducedMotion={disableMotion ? "always" : "never"}>
 			<PerfProfiler id="OrdersPage">
@@ -909,7 +936,7 @@ export default function Orders({
 									transition={{ duration: 0.45, delay: 0.05 }}>
 									<OrdersToolbar
 										onSearchChange={handleSearchChange}
-										onStatusChange={handleStatusChange}
+										onStatusChange={handleOrderStatusFilterChange}
 										searchValue={orderSearchValue}
 										statusValue={orderStatusValue}
 									/>
@@ -921,36 +948,39 @@ export default function Orders({
 									</div>
 								)}
 
-								<PerfProfiler id="OrdersList">
-									<div className="grid gap-6">
-										{orders.map((order) => (
-											<OrderCard
-												key={order.order_id}
-												fileNamesById={fileNamesById}
-												isExpanded={expandedOrderId === order.order_id}
-												isMenuOpen={openEditMenuId === order.order_id}
-												onDownloadFile={(attachment, index) =>
-													handleDownloadFile(order, attachment, index)
-												}
-												onOpenEdit={() => openEditOrder(order)}
-												onRequestDelete={() =>
-												{
-													setOpenEditMenuId(null);
-													setDeleteOrderId(order.order_id);
-												}}
-												onToggleExpanded={() =>
-													toggleOrderExpanded(order.order_id)
-												}
-												onToggleMenu={() =>
-													setOpenEditMenuId((current) =>
-														current === order.order_id
-															? null
-															: order.order_id,
-													)
-												}
-												order={order}
-											/>
-										))}
+				<PerfProfiler id="OrdersList">
+					<div className="grid gap-6">
+						{orders.map((order) => (
+							<OrderCard
+								key={order.order_id}
+								fileNamesById={fileNamesById}
+								isAdmin={adminMode}
+								isExpanded={expandedOrderId === order.order_id}
+								isMenuOpen={openEditMenuId === order.order_id}
+								isStatusUpdating={statusUpdatingOrderId === order.order_id}
+								onDownloadFile={(attachment, index) =>
+									handleDownloadFile(order, attachment, index)
+								}
+								onOpenEdit={() => openEditOrder(order)}
+								onRequestDelete={() =>
+								{
+									setOpenEditMenuId(null);
+									setDeleteOrderId(order.order_id);
+								}}
+								onStatusChange={(status) =>
+									handleStatusChange(order, status)
+							}
+								onToggleExpanded={() =>
+									toggleOrderExpanded(order.order_id)
+							}
+								onToggleMenu={() =>
+									setOpenEditMenuId((current) =>
+										current === order.order_id ? null : order.order_id,
+									)
+								}
+								order={order}
+							/>
+						))}
 									</div>
 								</PerfProfiler>
 

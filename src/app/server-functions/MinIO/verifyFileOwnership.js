@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import postgres from "postgres";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { isAdminSession } from "@/app/server-functions/isAdminSession";
 
 export async function verifyFileOwnership(fileId)
 {
@@ -13,6 +14,11 @@ export async function verifyFileOwnership(fileId)
 	if (!userAuthSession.loggedIn)
 	{
 		throw new Error("Forbidden");
+	}
+
+	if (isAdminSession(userAuthSession))
+	{
+		return;
 	}
 
 	const userId = userAuthSession.data.identity.id;

@@ -12,7 +12,12 @@ import {
 	XCircle,
 } from "lucide-react";
 
-import { getDisplayDate, getOrderFiles, getStatusTheme } from "../orderUtils";
+import {
+	getDisplayDate,
+	getOrderFiles,
+	getStatusTheme,
+	ORDER_STATUS_VALUES,
+} from "../orderUtils";
 import OrderFilesList from "./OrderFilesList";
 
 const getStatusIcon = (status) =>
@@ -33,11 +38,14 @@ const getStatusIcon = (status) =>
 
 export default function OrderCard({
 	fileNamesById,
+	isAdmin = false,
 	isExpanded,
 	isMenuOpen,
+	isStatusUpdating = false,
 	onDownloadFile,
 	onOpenEdit,
 	onRequestDelete,
+	onStatusChange,
 	onToggleExpanded,
 	onToggleMenu,
 	order,
@@ -79,11 +87,26 @@ export default function OrderCard({
 
 				<div className="flex items-center gap-4">
 					<div className="text-right">
-						<span
-							className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${statusTheme.badgeClass}`}>
-							{getStatusIcon(order.status)}
-							{order.status.replace("-", " ").toUpperCase()}
-						</span>
+						{isAdmin ? (
+							<select
+								value={order.status}
+								disabled={isStatusUpdating}
+								onChange={(event) => onStatusChange?.(event.target.value)}
+								aria-label={`Change status for order ${order.order_id}`}
+								className={`rounded-full border-0 px-3 py-1 text-sm font-medium ${statusTheme.badgeClass} focus:outline-none disabled:cursor-wait disabled:opacity-60`}>
+								{ORDER_STATUS_VALUES.map((status) => (
+									<option key={status} value={status} className="bg-slate-950 text-slate-100">
+										{status.replace("-", " ").toUpperCase()}
+									</option>
+								))}
+							</select>
+						) : (
+							<span
+								className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${statusTheme.badgeClass}`}>
+								{getStatusIcon(order.status)}
+								{order.status.replace("-", " ").toUpperCase()}
+							</span>
+						)}
 						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">
 							<div
 								className={`h-2 rounded-full transition-all duration-300 ${statusTheme.progressClass}`}
