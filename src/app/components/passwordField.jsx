@@ -5,7 +5,9 @@ import { useState } from "react";
 
 export default function PasswordField({
 	autoComplete = "current-password",
+	id,
 	label = "Hasło",
+	name,
 	password,
 	placeholder = "Wpisz hasło",
 	setPassword,
@@ -15,11 +17,13 @@ export default function PasswordField({
 
 	return (
 		<div>
-			<label className="mb-2 block text-sm font-medium text-slate-300">
+			<label htmlFor={id} className="mb-2 block text-sm font-medium text-slate-300">
 				{label}
 			</label>
 			<div className="relative">
 				<input
+					id={id}
+					name={name}
 					autoComplete={autoComplete}
 					type={showPassword ? "text" : "password"}
 					value={password}

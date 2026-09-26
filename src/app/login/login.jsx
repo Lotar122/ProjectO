@@ -150,13 +150,24 @@ const KratosLogin = () =>
 					</motion.p>
 				)}
 
-				<motion.form variants={item} onSubmit={handleLogin} className="space-y-6">
+				<motion.form
+					variants={item}
+					onSubmit={handleLogin}
+					method="post"
+					autoComplete="on"
+					className="space-y-6">
 					<div>
-						<label className="mb-2 block text-sm font-medium text-slate-300">
+						<label
+							htmlFor="login-username"
+							className="mb-2 block text-sm font-medium text-slate-300">
 							Adres e-mail
 						</label>
 						<input
+							id="login-username"
+							name="username"
 							type="email"
+							autoComplete="username"
+							inputMode="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
@@ -165,7 +176,13 @@ const KratosLogin = () =>
 						/>
 					</div>
 
-					<PasswordField password={password} setPassword={setPassword} />
+					<PasswordField
+						id="login-password"
+						name="password"
+						autoComplete="current-password"
+						password={password}
+						setPassword={setPassword}
+					/>
 
 					<motion.button
 						type="submit"

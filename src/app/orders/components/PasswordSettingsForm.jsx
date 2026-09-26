@@ -61,7 +61,9 @@ export default function PasswordSettingsForm({
 
 					<PasswordField
 						autoComplete="current-password"
+						id="current-password"
 						label="Obecne hasło"
+						name="current-password"
 						password={currentPassword}
 						placeholder="Wpisz obecne hasło"
 						setPassword={onCurrentPasswordChange}
@@ -69,7 +71,9 @@ export default function PasswordSettingsForm({
 
 					<PasswordField
 						autoComplete="new-password"
+						id="new-password"
 						label="Nowe hasło"
+						name="new-password"
 						password={newPassword}
 						placeholder="Wybierz nowe hasło"
 						setPassword={onNewPasswordChange}
@@ -77,7 +81,9 @@ export default function PasswordSettingsForm({
 
 					<PasswordField
 						autoComplete="new-password"
+						id="confirm-password"
 						label="Potwierdź nowe hasło"
+						name="confirm-password"
 						password={confirmPassword}
 						placeholder="Powtórz nowe hasło"
 						setPassword={onConfirmPasswordChange}
