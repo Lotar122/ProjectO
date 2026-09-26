@@ -4,6 +4,7 @@ import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { isAdminSession } from "@/app/server-functions/isAdminSession";
 
 import { cookies } from "next/headers";
 import postgres from "postgres";
@@ -40,13 +41,17 @@ export async function GET(req)
 
 		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
-		const [fileAccess] = await DB`
-			SELECT 1
-			FROM orders
-			WHERE user_id = ${userAuthSession.data.identity.id}
-				AND ${file_id} = ANY(files)
-			LIMIT 1
-		`;
+		const [fileAccess] = isAdminSession(userAuthSession)
+			? await DB`
+				SELECT 1 FROM orders WHERE ${file_id} = ANY(files) LIMIT 1
+			`
+			: await DB`
+				SELECT 1
+				FROM orders
+				WHERE user_id = ${userAuthSession.data.identity.id}
+					AND ${file_id} = ANY(files)
+				LIMIT 1
+			`;
 
 		if (!fileAccess)
 		{

@@ -59,7 +59,13 @@ const createOrdersCacheKey = ({ page, search, status }) =>
 		status: normalizeStatusValue(status),
 	});
 
-export default function Orders({ userEmail, userName, userLastName })
+export default function Orders({
+	adminMode = false,
+	isAdmin = false,
+	userEmail,
+	userName,
+	userLastName,
+})
 {
 	const { disableMotion } = getPerfFlags();
 	const [currentPage, setCurrentPage] = useState("orders");
@@ -263,9 +269,12 @@ export default function Orders({ userEmail, userName, userLastName })
 					params.set("status", normalizeStatusValue(status));
 				}
 
-				const response = await axios.get(`/api/getOrders?${params.toString()}`, {
-					withCredentials: true,
-				});
+				const response = await axios.get(
+					`${adminMode ? "/api/admin/getOrders" : "/api/getOrders"}?${params.toString()}`,
+					{
+						withCredentials: true,
+					},
+				);
 
 				const payload = {
 					orders: response.data.orders || [],
@@ -295,7 +304,13 @@ export default function Orders({ userEmail, userName, userLastName })
 				}
 			}
 		},
-		[applyOrdersPayload, currentOrdersPage, debouncedOrderSearchValue, orderStatusValue],
+		[
+			adminMode,
+			applyOrdersPayload,
+			currentOrdersPage,
+			debouncedOrderSearchValue,
+			orderStatusValue,
+		],
 	);
 
 	const refreshOrders = useCallback(
@@ -665,9 +680,12 @@ export default function Orders({ userEmail, userName, userLastName })
 		void (async () =>
 		{
 			try {
-				await axios.delete(`/api/deleteOrder?orderID=${deleteOrderId}`, {
-					withCredentials: true,
-				});
+				await axios.delete(
+					`${adminMode ? "/api/admin/deleteOrder" : "/api/deleteOrder"}?orderID=${deleteOrderId}`,
+					{
+						withCredentials: true,
+					},
+				);
 				await refreshOrders({ page: currentOrdersPage });
 				completeBackgroundAction(actionId, "Order deleted", orderLabel);
 			} catch (err) {
@@ -735,12 +753,16 @@ export default function Orders({ userEmail, userName, userLastName })
 			});
 
 			try {
-				const response = await axios.put("/api/modifyOrder", formData, {
-					withCredentials: true,
-					headers: {
-						"Content-Type": "multipart/form-data",
+				const response = await axios.put(
+					adminMode ? "/api/admin/modifyOrder" : "/api/modifyOrder",
+					formData,
+					{
+						withCredentials: true,
+						headers: {
+							"Content-Type": "multipart/form-data",
+						},
 					},
-				});
+				);
 
 				if (Array.isArray(response.data.uploadedFiles))
 				{
@@ -844,6 +866,8 @@ export default function Orders({ userEmail, userName, userLastName })
 
 					<OrdersHeader
 						currentPage={currentPage}
+						isAdmin={isAdmin || adminMode}
+						isAdminPage={adminMode}
 						onLogout={handleLogout}
 						onShowChangePassword={showChangePasswordPage}
 						onShowCreateOrder={() => setCurrentPage("create-order")}
@@ -861,20 +885,22 @@ export default function Orders({ userEmail, userName, userLastName })
 								<div className="mb-8 flex items-center justify-between">
 									<div>
 										<h2 className="text-3xl font-bold text-white">
-											Treatment Orders
+											{adminMode ? "All Orders" : "Treatment Orders"}
 										</h2>
 										<p className="text-slate-400">
-											Manage and track all orthodontic appliance orders
+											{adminMode
+												? "Review and manage orders submitted by every user"
+												: "Manage and track all orthodontic appliance orders"}
 										</p>
 									</div>
-									<motion.button
+									{!adminMode && <motion.button
 										whileHover={{ scale: 1.02, y: -2 }}
 										whileTap={{ scale: 0.985 }}
 										onClick={() => setCurrentPage("create-order")}
 										className="flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
 										<Plus className="h-5 w-5" />
 										New Order
-									</motion.button>
+									</motion.button>}
 								</div>
 
 								<motion.div

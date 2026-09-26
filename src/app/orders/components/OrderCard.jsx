@@ -63,6 +63,14 @@ export default function OrderCard({
 					<div>
 						<h3 className="text-lg font-semibold text-white">{order.patient}</h3>
 						<p className="text-slate-300">{order.details || order.type}</p>
+						{(order.owner_email || order.owner_user_id) && (
+							<p className="text-sm text-sky-300">
+								Submitted by {order.owner_name || order.owner_last_name
+									? `${order.owner_name || ""} ${order.owner_last_name || ""}`.trim()
+									: order.owner_email || order.owner_user_id}
+								{order.owner_email ? ` (${order.owner_email})` : ""}
+							</p>
+						)}
 						<p className="text-sm text-slate-500">
 							Order #{order.order_id} - {getDisplayDate(order)}
 						</p>

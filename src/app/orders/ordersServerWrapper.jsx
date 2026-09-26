@@ -7,6 +7,7 @@ import Orders from "./orders";
 
 import { getUserAuthSession } from "../server-functions/getUserAuthSession";
 import { getNameFromEmail } from "../server-functions/getUserName";
+import { isAdminSession } from "../server-functions/isAdminSession";
 
 export default async function ProtectedPage()
 {
@@ -20,6 +21,7 @@ export default async function ProtectedPage()
 		);
 		return (
 			<Orders
+				isAdmin={isAdminSession(userAuthSession)}
 				userEmail={userAuthSession.data.identity.traits.email}
 				userName={name.first}
 				userLastName={name.last}

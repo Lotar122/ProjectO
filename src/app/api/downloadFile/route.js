@@ -1,6 +1,7 @@
 "use server";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFile } from "@/app/server-functions/MinIO/getFile";
 import { cookies } from "next/headers";
@@ -34,13 +35,17 @@ export async function GET(req)
 			});
 		}
 
-		const [fileAccess] = await DB`
-			SELECT 1
-			FROM orders
-			WHERE user_id = ${userAuthSession.data.identity.id}
-				AND ${fileKey} = ANY(files)
-			LIMIT 1
-		`;
+		const [fileAccess] = isAdminSession(userAuthSession)
+			? await DB`
+				SELECT 1 FROM orders WHERE ${fileKey} = ANY(files) LIMIT 1
+			`
+			: await DB`
+				SELECT 1
+				FROM orders
+				WHERE user_id = ${userAuthSession.data.identity.id}
+					AND ${fileKey} = ANY(files)
+				LIMIT 1
+			`;
 
 		if (!fileAccess)
 		{

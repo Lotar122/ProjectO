@@ -1,7 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { LogOut, Package, Plus, Settings, UserCircle } from "lucide-react";
+import {
+	LogOut,
+	Package,
+	Plus,
+	Settings,
+	ShieldCheck,
+	UserCircle,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 export default function OrdersHeader({
@@ -10,6 +17,8 @@ export default function OrdersHeader({
 	onShowChangePassword,
 	onShowCreateOrder,
 	onShowOrders,
+	isAdmin = false,
+	isAdminPage = false,
 	userLastName,
 	userName,
 })
@@ -52,7 +61,15 @@ export default function OrdersHeader({
 						</div>
 
 						<nav className="hidden items-center gap-6 md:flex">
-							<button
+							{isAdminPage && (
+								<a
+									href="/orders"
+									className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-300 transition-colors hover:text-white">
+									<Package className="h-4 w-4" />
+									Orders
+								</a>
+							)}
+							{!isAdminPage && <button
 								type="button"
 								onClick={onShowOrders}
 								className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
@@ -62,8 +79,8 @@ export default function OrdersHeader({
 								}`}>
 								<Package className="h-4 w-4" />
 								Orders
-							</button>
-							<button
+							</button>}
+							{!isAdminPage && <button
 								type="button"
 								onClick={onShowCreateOrder}
 								className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
@@ -73,7 +90,19 @@ export default function OrdersHeader({
 								}`}>
 								<Plus className="h-4 w-4" />
 								New Order
-							</button>
+							</button>}
+							{isAdmin && (
+								<a
+									href="/admin"
+									className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+										isAdminPage
+											? "bg-white text-black"
+											: "text-gray-300 hover:text-white"
+									}`}>
+									<ShieldCheck className="h-4 w-4" />
+									Admin
+								</a>
+							)}
 						</nav>
 
 						<div className="flex items-center gap-4">
@@ -124,7 +153,15 @@ export default function OrdersHeader({
 			<div className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl md:hidden">
 				<div className="container mx-auto px-4 py-3">
 					<div className="flex gap-2">
-						<button
+						{isAdminPage && (
+							<a
+								href="/orders"
+								className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-slate-300 transition-colors">
+								<Package className="h-4 w-4" />
+								Orders
+							</a>
+						)}
+						{!isAdminPage && <button
 							type="button"
 							onClick={onShowOrders}
 							className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
@@ -134,8 +171,20 @@ export default function OrdersHeader({
 							}`}>
 							<Package className="h-4 w-4" />
 							Orders
-						</button>
-						<button
+						</button>}
+						{isAdmin && (
+							<a
+								href="/admin"
+								className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+									isAdminPage
+										? "bg-white text-slate-950"
+										: "text-slate-300"
+								}`}>
+								<ShieldCheck className="h-4 w-4" />
+								Admin
+							</a>
+						)}
+						{!isAdminPage && <button
 							type="button"
 							onClick={onShowCreateOrder}
 							className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
@@ -145,7 +194,7 @@ export default function OrdersHeader({
 							}`}>
 							<Plus className="h-4 w-4" />
 							New
-						</button>
+						</button>}
 					</div>
 				</div>
 			</div>
