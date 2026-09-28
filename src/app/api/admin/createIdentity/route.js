@@ -7,7 +7,7 @@ import { isAdminSession } from "@/app/server-functions/isAdminSession";
 
 const IDENTITY_SCHEMA_ID =
 	process.env.KRATOS_IDENTITY_SCHEMA_ID ||
-	"https://schemas.ory.sh/presets/kratos/quickstart/email-password/identity.schema.json";
+	"default";
 const KRATOS_ADMIN_URL = process.env.KRATOS_ADMIN_URL || "http://kratos:4434";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
