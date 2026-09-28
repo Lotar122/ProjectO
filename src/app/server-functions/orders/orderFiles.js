@@ -137,7 +137,7 @@ export async function renameOrderFile(s3, fileId, fileName)
 		new CopyObjectCommand({
 			Bucket: ORDER_FILES_BUCKET,
 			Key: fileId,
-			CopySource: encodeURIComponent(`${ORDER_FILES_BUCKET}/${fileId}`),
+			CopySource: `${ORDER_FILES_BUCKET}/${encodeURIComponent(fileId)}`,
 			ContentType: metadata.ContentType,
 			Metadata: {
 				...metadata.Metadata,
