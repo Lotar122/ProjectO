@@ -8,6 +8,7 @@ import {
 	Settings,
 	ShieldCheck,
 	UserCircle,
+	UserPlus,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -16,6 +17,7 @@ export default function OrdersHeader({
 	onLogout,
 	onShowChangePassword,
 	onShowCreateOrder,
+	onShowCreateIdentity,
 	onShowOrders,
 	isAdmin = false,
 	isAdminPage = false,
@@ -62,12 +64,13 @@ export default function OrdersHeader({
 
 						<nav className="hidden items-center gap-6 md:flex">
 							{isAdminPage && (
-								<a
-									href="/orders"
+								<button
+									type="button"
+									onClick={onShowOrders}
 									className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-300 transition-colors hover:text-white">
 									<Package className="h-4 w-4" />
 									Zamówienia
-								</a>
+								</button>
 							)}
 							{!isAdminPage && <button
 								type="button"
@@ -102,6 +105,19 @@ export default function OrdersHeader({
 									<ShieldCheck className="h-4 w-4" />
 									Administracja
 								</a>
+							)}
+							{isAdminPage && (
+								<button
+									type="button"
+									onClick={onShowCreateIdentity}
+									className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+										currentPage === "create-identity"
+											? "bg-white text-black"
+											: "text-gray-300 hover:text-white"
+									}`}>
+									<UserPlus className="h-4 w-4" />
+									Nowy użytkownik
+								</button>
 							)}
 						</nav>
 
@@ -154,12 +170,13 @@ export default function OrdersHeader({
 				<div className="container mx-auto px-4 py-3">
 					<div className="flex gap-2">
 						{isAdminPage && (
-							<a
-								href="/orders"
+							<button
+								type="button"
+								onClick={onShowOrders}
 								className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-slate-300 transition-colors">
 								<Package className="h-4 w-4" />
 								Zamówienia
-							</a>
+							</button>
 						)}
 						{!isAdminPage && <button
 							type="button"
@@ -183,6 +200,19 @@ export default function OrdersHeader({
 								<ShieldCheck className="h-4 w-4" />
 								Administracja
 							</a>
+						)}
+						{isAdminPage && (
+							<button
+								type="button"
+								onClick={onShowCreateIdentity}
+								className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+									currentPage === "create-identity"
+										? "bg-white text-slate-950"
+										: "text-slate-300"
+								}`}>
+								<UserPlus className="h-4 w-4" />
+								Nowy użytkownik
+							</button>
 						)}
 						{!isAdminPage && <button
 							type="button"
