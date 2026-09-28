@@ -324,10 +324,12 @@ export default function Orders({
 		[clearOrdersCache, currentOrdersPage, loadOrdersPage],
 	);
 
-	const loadFileNamesByIds = useCallback(async (fileIds) =>
+	const loadFileNamesByIds = useCallback(async (fileIds, { force = false } = {}) =>
 	{
 		const missingFileIds = [
-			...new Set(fileIds.filter((fileId) => fileId && !fileNamesById[fileId])),
+			...new Set(
+				fileIds.filter((fileId) => fileId && (force || !fileNamesById[fileId])),
+			),
 		];
 
 		if (missingFileIds.length === 0)
@@ -791,9 +793,15 @@ export default function Orders({
 					nextOrders.find((order) => order.order_id === updatedOrder.order_id) ||
 					updatedOrder;
 
+				const renamedFileIds = attachments
+					.filter((attachment) => attachment.fileId)
+					.map((attachment) => attachment.fileId);
+
 				if (Array.isArray(refreshedOrder.files) && refreshedOrder.files.length > 0)
 				{
-					await loadFileNamesByIds(refreshedOrder.files);
+					await loadFileNamesByIds(refreshedOrder.files, {
+						force: renamedFileIds.length > 0,
+					});
 				}
 
 				setExpandedOrderId(updatedOrder.order_id);
