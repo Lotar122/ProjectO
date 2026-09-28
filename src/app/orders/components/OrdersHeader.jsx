@@ -87,7 +87,8 @@ export default function OrdersHeader({
 							</button>}
 							{isAdmin && (
 								<a
-									href="/admin"
+									href={isAdminPage ? undefined : "/admin"}
+									onClick={isAdminPage ? onShowOrders : undefined}
 									className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
 										isAdminPage
 											? "bg-white text-black"
@@ -173,7 +174,8 @@ export default function OrdersHeader({
 						</button>}
 						{isAdmin && (
 							<a
-								href="/admin"
+								href={isAdminPage ? undefined : "/admin"}
+								onClick={isAdminPage ? onShowOrders : undefined}
 								className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${
 									isAdminPage
 										? "bg-white text-slate-950"

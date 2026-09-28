@@ -1,5 +1,10 @@
 import { createBucket } from "@/app/server-functions/MinIO/createBucket";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+	CopyObjectCommand,
+	DeleteObjectCommand,
+	HeadObjectCommand,
+	PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import { v7 as uuid7 } from "uuid";
 
 export const ORDER_FILES_BUCKET = "projecto";
@@ -116,5 +121,29 @@ export async function deleteOrderFiles(s3, fileIds)
 					}),
 			),
 		),
+	);
+}
+
+export async function renameOrderFile(s3, fileId, fileName)
+{
+	const metadata = await s3.send(
+		new HeadObjectCommand({
+			Bucket: ORDER_FILES_BUCKET,
+			Key: fileId,
+		}),
+	);
+
+	await s3.send(
+		new CopyObjectCommand({
+			Bucket: ORDER_FILES_BUCKET,
+			Key: fileId,
+			CopySource: encodeURIComponent(`${ORDER_FILES_BUCKET}/${fileId}`),
+			ContentType: metadata.ContentType,
+			Metadata: {
+				...metadata.Metadata,
+				original_name: fileName,
+			},
+			MetadataDirective: "REPLACE",
+		}),
 	);
 }

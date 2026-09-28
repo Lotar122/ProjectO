@@ -741,13 +741,20 @@ export default function Orders({
 			{
 				if (attachment.isLocal && attachment.file instanceof File)
 				{
-					formData.append("files", attachment.file);
+					formData.append("files", attachment.file, attachment.name);
 					return;
 				}
 
 				if (attachment.fileId)
 				{
 					formData.append("existingFileIds", attachment.fileId);
+					formData.append(
+						"fileNames",
+						JSON.stringify({
+							fileId: attachment.fileId,
+							fileName: attachment.name,
+						}),
+					);
 				}
 			});
 
@@ -1099,6 +1106,13 @@ export default function Orders({
 										setEditFiles((current) =>
 											current.filter(
 												(_, currentIndex) => currentIndex !== index,
+											),
+										)
+									}
+									onAttachmentNameChange={(name, attachment) =>
+										setEditFiles((current) =>
+											current.map((item) =>
+												item.id === attachment.id ? { ...item, name } : item,
 											),
 										)
 									}

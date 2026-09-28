@@ -6,6 +6,8 @@ import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import {
 	deleteOrderFiles,
 	ensureOrderFilesBucket,
+	renameOrderFile,
+	sanitizeOrderFileName,
 	toISODate,
 	uploadOrderFiles,
 } from "@/app/server-functions/orders/orderFiles";
@@ -39,6 +41,7 @@ export async function PUT(req)
 			.map((fileId) => String(fileId))
 			.filter(Boolean);
 		const newFiles = formData.getAll("files");
+		const requestedFileNames = formData.getAll("fileNames");
 
 		if (!orderID)
 		{
@@ -69,6 +72,35 @@ export async function PUT(req)
 		await ensureOrderFilesBucket(s3);
 
 		const uploadedFiles = await uploadOrderFiles(s3, newFiles, patient);
+		await Promise.all(
+			requestedFileNames.map(async (value) =>
+			{
+				let fileNameUpdate;
+
+				try
+				{
+					fileNameUpdate = JSON.parse(String(value));
+				}
+				catch
+				{
+					return;
+				}
+
+				if (
+					!retainedFileIds.includes(String(fileNameUpdate?.fileId)) ||
+					!String(fileNameUpdate?.fileName || "").trim()
+				)
+				{
+					return;
+				}
+
+				await renameOrderFile(
+					s3,
+					String(fileNameUpdate.fileId),
+					sanitizeOrderFileName(patient, String(fileNameUpdate.fileName)),
+				);
+			}),
+		);
 		await deleteOrderFiles(s3, removedFileIds);
 
 		const nextFileIds = [

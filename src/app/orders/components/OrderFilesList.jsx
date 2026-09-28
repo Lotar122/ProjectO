@@ -11,6 +11,7 @@ export default function OrderFilesList({
 	metaText = "Gotowe do pobrania w tej sesji",
 	onAction,
 	onDownload,
+	onNameChange,
 	showDownloadButton = true,
 })
 {
@@ -36,7 +37,18 @@ export default function OrderFilesList({
 							<FileText className="h-4 w-4" />
 						</div>
 						<div className="min-w-0">
-							<p className="truncate text-sm text-white">{attachment.name}</p>
+							{onNameChange ? (
+								<input
+									aria-label={`Nazwa pliku ${index + 1}`}
+									className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-white focus:border-slate-500 focus:outline-none"
+									onChange={(event) =>
+										onNameChange(event.target.value, attachment, index)
+									}
+									value={attachment.name}
+								/>
+							) : (
+								<p className="truncate text-sm text-white">{attachment.name}</p>
+							)}
 							<p className="text-xs text-slate-500">{metaText}</p>
 						</div>
 					</div>

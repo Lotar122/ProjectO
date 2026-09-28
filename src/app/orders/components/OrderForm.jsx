@@ -18,6 +18,7 @@ export default function OrderForm({
 	onFilesSelected,
 	onPatientChange,
 	onRemoveAttachment,
+	onAttachmentNameChange,
 	onRemoveFile,
 	onSubmit,
 	patient,
@@ -140,6 +141,7 @@ export default function OrderForm({
 										emptyMessage="Do tego zamówienia nie dodano jeszcze plików."
 										metaText="Gotowe w bieżącej sesji"
 										onAction={onRemoveAttachment}
+										onNameChange={onAttachmentNameChange}
 										showDownloadButton={false}
 									/>
 								</div>
