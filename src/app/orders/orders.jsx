@@ -927,14 +927,14 @@ export default function Orders({
 										<Plus className="h-5 w-5" />
 										Nowe zamówienie
 									</motion.button>}
-									{adminMode && <motion.button
+									{/* {adminMode && <motion.button
 										whileHover={{ scale: 1.02, y: -2 }}
 										whileTap={{ scale: 0.985 }}
 										onClick={() => setCurrentPage("create-identity")}
 										className="flex items-center gap-2 rounded-lg bg-violet-100 px-6 py-3 font-semibold text-slate-950 transition-colors duration-200 hover:bg-violet-200">
 										<UserPlus className="h-5 w-5" />
 										Nowy użytkownik
-									</motion.button>}
+									</motion.button>} */}
 								</div>
 
 								<motion.div
@@ -946,6 +946,7 @@ export default function Orders({
 										onStatusChange={handleOrderStatusFilterChange}
 										searchValue={orderSearchValue}
 										statusValue={orderStatusValue}
+										isAdmin={adminMode}
 									/>
 								</motion.div>
 

@@ -56,11 +56,12 @@ export default function OrderCard({
 
 	return (
 		<motion.div
+			onClick={onToggleExpanded}
 			initial={{ opacity: 0, y: 22 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
 			whileHover={{ y: -4 }}
-			className={`relative rounded-xl border border-slate-800 bg-slate-900/88 p-6 transition-colors duration-200 hover:border-slate-700 ${
+			className={`relative cursor-pointer rounded-xl border border-slate-800 bg-slate-900/88 p-6 transition-colors duration-200 hover:border-slate-700 ${
 				isMenuOpen ? "z-30" : "z-0"
 			}`}>
 			<div className="flex items-start justify-between gap-6">
@@ -85,7 +86,10 @@ export default function OrderCard({
 					</div>
 				</div>
 
-				<div className="flex items-center gap-4">
+				<div
+					className="flex items-center gap-4"
+					onClick={(event) => event.stopPropagation()}
+				>
 					<div className="text-right">
 						{isAdmin ? (
 							<select
@@ -134,7 +138,11 @@ export default function OrderCard({
 
 					<button
 						type="button"
-						onClick={onToggleExpanded}
+						onClick={(event) =>
+						{
+							event.stopPropagation();
+							onToggleExpanded();
+						}}
 						className="inline-flex items-center gap-2 self-start rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
 						{isExpanded ? "Ukryj szczegóły" : "Zobacz szczegóły"}
 						<ChevronDown
@@ -163,14 +171,22 @@ export default function OrderCard({
 									className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl">
 									<button
 										type="button"
-										onClick={onOpenEdit}
+										onClick={(event) =>
+										{
+											event.stopPropagation();
+											onOpenEdit();
+										}}
 										className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white">
 										<PencilLine className="h-4 w-4" />
 										Edytuj zamówienie
 									</button>
 									<button
 										type="button"
-										onClick={onRequestDelete}
+										onClick={(event) =>
+										{
+											event.stopPropagation();
+											onRequestDelete();
+										}}
 										className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
 										<Trash2 className="h-4 w-4" />
 										Usuń zamówienie
@@ -185,6 +201,7 @@ export default function OrderCard({
 			<AnimatePresence initial={false}>
 				{isExpanded && (
 					<motion.div
+						onClick={(event) => event.stopPropagation()}
 						initial={{ opacity: 0, height: 0, y: -8 }}
 						animate={{ opacity: 1, height: "auto", y: 0 }}
 						exit={{ opacity: 0, height: 0, y: -8 }}

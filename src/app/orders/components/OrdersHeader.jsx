@@ -63,15 +63,6 @@ export default function OrdersHeader({
 						</div>
 
 						<nav className="hidden items-center gap-6 md:flex">
-							{isAdminPage && (
-								<button
-									type="button"
-									onClick={onShowOrders}
-									className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-300 transition-colors hover:text-white">
-									<Package className="h-4 w-4" />
-									Zamówienia
-								</button>
-							)}
 							{!isAdminPage && <button
 								type="button"
 								onClick={onShowOrders}
@@ -124,7 +115,7 @@ export default function OrdersHeader({
 						<div className="flex items-center gap-4">
 							<div className="hidden items-center gap-2 text-sm text-gray-300 md:flex">
 								<UserCircle className="h-5 w-5" />
-								Dr. {userLastName || userName}
+								{isAdmin ? "Admin" : `Dr. ${userLastName || userName}`}
 							</div>
 							<div className="relative" ref={settingsRef}>
 								<button
@@ -169,15 +160,6 @@ export default function OrdersHeader({
 			<div className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl md:hidden">
 				<div className="container mx-auto px-4 py-3">
 					<div className="flex gap-2">
-						{isAdminPage && (
-							<button
-								type="button"
-								onClick={onShowOrders}
-								className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-slate-300 transition-colors">
-								<Package className="h-4 w-4" />
-								Zamówienia
-							</button>
-						)}
 						{!isAdminPage && <button
 							type="button"
 							onClick={onShowOrders}

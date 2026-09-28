@@ -9,6 +9,7 @@ export default function OrdersToolbar({
 	onStatusChange,
 	searchValue,
 	statusValue,
+	isAdmin = false,
 })
 {
 	return (
@@ -20,7 +21,7 @@ export default function OrdersToolbar({
 						value={searchValue}
 						onChange={(event) => onSearchChange(event.target.value)}
 						type="text"
-						placeholder="Szukaj zamówień..."
+						placeholder={isAdmin ? "Szukaj zamówień lub lekarza..." : "Szukaj zamówień..."}
 						className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-slate-100 transition-all duration-300 placeholder:text-slate-500 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
 					/>
 				</div>

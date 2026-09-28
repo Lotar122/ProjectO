@@ -30,6 +30,9 @@ const item = {
 	},
 };
 
+const getPostLoginPath = (session) =>
+	session?.identity?.traits?.role === "admin" ? "/admin" : "/orders";
+
 const KratosLogin = () =>
 {
 	const [flow, setFlow] = useState(null);
@@ -45,10 +48,10 @@ const KratosLogin = () =>
 		const initFlow = async () =>
 		{
 			try {
-				await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
+				const response = await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 					withCredentials: true,
 				});
-				router.push("/orders");
+				router.push(getPostLoginPath(response.data));
 				return;
 			} catch (err) {
 				if (err.response?.status !== 401)
@@ -115,7 +118,10 @@ const KratosLogin = () =>
 			);
 
 			setError(null);
-			router.push("/orders");
+			const sessionResponse = await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
+				withCredentials: true,
+			});
+			router.push(getPostLoginPath(sessionResponse.data));
 		} catch (err) {
 			console.error(err);
 			setError(err.response?.data?.error || "Logowanie nie powiodło się.");

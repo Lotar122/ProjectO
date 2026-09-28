@@ -54,6 +54,16 @@ export async function GET(request)
 		const hasStatus = statusValue.length > 0;
 
 		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
+		const searchCondition = DB`
+			(
+				orders.patient ILIKE ${searchPattern}
+				OR users.name ILIKE ${searchPattern}
+				OR users.last_name ILIKE ${searchPattern}
+				OR users.email ILIKE ${searchPattern}
+				OR CONCAT_WS(' ', users.name, users.last_name) ILIKE ${searchPattern}
+				OR CONCAT_WS(' ', users.last_name, users.name) ILIKE ${searchPattern}
+			)
+		`;
 
 		let countRows = null;
 
@@ -62,7 +72,8 @@ export async function GET(request)
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
 				FROM orders
-				WHERE patient ILIKE ${searchPattern}
+				LEFT JOIN users ON users.user_id = orders.user_id
+				WHERE ${searchCondition}
 					AND status = ${statusValue}
 			`;
 		} else if (hasSearch)
@@ -70,7 +81,8 @@ export async function GET(request)
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
 				FROM orders
-				WHERE patient ILIKE ${searchPattern}
+				LEFT JOIN users ON users.user_id = orders.user_id
+				WHERE ${searchCondition}
 			`;
 		} else if (hasStatus)
 		{
@@ -103,7 +115,7 @@ export async function GET(request)
 				SELECT orders.*, ${ownerFields}
 				FROM orders
 				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE orders.patient ILIKE ${searchPattern}
+				WHERE ${searchCondition}
 					AND orders.status = ${statusValue}
 				ORDER BY orders.issue_date DESC, orders.order_id DESC
 				LIMIT ${limit}
@@ -115,7 +127,7 @@ export async function GET(request)
 				SELECT orders.*, ${ownerFields}
 				FROM orders
 				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE orders.patient ILIKE ${searchPattern}
+				WHERE ${searchCondition}
 				ORDER BY orders.issue_date DESC, orders.order_id DESC
 				LIMIT ${limit}
 				OFFSET ${offset}
