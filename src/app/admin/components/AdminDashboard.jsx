@@ -1,6 +1,7 @@
 "use client";
 
 import { MotionConfig, motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { UserPlus, Users } from "lucide-react";
 
@@ -14,6 +15,7 @@ import { KRATOS_PUBLIC } from "@/app/lib/kratos";
 export default function AdminDashboard()
 {
 	const { disableMotion } = getPerfFlags();
+	const router = useRouter();
 	const [currentPage, setCurrentPage] = useState("manage-users");
 	const [refreshToken, setRefreshToken] = useState(0);
 
@@ -49,7 +51,7 @@ export default function AdminDashboard()
 						onLogout={handleLogout}
 						onShowChangePassword={() =>
 						{
-							window.location.href = "/admin/orders";
+							router.push("/admin/orders");
 						}}
 						onShowCreateIdentity={() => setCurrentPage("create-identity")}
 						onShowManageUsers={() => setCurrentPage("manage-users")}
@@ -90,16 +92,16 @@ export default function AdminDashboard()
 							</div>
 						</motion.div>
 
-						{currentPage === "manage-users" && (
+						<div hidden={currentPage !== "manage-users"}>
 							<ManageUsers refreshToken={refreshToken} />
-						)}
+						</div>
 
-						{currentPage === "create-identity" && (
+						<div hidden={currentPage !== "create-identity"}>
 							<IdentityCreationForm
 								onCancel={() => setCurrentPage("manage-users")}
 								onCreated={() => setRefreshToken((value) => value + 1)}
 							/>
-						)}
+						</div>
 					</main>
 
 				</motion.div>

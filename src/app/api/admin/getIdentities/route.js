@@ -21,7 +21,12 @@ export async function GET()
 
 		const response = await fetch(
 			`${KRATOS_ADMIN_URL}/admin/identities?page=1&per_page=500`,
-			{ cache: "no-store" },
+			{
+				cache: "no-store",
+				headers: {
+					Accept: "application/json",
+				},
+			},
 		);
 
 		if (!response.ok)
@@ -29,12 +34,22 @@ export async function GET()
 			return Response.json({ error: "Nie udało się pobrać użytkowników z Kratos." }, { status: 502 });
 		}
 
-		const identities = await response.json();
+		const payload = await response.json();
+		const identities = Array.isArray(payload)
+			? payload
+			: payload?.identities || payload?.data?.identities || payload?.data;
+
+		if (!Array.isArray(identities))
+		{
+			console.error("Nieprawidłowy format listy tożsamości z Kratos:", {
+				status: response.status,
+				payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : [],
+			});
+			return Response.json({ error: "Ory Kratos zwrócił nieprawidłową listę użytkowników." }, { status: 502 });
+		}
 
 		return Response.json({
-			identities: Array.isArray(identities)
-				? identities.map(sanitizeIdentity)
-				: [],
+			identities: identities.map(sanitizeIdentity),
 		});
 	}
 	catch (error)

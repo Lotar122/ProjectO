@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { LogOut, Package, Plus, Settings, ShieldCheck, UserCircle, UserPlus, Users } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 export default function OrdersHeader({
@@ -31,16 +32,27 @@ export default function OrdersHeader({
 		return () => document.removeEventListener("mousedown", handlePointerDown);
 	}, []);
 
+	const handleManageUsersClick = (event) =>
+	{
+		if (!onShowManageUsers)
+		{
+			return;
+		}
+
+		event.preventDefault();
+		onShowManageUsers();
+	};
+
 	const adminDesktopNavigation = isAdminPage && (
 		<>
-			<a href="/admin" onClick={onShowManageUsers} className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "manage-users" ? "bg-white text-black" : "text-gray-300 hover:text-white"}`}><Users className="h-4 w-4" />Użytkownicy</a>
-			<a href="/admin/orders" className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "orders" ? "bg-white text-black" : "text-gray-300 hover:text-white"}`}><ShieldCheck className="h-4 w-4" />Zamówienia administratora</a>
+			<Link href="/admin" onClick={handleManageUsersClick} className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "manage-users" ? "bg-white text-black" : "text-gray-300 hover:text-white"}`}><Users className="h-4 w-4" />Użytkownicy</Link>
+			<Link href="/admin/orders" className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "orders" ? "bg-white text-black" : "text-gray-300 hover:text-white"}`}><ShieldCheck className="h-4 w-4" />Zamówienia administratora</Link>
 		</>
 	);
 	const adminMobileNavigation = isAdminPage && (
 		<>
-			<a href="/admin" onClick={onShowManageUsers} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "manage-users" ? "bg-white text-slate-950" : "text-slate-300"}`}><Users className="h-4 w-4" />Użytkownicy</a>
-			<a href="/admin/orders" className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "orders" ? "bg-white text-slate-950" : "text-slate-300"}`}><ShieldCheck className="h-4 w-4" />Zamówienia</a>
+			<Link href="/admin" onClick={handleManageUsersClick} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "manage-users" ? "bg-white text-slate-950" : "text-slate-300"}`}><Users className="h-4 w-4" />Użytkownicy</Link>
+			<Link href="/admin/orders" className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 transition-colors ${currentPage === "orders" ? "bg-white text-slate-950" : "text-slate-300"}`}><ShieldCheck className="h-4 w-4" />Zamówienia</Link>
 		</>
 	);
 
