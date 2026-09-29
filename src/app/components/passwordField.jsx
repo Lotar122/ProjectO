@@ -10,6 +10,7 @@ export default function PasswordField({
 	name,
 	password,
 	placeholder = "Wpisz hasło",
+	required = true,
 	setPassword,
 })
 {
@@ -30,7 +31,7 @@ export default function PasswordField({
 					onChange={(e) => setPassword(e.target.value)}
 					className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 pr-12 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
 					placeholder={placeholder}
-					required
+					required={required}
 				/>
 				<button
 					type="button"
