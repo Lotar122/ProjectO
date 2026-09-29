@@ -11,7 +11,8 @@ export async function GET(req)
 {
 	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: 'require'*/ });
 
-	try {
+	try 
+	{
 		const { searchParams } = new URL(req.url);
 		const fileKey = searchParams.get("file_id");
 
@@ -68,13 +69,17 @@ export async function GET(req)
 			},
 		});
 
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		console.error("downloadFile error:", err);
 		return new Response(
 			JSON.stringify({ error: err.message }),
 			{ status: 500, headers: { "Content-Type": "application/json" } }
 		);
-	} finally {
+	}
+	finally 
+	{
 		DB.end();
 	}
 }

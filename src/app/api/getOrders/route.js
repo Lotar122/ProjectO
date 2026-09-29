@@ -16,7 +16,8 @@ export async function GET(request)
 {
 	let DB = null;
 
-	try {
+	try 
+	{
 		const cookieHeader = await cookies();
 		const { searchParams } = new URL(request.url);
 		const requestedPage = Number.parseInt(searchParams.get("page") || "1", 10);
@@ -60,7 +61,8 @@ export async function GET(request)
 					AND patient ILIKE ${searchPattern}
 					AND status = ${statusValue}
 			`;
-		} else if (hasSearch)
+		}
+		else if (hasSearch)
 		{
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
@@ -68,7 +70,8 @@ export async function GET(request)
 				WHERE "user_id" = ${userId}
 					AND patient ILIKE ${searchPattern}
 			`;
-		} else if (hasStatus)
+		}
+		else if (hasStatus)
 		{
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
@@ -76,7 +79,8 @@ export async function GET(request)
 				WHERE "user_id" = ${userId}
 					AND status = ${statusValue}
 			`;
-		} else
+		}
+		else
 		{
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
@@ -104,7 +108,8 @@ export async function GET(request)
 				LIMIT ${limit}
 				OFFSET ${offset}
 			`;
-		} else if (hasSearch)
+		}
+		else if (hasSearch)
 		{
 			orders = await DB`
 				SELECT *
@@ -115,7 +120,8 @@ export async function GET(request)
 				LIMIT ${limit}
 				OFFSET ${offset}
 			`;
-		} else if (hasStatus)
+		}
+		else if (hasStatus)
 		{
 			orders = await DB`
 				SELECT *
@@ -126,7 +132,8 @@ export async function GET(request)
 				LIMIT ${limit}
 				OFFSET ${offset}
 			`;
-		} else
+		}
+		else
 		{
 			orders = await DB`
 				SELECT *
@@ -147,7 +154,9 @@ export async function GET(request)
 		}), {
 			headers: { "Content-Type": "application/json" },
 		});
-	} finally {
+	}
+	finally 
+	{
 		await DB?.end();
 	}
 }

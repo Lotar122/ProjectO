@@ -27,7 +27,8 @@ export async function PUT(req)
 {
 	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
-	try {
+	try 
+	{
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
 
@@ -143,12 +144,16 @@ export async function PUT(req)
 				headers: { "Content-Type": "application/json" },
 			},
 		);
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		return new Response(
 			JSON.stringify({ success: false, error: err.message }),
 			{ status: 500, headers: { "Content-Type": "application/json" } },
 		);
-	} finally {
+	}
+	finally 
+	{
 		await DB.end();
 	}
 }

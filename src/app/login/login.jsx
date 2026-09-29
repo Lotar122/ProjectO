@@ -47,13 +47,16 @@ const KratosLogin = () =>
 
 		const initFlow = async () =>
 		{
-			try {
+			try 
+			{
 				const response = await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 					withCredentials: true,
 				});
 				router.push(getPostLoginPath(response.data));
 				return;
-			} catch (err) {
+			}
+			catch (err) 
+			{
 				if (err.response?.status !== 401)
 				{
 					if (isMounted)
@@ -66,7 +69,8 @@ const KratosLogin = () =>
 				}
 			}
 
-			try {
+			try 
+			{
 				const response = await axios.get(
 					`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
 					{ withCredentials: true },
@@ -76,7 +80,9 @@ const KratosLogin = () =>
 				{
 					setFlow(response.data);
 				}
-			} catch (err) {
+			}
+			catch (err) 
+			{
 				if (isMounted)
 				{
 					setError(
@@ -103,7 +109,8 @@ const KratosLogin = () =>
 			return;
 		}
 
-		try {
+		try 
+		{
 			const csrf = getKratosNodeValue(flow, "csrf_token");
 
 			await axios.post(
@@ -122,7 +129,9 @@ const KratosLogin = () =>
 				withCredentials: true,
 			});
 			router.push(getPostLoginPath(sessionResponse.data));
-		} catch (err) {
+		}
+		catch (err) 
+		{
 			console.error(err);
 			setError(err.response?.data?.error || "Logowanie nie powiodło się.");
 		}

@@ -114,13 +114,13 @@ export default function OrderCard({
 							<span
 								className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium ${statusTheme.badgeClass}`}>
 								{getStatusIcon(order.status)}
-							{order.status === "pending"
-								? "OCZEKUJĄCE"
-								: order.status === "in-progress"
-									? "W REALIZACJI"
-									: order.status === "shipped"
-										? "WYSŁANE"
-										: "ZAKOŃCZONE"}
+								{order.status === "pending"
+									? "OCZEKUJĄCE"
+									: order.status === "in-progress"
+										? "W REALIZACJI"
+										: order.status === "shipped"
+											? "WYSŁANE"
+											: "ZAKOŃCZONE"}
 							</span>
 						)}
 						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">

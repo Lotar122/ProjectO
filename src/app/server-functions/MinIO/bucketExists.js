@@ -2,10 +2,13 @@
 
 export async function bucketExists(s3, bucketName)
 {
-	try {
+	try 
+	{
 		await s3.send(new HeadBucketCommand({ Bucket: bucketName }));
 		return true;
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404)
 		{
 			return false;

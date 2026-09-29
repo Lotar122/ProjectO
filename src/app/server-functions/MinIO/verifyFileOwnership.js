@@ -24,7 +24,8 @@ export async function verifyFileOwnership(fileId)
 	const userId = userAuthSession.data.identity.id;
 	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
-	try {
+	try 
+	{
 		const [ownedFile] = await DB`
 			SELECT 1
 			FROM orders
@@ -37,7 +38,9 @@ export async function verifyFileOwnership(fileId)
 		{
 			throw new Error("You do not have permission to access this file");
 		}
-	} finally {
+	}
+	finally 
+	{
 		await DB.end();
 	}
 }

@@ -16,7 +16,7 @@ const INITIAL_FORM = {
 	confirmPassword: "",
 };
 
-export default function IdentityCreationForm({ onCancel })
+export default function IdentityCreationForm({ onCancel, onCreated })
 {
 	const [form, setForm] = useState(INITIAL_FORM);
 	const [errorMessage, setErrorMessage] = useState("");
@@ -66,6 +66,7 @@ export default function IdentityCreationForm({ onCancel })
 
 			setForm(INITIAL_FORM);
 			setSuccessMessage("Tożsamość została utworzona. Użytkownik może się teraz zalogować.");
+			onCreated?.();
 		}
 		catch (error)
 		{

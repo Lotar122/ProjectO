@@ -23,7 +23,8 @@ export async function GET(request)
 {
 	let DB = null;
 
-	try {
+	try 
+	{
 		const userAuthSession = await getUserAuthSession(await cookies());
 
 		if (!userAuthSession.loggedIn)
@@ -76,7 +77,8 @@ export async function GET(request)
 				WHERE ${searchCondition}
 					AND status = ${statusValue}
 			`;
-		} else if (hasSearch)
+		}
+		else if (hasSearch)
 		{
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
@@ -84,14 +86,16 @@ export async function GET(request)
 				LEFT JOIN users ON users.user_id = orders.user_id
 				WHERE ${searchCondition}
 			`;
-		} else if (hasStatus)
+		}
+		else if (hasStatus)
 		{
 			countRows = await DB`
 				SELECT COUNT(*)::int AS total
 				FROM orders
 				WHERE status = ${statusValue}
 			`;
-		} else
+		}
+		else
 		{
 			countRows = await DB`SELECT COUNT(*)::int AS total FROM orders`;
 		}
@@ -121,7 +125,8 @@ export async function GET(request)
 				LIMIT ${limit}
 				OFFSET ${offset}
 			`;
-		} else if (hasSearch)
+		}
+		else if (hasSearch)
 		{
 			orders = await DB`
 				SELECT orders.*, ${ownerFields}
@@ -132,7 +137,8 @@ export async function GET(request)
 				LIMIT ${limit}
 				OFFSET ${offset}
 			`;
-		} else if (hasStatus)
+		}
+		else if (hasStatus)
 		{
 			orders = await DB`
 				SELECT orders.*, ${ownerFields}
@@ -143,7 +149,8 @@ export async function GET(request)
 				LIMIT ${limit}
 				OFFSET ${offset}
 			`;
-		} else
+		}
+		else
 		{
 			orders = await DB`
 				SELECT orders.*, ${ownerFields}
@@ -162,7 +169,9 @@ export async function GET(request)
 			totalCount,
 			totalPages,
 		});
-	} finally {
+	}
+	finally 
+	{
 		await DB?.end();
 	}
 }

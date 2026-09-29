@@ -16,7 +16,8 @@ export async function POST(req)
 {
 	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: 'require'*/ });
 
-	try {
+	try 
+	{
 		const formData = await req.formData();
 
 		const patient = formData.get("patient");
@@ -64,12 +65,16 @@ export async function POST(req)
 			status: 200,
 			headers: { "Content-Type": "application/json" },
 		});
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		return new Response(
 			JSON.stringify({ success: false, error: err.message }),
 			{ status: 500, headers: { "Content-Type": "application/json" } },
 		);
-	} finally {
+	}
+	finally 
+	{
 		// Always close DB connection
 		DB.end();
 	}

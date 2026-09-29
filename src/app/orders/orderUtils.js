@@ -82,7 +82,7 @@ export const getFilteredOrders = (orders, searchValue, statusValue) =>
 			normalizedSearch === "" ||
 			order.patient.toLowerCase().includes(normalizedSearch);
 		const matchesStatus =
-		statusValue === "Wszystkie statusy" ||
+			statusValue === "Wszystkie statusy" ||
 			order.status.toLowerCase() === normalizedStatus;
 
 		return matchesSearch && matchesStatus;

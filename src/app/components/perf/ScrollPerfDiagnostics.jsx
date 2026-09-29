@@ -186,7 +186,8 @@ export default function ScrollPerfDiagnostics()
 			)
 			{
 				animationFrameId = window.requestAnimationFrame(tick);
-			} else
+			}
+			else
 			{
 				animationFrameId = null;
 			}
@@ -263,12 +264,15 @@ export default function ScrollPerfDiagnostics()
 
 		if (longTaskObserver)
 		{
-			try {
+			try 
+			{
 				longTaskObserver.observe({
 					entryTypes: ["longtask"],
 				});
 				cleanupCallbacks.push(() => longTaskObserver.disconnect());
-			} catch (error) {
+			}
+			catch (error) 
+			{
 				console.info("[perf] longtask observer unavailable", error);
 			}
 		}
@@ -309,9 +313,12 @@ export default function ScrollPerfDiagnostics()
 					{
 						const startedAt = performance.now();
 
-						try {
+						try 
+						{
 							return listener.call(this, event);
-						} finally {
+						}
+						finally 
+						{
 							const duration = performance.now() - startedAt;
 
 							if (duration > 4)
@@ -328,9 +335,12 @@ export default function ScrollPerfDiagnostics()
 						{
 							const startedAt = performance.now();
 
-							try {
+							try 
+							{
 								return listener.handleEvent(event);
-							} finally {
+							}
+							finally 
+							{
 								const duration = performance.now() - startedAt;
 
 								if (duration > 4)

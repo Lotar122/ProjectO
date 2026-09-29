@@ -11,7 +11,8 @@ import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwne
  */
 export async function deleteFileById(s3, bucket, fileId)
 {
-	try {
+	try 
+	{
 		await verifyFileOwnership(fileId);
 
 		await s3.send(
@@ -25,7 +26,9 @@ export async function deleteFileById(s3, bucket, fileId)
 			success: true,
 			message: `File ${fileId} deleted from ${bucket}`,
 		};
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		console.error("Failed to delete file from MinIO:", err);
 		return { success: false, error: err.message };
 	}

@@ -13,7 +13,8 @@ export async function DELETE(req)
 {
 	let DB = null;
 
-	try {
+	try 
+	{
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
 
@@ -65,12 +66,16 @@ export async function DELETE(req)
 		`;
 
 		return Response.json({ success: true }, { status: 200 });
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
-	} finally {
+	}
+	finally 
+	{
 		await DB?.end();
 	}
 }

@@ -2,7 +2,7 @@
 
 import { MotionConfig, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, UserPlus } from "lucide-react";
+import { Plus } from "lucide-react";
 import axios from "axios";
 
 import BackgroundActionsWidget from "./components/BackgroundActionsWidget";
@@ -13,7 +13,6 @@ import OrdersHeader from "./components/OrdersHeader";
 import OrdersPagination from "./components/OrdersPagination";
 import OrdersToolbar from "./components/OrdersToolbar";
 import PasswordSettingsForm from "./components/PasswordSettingsForm";
-import IdentityCreationForm from "../admin/components/IdentityCreationForm";
 import PerfProfiler from "@/app/components/perf/PerfProfiler";
 import { getPerfFlags } from "@/app/components/perf/perfFlags";
 import {
@@ -252,7 +251,8 @@ export default function Orders({
 			latestOrdersRequestRef.current = requestId;
 			setIsOrdersLoading(true);
 
-			try {
+			try 
+			{
 				const params = new URLSearchParams({
 					page: String(page),
 					limit: String(ORDERS_PAGE_SIZE),
@@ -296,7 +296,9 @@ export default function Orders({
 				}
 
 				return payload.orders;
-			} finally {
+			}
+			finally 
+			{
 				if (requestId === latestOrdersRequestRef.current)
 				{
 					setIsOrdersLoading(false);
@@ -443,14 +445,17 @@ export default function Orders({
 
 		const loadFileNames = async () =>
 		{
-			try {
+			try 
+			{
 				if (!isMounted)
 				{
 					return;
 				}
 
 				await loadFileNamesByIds(missingFileIds);
-			} catch (err) {
+			}
+			catch (err) 
+			{
 				console.error("Nie udało się pobrać nazw plików:", err);
 			}
 		};
@@ -465,13 +470,16 @@ export default function Orders({
 
 	const handleLogout = async () =>
 	{
-		try {
+		try 
+		{
 			const response = await axios.get(`${KRATOS_PUBLIC}/self-service/logout/browser`, {
 				withCredentials: true,
 			});
 
 			window.location.href = response.data.logout_url;
-		} catch (err) {
+		}
+		catch (err) 
+		{
 			console.error("Błąd wylogowania:", err);
 		}
 	};
@@ -527,7 +535,8 @@ export default function Orders({
 				formData.append("files", file);
 			});
 
-			try {
+			try 
+			{
 				const response = await axios.post("/api/postOrder", formData, {
 					withCredentials: true,
 					headers: {
@@ -547,7 +556,9 @@ export default function Orders({
 
 				setExpandedOrderId(response.data.orderID);
 				completeBackgroundAction(actionId, "Utworzono zamówienie", order.patient);
-			} catch (err) {
+			}
+			catch (err) 
+			{
 				console.error("Nie udało się utworzyć zamówienia:", err);
 				failBackgroundAction(actionId, "Nie udało się utworzyć zamówienia", order.patient);
 			}
@@ -600,7 +611,8 @@ export default function Orders({
 		setIsPasswordChangeSubmitting(true);
 		setPasswordChangeError(null);
 
-		try {
+		try 
+		{
 			const refreshFlowResponse = await axios.get(
 				`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
 				{
@@ -650,12 +662,16 @@ export default function Orders({
 
 			completeBackgroundAction(actionId, "Hasło zostało zmienione", userEmail);
 			showOrdersPage();
-		} catch (err) {
+		}
+		catch (err) 
+		{
 			console.error("Nie udało się zmienić hasła:", err);
 			const message = getKratosErrorMessage(err, "password");
 			setPasswordChangeError(message);
 			failBackgroundAction(actionId, "Nie udało się zmienić hasła", message);
-		} finally {
+		}
+		finally 
+		{
 			setIsPasswordChangeSubmitting(false);
 		}
 	};
@@ -680,7 +696,8 @@ export default function Orders({
 
 		void (async () =>
 		{
-			try {
+			try 
+			{
 				await axios.delete(
 					`${adminMode ? "/api/admin/deleteOrder" : "/api/deleteOrder"}?orderID=${deleteOrderId}`,
 					{
@@ -689,7 +706,9 @@ export default function Orders({
 				);
 				await refreshOrders({ page: currentOrdersPage });
 				completeBackgroundAction(actionId, "Usunięto zamówienie", orderLabel);
-			} catch (err) {
+			}
+			catch (err) 
+			{
 				console.error(err);
 				failBackgroundAction(actionId, "Nie udało się usunąć zamówienia", orderLabel);
 			}
@@ -760,7 +779,8 @@ export default function Orders({
 				}
 			});
 
-			try {
+			try 
+			{
 				const response = await axios.put(
 					adminMode ? "/api/admin/modifyOrder" : "/api/modifyOrder",
 					formData,
@@ -806,7 +826,9 @@ export default function Orders({
 
 				setExpandedOrderId(updatedOrder.order_id);
 				completeBackgroundAction(actionId, "Zmiany zapisane", patient);
-			} catch (err) {
+			}
+			catch (err) 
+			{
 				console.error("Nie udało się zaktualizować zamówienia:", err);
 				failBackgroundAction(actionId, "Nie udało się zaktualizować zamówienia", patient);
 			}
@@ -874,7 +896,8 @@ export default function Orders({
 		const actionId = startBackgroundAction("Zmiana statusu zamówienia", order.patient);
 		setStatusUpdatingOrderId(order.order_id);
 
-		try {
+		try 
+		{
 			await axios.put(
 				"/api/admin/updateOrderStatus",
 				{ orderID: order.order_id, status },
@@ -882,10 +905,14 @@ export default function Orders({
 			);
 			await refreshOrders({ page: currentOrdersPage });
 			completeBackgroundAction(actionId, "Status zamówienia zmieniony", order.patient);
-		} catch (err) {
+		}
+		catch (err) 
+		{
 			console.error("Nie udało się zmienić statusu zamówienia:", err);
 			failBackgroundAction(actionId, "Nie udało się zmienić statusu zamówienia", order.patient);
-		} finally {
+		}
+		finally 
+		{
 			setStatusUpdatingOrderId(null);
 		}
 	};
@@ -911,7 +938,6 @@ export default function Orders({
 						onLogout={handleLogout}
 						onShowChangePassword={showChangePasswordPage}
 						onShowCreateOrder={() => setCurrentPage("create-order")}
-						onShowCreateIdentity={() => setCurrentPage("create-identity")}
 						onShowOrders={showOrdersPage}
 						userLastName={userLastName}
 						userName={userName}
@@ -942,14 +968,6 @@ export default function Orders({
 										<Plus className="h-5 w-5" />
 										Nowe zamówienie
 									</motion.button>}
-									{/* {adminMode && <motion.button
-										whileHover={{ scale: 1.02, y: -2 }}
-										whileTap={{ scale: 0.985 }}
-										onClick={() => setCurrentPage("create-identity")}
-										className="flex items-center gap-2 rounded-lg bg-violet-100 px-6 py-3 font-semibold text-slate-950 transition-colors duration-200 hover:bg-violet-200">
-										<UserPlus className="h-5 w-5" />
-										Nowy użytkownik
-									</motion.button>} */}
 								</div>
 
 								<motion.div
@@ -971,39 +989,39 @@ export default function Orders({
 									</div>
 								)}
 
-				<PerfProfiler id="OrdersList">
-					<div className="grid gap-6">
-						{orders.map((order) => (
-							<OrderCard
-								key={order.order_id}
-								fileNamesById={fileNamesById}
-								isAdmin={adminMode}
-								isExpanded={expandedOrderId === order.order_id}
-								isMenuOpen={openEditMenuId === order.order_id}
-								isStatusUpdating={statusUpdatingOrderId === order.order_id}
-								onDownloadFile={(attachment, index) =>
-									handleDownloadFile(order, attachment, index)
-								}
-								onOpenEdit={() => openEditOrder(order)}
-								onRequestDelete={() =>
-								{
-									setOpenEditMenuId(null);
-									setDeleteOrderId(order.order_id);
-								}}
-								onStatusChange={(status) =>
-									handleStatusChange(order, status)
-							}
-								onToggleExpanded={() =>
-									toggleOrderExpanded(order.order_id)
-							}
-								onToggleMenu={() =>
-									setOpenEditMenuId((current) =>
-										current === order.order_id ? null : order.order_id,
-									)
-								}
-								order={order}
-							/>
-						))}
+								<PerfProfiler id="OrdersList">
+									<div className="grid gap-6">
+										{orders.map((order) => (
+											<OrderCard
+												key={order.order_id}
+												fileNamesById={fileNamesById}
+												isAdmin={adminMode}
+												isExpanded={expandedOrderId === order.order_id}
+												isMenuOpen={openEditMenuId === order.order_id}
+												isStatusUpdating={statusUpdatingOrderId === order.order_id}
+												onDownloadFile={(attachment, index) =>
+													handleDownloadFile(order, attachment, index)
+												}
+												onOpenEdit={() => openEditOrder(order)}
+												onRequestDelete={() =>
+												{
+													setOpenEditMenuId(null);
+													setDeleteOrderId(order.order_id);
+												}}
+												onStatusChange={(status) =>
+													handleStatusChange(order, status)
+												}
+												onToggleExpanded={() =>
+													toggleOrderExpanded(order.order_id)
+												}
+												onToggleMenu={() =>
+													setOpenEditMenuId((current) =>
+														current === order.order_id ? null : order.order_id,
+													)
+												}
+												order={order}
+											/>
+										))}
 									</div>
 								</PerfProfiler>
 
@@ -1154,9 +1172,6 @@ export default function Orders({
 							/>
 						)}
 
-						{currentPage === "create-identity" && adminMode && (
-							<IdentityCreationForm onCancel={showOrdersPage} />
-						)}
 					</main>
 
 					<BackgroundActionsWidget actions={backgroundActions} />

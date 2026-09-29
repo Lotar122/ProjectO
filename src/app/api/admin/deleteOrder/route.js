@@ -11,7 +11,8 @@ export async function DELETE(req)
 {
 	let DB = null;
 
-	try {
+	try 
+	{
 		const userAuthSession = await getUserAuthSession(await cookies());
 
 		if (!userAuthSession.loggedIn || !isAdminSession(userAuthSession))
@@ -45,12 +46,16 @@ export async function DELETE(req)
 		await DB`DELETE FROM orders WHERE order_id = ${orderID}`;
 
 		return Response.json({ success: true });
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
-	} finally {
+	}
+	finally 
+	{
 		await DB?.end();
 	}
 }

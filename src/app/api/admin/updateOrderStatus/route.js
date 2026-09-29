@@ -16,7 +16,8 @@ export async function PUT(req)
 {
 	let DB = null;
 
-	try {
+	try 
+	{
 		const userAuthSession = await getUserAuthSession(await cookies());
 
 		if (!userAuthSession.loggedIn || !isAdminSession(userAuthSession))
@@ -50,12 +51,16 @@ export async function PUT(req)
 		}
 
 		return Response.json({ success: true, order: updatedOrder });
-	} catch (err) {
+	}
+	catch (err) 
+	{
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
-	} finally {
+	}
+	finally 
+	{
 		await DB?.end();
 	}
 }

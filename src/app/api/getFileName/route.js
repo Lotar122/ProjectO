@@ -15,7 +15,8 @@ export async function GET(req)
 	let payload = null;
 	let DB = null;
 
-	try {
+	try 
+	{
 		const url = new URL(req.url);
 		const file_id = url.searchParams.get("file_id");
 
@@ -70,7 +71,9 @@ export async function GET(req)
 		return new Response(JSON.stringify(payload), {
 			headers: { "Content-Type": "application/json" },
 		});
-	} finally {
+	}
+	finally 
+	{
 		await DB?.end();
 	}
 }
