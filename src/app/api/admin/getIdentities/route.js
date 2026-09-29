@@ -20,7 +20,7 @@ export async function GET()
 		}
 
 		const response = await fetch(
-			`${KRATOS_ADMIN_URL}/admin/identities?page=1&per_page=500`,
+			`${KRATOS_ADMIN_URL}/admin/identities?page_size=500`,
 			{
 				cache: "no-store",
 				headers: {
