@@ -952,7 +952,7 @@ export default function Orders({
 								<div className="mb-8 flex items-center justify-between">
 									<div>
 										<h2 className="text-3xl font-bold text-white">
-											{adminMode ? "Wszystkie zamówienia" : "Zamówienia leczenia"}
+											{adminMode ? "Wszystkie zamówienia" : "Zamówienia"}
 										</h2>
 										<p className="text-slate-400">
 											{adminMode
