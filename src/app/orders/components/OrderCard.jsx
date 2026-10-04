@@ -81,7 +81,7 @@ export default function OrderCard({
 							</p>
 						)}
 						<p className="text-sm text-slate-500">
-							Zamówienie #{order.order_id} - {getDisplayDate(order)}
+							Zlecenie #{order.order_id} - {getDisplayDate(order)}
 						</p>
 					</div>
 				</div>
@@ -96,7 +96,7 @@ export default function OrderCard({
 								value={order.status}
 								disabled={isStatusUpdating}
 								onChange={(event) => onStatusChange?.(event.target.value)}
-								aria-label={`Zmień status zamówienia ${order.order_id}`}
+								aria-label={`Zmień status zlecenia ${order.order_id}`}
 								className={`rounded-full border-0 px-3 py-1 text-sm font-medium ${statusTheme.badgeClass} focus:outline-none disabled:cursor-wait disabled:opacity-60`}>
 								{ORDER_STATUS_VALUES.map((status) => (
 									<option key={status} value={status} className="bg-slate-950 text-slate-100">
@@ -157,7 +157,7 @@ export default function OrderCard({
 							type="button"
 							onClick={onToggleMenu}
 							className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-							aria-label={`Otwórz działania dla zamówienia ${order.order_id}`}>
+							aria-label={`Otwórz działania dla zlecenia ${order.order_id}`}>
 							<Ellipsis className="h-4 w-4" />
 						</button>
 
@@ -178,7 +178,7 @@ export default function OrderCard({
 										}}
 										className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white">
 										<PencilLine className="h-4 w-4" />
-										Edytuj zamówienie
+										Edytuj zlecenie
 									</button>
 									<button
 										type="button"
@@ -189,7 +189,7 @@ export default function OrderCard({
 										}}
 										className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
 										<Trash2 className="h-4 w-4" />
-										Usuń zamówienie
+										Usuń zlecenie
 									</button>
 								</motion.div>
 							)}
@@ -237,7 +237,7 @@ export default function OrderCard({
 									<div className="mt-4">
 										<OrderFilesList
 											attachments={orderFiles}
-											emptyMessage="Do tego zamówienia nie dodano jeszcze plików."
+											emptyMessage="Do tego zlecenia nie dodano jeszcze plików."
 											onDownload={onDownloadFile}
 										/>
 									</div>

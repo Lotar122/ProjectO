@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
 	title: "ProjectO",
-	description: "System do zarządzania zamówieniami ortodontycznymi.",
+	description: "System do zarządzania zleceniami ortodontycznymi.",
 };
 
 export default function RootLayout({ children })

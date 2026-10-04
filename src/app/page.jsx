@@ -19,5 +19,5 @@ export default async function HomePage()
 
 export const metadata = {
 	title: "ProjectO",
-	description: "System do zarządzania zamówieniami ortodontycznymi.",
+	description: "System do zarządzania zleceniami ortodontycznymi.",
 };

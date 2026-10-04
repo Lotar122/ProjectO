@@ -389,7 +389,7 @@ export default function Orders({
 			status: orderStatusValue,
 		}).catch((err) =>
 		{
-			console.error("Nie udało się pobrać zamówień:", err);
+			console.error("Nie udało się pobrać zleceń:", err);
 		});
 	}, [
 		currentOrdersPage,
@@ -511,7 +511,7 @@ export default function Orders({
 			issueDate: new Date().toISOString(),
 			progress: 0,
 		};
-		const actionId = startBackgroundAction("Tworzenie zamówienia", order.patient);
+		const actionId = startBackgroundAction("Tworzenie zlecenia", order.patient);
 		const selectedFiles = [...files];
 
 		setCurrentPage("orders");
@@ -555,12 +555,12 @@ export default function Orders({
 				}
 
 				setExpandedOrderId(response.data.orderID);
-				completeBackgroundAction(actionId, "Utworzono zamówienie", order.patient);
+				completeBackgroundAction(actionId, "Utworzono zlecenie", order.patient);
 			}
 			catch (err) 
 			{
-				console.error("Nie udało się utworzyć zamówienia:", err);
-				failBackgroundAction(actionId, "Nie udało się utworzyć zamówienia", order.patient);
+				console.error("Nie udało się utworzyć zlecenia:", err);
+				failBackgroundAction(actionId, "Nie udało się utworzyć zlecenia", order.patient);
 			}
 		})();
 	};
@@ -686,8 +686,8 @@ export default function Orders({
 		const orderToDelete = orders.find(
 			(order) => order.order_id === deleteOrderId,
 		);
-		const orderLabel = orderToDelete?.patient || `Zamówienie #${deleteOrderId}`;
-		const actionId = startBackgroundAction("Usuwanie zamówienia", orderLabel);
+		const orderLabel = orderToDelete?.patient || `Zlecenie #${deleteOrderId}`;
+		const actionId = startBackgroundAction("Usuwanie zlecenia", orderLabel);
 
 		setDeleteOrderId(null);
 		setExpandedOrderId((current) =>
@@ -705,12 +705,12 @@ export default function Orders({
 					},
 				);
 				await refreshOrders({ page: currentOrdersPage });
-				completeBackgroundAction(actionId, "Usunięto zamówienie", orderLabel);
+				completeBackgroundAction(actionId, "Usunięto zlecenie", orderLabel);
 			}
 			catch (err) 
 			{
 				console.error(err);
-				failBackgroundAction(actionId, "Nie udało się usunąć zamówienia", orderLabel);
+				failBackgroundAction(actionId, "Nie udało się usunąć zlecenia", orderLabel);
 			}
 		})();
 	};
@@ -829,8 +829,8 @@ export default function Orders({
 			}
 			catch (err) 
 			{
-				console.error("Nie udało się zaktualizować zamówienia:", err);
-				failBackgroundAction(actionId, "Nie udało się zaktualizować zamówienia", patient);
+				console.error("Nie udało się zaktualizować zlecenia:", err);
+				failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", patient);
 			}
 		})();
 	};
@@ -893,7 +893,7 @@ export default function Orders({
 			return;
 		}
 
-		const actionId = startBackgroundAction("Zmiana statusu zamówienia", order.patient);
+		const actionId = startBackgroundAction("Zmiana statusu zlecenia", order.patient);
 		setStatusUpdatingOrderId(order.order_id);
 
 		try 
@@ -904,12 +904,12 @@ export default function Orders({
 				{ withCredentials: true },
 			);
 			await refreshOrders({ page: currentOrdersPage });
-			completeBackgroundAction(actionId, "Status zamówienia zmieniony", order.patient);
+			completeBackgroundAction(actionId, "Status zlecenia zmieniony", order.patient);
 		}
 		catch (err) 
 		{
-			console.error("Nie udało się zmienić statusu zamówienia:", err);
-			failBackgroundAction(actionId, "Nie udało się zmienić statusu zamówienia", order.patient);
+			console.error("Nie udało się zmienić statusu zlecenia:", err);
+			failBackgroundAction(actionId, "Nie udało się zmienić statusu zlecenia", order.patient);
 		}
 		finally 
 		{
@@ -952,12 +952,12 @@ export default function Orders({
 								<div className="mb-8 flex items-center justify-between">
 									<div>
 										<h2 className="text-3xl font-bold text-white">
-											{adminMode ? "Wszystkie zamówienia" : "Zamówienia"}
+											{adminMode ? "Wszystkie zlecenia" : "Zlecenia"}
 										</h2>
 										<p className="text-slate-400">
 											{adminMode
-												? "Przeglądaj i zarządzaj zamówieniami wszystkich użytkowników"
-												: "Zarządzaj i śledź wszystkie zamówienia ortodontyczne"}
+												? "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników"
+												: "Zarządzaj i śledź wszystkie zlecenia ortodontyczne"}
 										</p>
 									</div>
 									{!adminMode && <motion.button
@@ -966,7 +966,7 @@ export default function Orders({
 										onClick={() => setCurrentPage("create-order")}
 										className="flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
 										<Plus className="h-5 w-5" />
-										Nowe zamówienie
+										Nowe zlecenie
 									</motion.button>}
 								</div>
 
@@ -985,7 +985,7 @@ export default function Orders({
 
 								{isOrdersLoading && (
 									<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-400">
-										Wczytywanie zamówień...
+										Wczytywanie zleceń...
 									</div>
 								)}
 
@@ -1027,7 +1027,7 @@ export default function Orders({
 
 								{!isOrdersLoading && orders.length === 0 && (
 									<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/55 px-6 py-12 text-center text-slate-400">
-										Nie znaleziono zamówień dla tej strony lub filtra.
+										Nie znaleziono zleceń dla tej strony lub filtra.
 									</div>
 								)}
 
@@ -1084,8 +1084,8 @@ export default function Orders({
 									}
 									onSubmit={handleCreateOrder}
 									patient={newOrder.patient}
-									submitLabel="Utwórz zamówienie"
-									title="Utwórz nowe zamówienie"
+									submitLabel="Utwórz zlecenie"
+									title="Utwórz nowe zlecenie"
 								/>
 							</motion.div>
 						)}
@@ -1096,7 +1096,7 @@ export default function Orders({
 								initial="initial"
 								animate="animate">
 								<OrderForm
-									description={`Zaktualizuj dane i pliki zamówienia #${editedOrder.order_id}`}
+									description={`Zaktualizuj dane i pliki zlecenia #${editedOrder.order_id}`}
 									details={editDraft.details}
 									dueDate={editDraft.dueDate}
 									fileSectionMode="edit"
@@ -1145,7 +1145,7 @@ export default function Orders({
 									onSubmit={handleEditOrderSave}
 									patient={editDraft.patient}
 									submitLabel="Zapisz zmiany"
-									title="Edytuj zamówienie"
+									title="Edytuj zlecenie"
 									attachments={editFiles}
 								/>
 							</motion.div>

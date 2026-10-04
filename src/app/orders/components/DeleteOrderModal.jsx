@@ -14,10 +14,10 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm })
 						exit={{ opacity: 0, scale: 0.96 }}
 						className="w-80 rounded-xl bg-gray-900 p-6">
 						<h2 className="mb-4 text-lg font-semibold text-white">
-							Usunąć zamówienie?
+							Usunąć zlecenie?
 						</h2>
 						<p className="mb-6 text-gray-400">
-							Czy na pewno chcesz usunąć to zamówienie? Tej operacji nie można
+							Czy na pewno chcesz usunąć to zlecenie? Tej operacji nie można
 							cofnąć.
 						</p>
 						<div className="flex justify-end gap-4">

@@ -22,7 +22,7 @@ export default function OrdersPagination({
 	return (
 		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/85 px-5 py-4 backdrop-blur md:flex-row md:items-center md:justify-between">
 			<p className="text-sm text-slate-400">
-				Wyświetlono {startItem}-{endItem} z {totalCount} zamówień
+				Wyświetlono {startItem}-{endItem} z {totalCount} zleceń
 			</p>
 
 			<div className="flex items-center justify-between gap-3 md:justify-end">

@@ -1,8 +1,8 @@
 import AdminOrdersServerWrapper from "../adminOrdersServerWrapper";
 
 export const metadata = {
-	title: "ProjectO - Zamówienia administratora",
-	description: "Przeglądaj i zarządzaj zamówieniami wszystkich użytkowników.",
+	title: "ProjectO - Zlecenia administratora",
+	description: "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników.",
 };
 
 export default function AdminOrdersPage()
