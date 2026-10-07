@@ -28,12 +28,12 @@ export default function OrderForm({
 {
 	return (
 		<>
-			<div className="mb-8">
-				<h2 className="mb-2 text-3xl font-bold text-white">{title}</h2>
+			<div className="mb-6 sm:mb-8">
+				<h2 className="mb-2 text-2xl font-bold text-white sm:text-3xl">{title}</h2>
 				<p className="text-slate-400">{description}</p>
 			</div>
 
-			<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-8 backdrop-blur">
+			<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-4 backdrop-blur sm:p-8">
 				<form onSubmit={onSubmit} className="space-y-6">
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
@@ -71,7 +71,7 @@ export default function OrderForm({
 							type="date"
 							value={dueDate}
 							onChange={(event) => onDueDateChange(event.target.value)}
-							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+							className="min-h-12 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none [&::-webkit-date-and-time-value]:text-left"
 							required
 						/>
 					</div>
@@ -85,7 +85,7 @@ export default function OrderForm({
 
 						{fileSectionMode === "create" ? (
 							<>
-								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
+								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 px-4 text-center transition hover:border-slate-500">
 									<span className="text-sm text-slate-400">
 										Kliknij lub przeciągnij pliki
 									</span>
@@ -105,7 +105,7 @@ export default function OrderForm({
 											id: `${file.name}-${index}-${file.size}`,
 											name: file.name,
 										}))}
-										actionLabel="X"
+										actionLabel="Usuń plik"
 										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
 										emptyMessage="Nie dodano jeszcze plików."
 										metaText="Gotowe w bieżącej sesji"
@@ -116,7 +116,7 @@ export default function OrderForm({
 							</>
 						) : (
 							<>
-								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 transition hover:border-slate-500">
+								<label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950/60 px-4 text-center transition hover:border-slate-500">
 									<span className="text-sm text-slate-400">
 										Kliknij lub przeciągnij pliki
 									</span>
@@ -136,7 +136,7 @@ export default function OrderForm({
 								<div className="mt-3">
 									<OrderFilesList
 										attachments={attachments}
-										actionLabel="X"
+										actionLabel="Usuń plik"
 										actionTextClassName="text-sm text-slate-400 transition-colors hover:text-red-400"
 										emptyMessage="Do tego zlecenia nie dodano jeszcze plików."
 										metaText="Gotowe w bieżącej sesji"
@@ -149,7 +149,7 @@ export default function OrderForm({
 						)}
 					</div>
 
-					<div className="flex gap-4">
+					<div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
 						<motion.button
 							type="submit"
 							whileHover={{ scale: 1.02, y: -1 }}

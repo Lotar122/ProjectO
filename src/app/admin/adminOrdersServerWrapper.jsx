@@ -8,7 +8,7 @@ import { getUserAuthSession } from "../server-functions/getUserAuthSession";
 import { isAdminSession } from "../server-functions/isAdminSession";
 import { getNameFromEmail } from "../server-functions/getUserName";
 
-export default async function AdminOrdersServerWrapper()
+export default async function AdminOrdersServerWrapper({ initialView })
 {
 	const userAuthSession = await getUserAuthSession(await cookies());
 
@@ -29,6 +29,7 @@ export default async function AdminOrdersServerWrapper()
 		<Orders
 			adminMode
 			isAdmin
+			initialPage={initialView === "change-password" ? "change-password" : "orders"}
 			userEmail={email}
 			userName={name.first}
 			userLastName={name.last}

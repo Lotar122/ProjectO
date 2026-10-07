@@ -19,6 +19,13 @@ export const metadata = {
 	description: "System do zarządzania zleceniami ortodontycznymi.",
 };
 
+export const viewport = {
+	width: "device-width",
+	initialScale: 1,
+	themeColor: "#0B101C",
+	colorScheme: "dark",
+};
+
 export default function RootLayout({ children })
 {
 	return (

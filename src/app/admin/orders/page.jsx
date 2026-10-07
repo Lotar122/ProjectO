@@ -5,7 +5,9 @@ export const metadata = {
 	description: "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników.",
 };
 
-export default function AdminOrdersPage()
+export default async function AdminOrdersPage({ searchParams })
 {
-	return <AdminOrdersServerWrapper />;
+	const { view } = await searchParams;
+
+	return <AdminOrdersServerWrapper initialView={view} />;
 }

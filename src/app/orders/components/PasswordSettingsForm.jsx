@@ -25,12 +25,12 @@ export default function PasswordSettingsForm({
 			transition={{ duration: 0.45 }}
 			className="mx-auto max-w-2xl">
 			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-[0_24px_100px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-				<div className="border-b border-slate-800 bg-slate-950/70 px-6 py-5 sm:px-8">
-					<div className="flex items-start gap-4">
-						<div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-slate-950">
+				<div className="border-b border-slate-800 bg-slate-950/70 px-5 py-5 sm:px-8">
+					<div className="flex items-start gap-3 sm:gap-4">
+						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-slate-950">
 							<KeyRound className="h-6 w-6" />
 						</div>
-						<div>
+						<div className="min-w-0">
 							<h2 className="text-2xl font-bold text-white">Zmień hasło</h2>
 							<p className="mt-2 max-w-xl text-sm text-slate-400">
 								Najpierw potwierdź obecne hasło, a następnie ustaw nowe hasło do
@@ -40,7 +40,7 @@ export default function PasswordSettingsForm({
 					</div>
 				</div>
 
-				<form onSubmit={onSubmit} className="space-y-6 px-6 py-6 sm:px-8 sm:py-8">
+				<form onSubmit={onSubmit} className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
 					<div className="rounded-2xl border border-sky-400/15 bg-sky-400/8 px-4 py-4 text-sm text-sky-100">
 						<div className="flex items-start gap-3">
 							<ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />

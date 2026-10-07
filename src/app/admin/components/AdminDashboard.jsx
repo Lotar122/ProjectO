@@ -43,7 +43,7 @@ export default function AdminDashboard()
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
 					transition={{ duration: disableMotion ? 0 : 0.45 }}
-					className="min-h-screen bg-transparent text-white">
+					className="min-h-dvh bg-transparent text-white">
 					<OrdersHeader
 						currentPage={currentPage}
 						isAdmin
@@ -51,41 +51,41 @@ export default function AdminDashboard()
 						onLogout={handleLogout}
 						onShowChangePassword={() =>
 						{
-							router.push("/admin/orders");
+							router.push("/admin/orders?view=change-password");
 						}}
 						onShowCreateIdentity={() => setCurrentPage("create-identity")}
 						onShowManageUsers={() => setCurrentPage("manage-users")}
 					/>
 
-					<main className="container mx-auto px-4 py-8">
+					<main className="container mx-auto px-4 py-6 sm:py-8">
 						<motion.div
 							initial={{ opacity: 0, y: 18 }}
 							animate={{ opacity: 1, y: 0 }}
-							className="mb-8">
+							className="mb-6 sm:mb-8">
 							<div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
 								<div>
 									<p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
 										Panel administratora
 									</p>
-									<h2 className="text-3xl font-bold text-white">Zarządzanie użytkownikami</h2>
+									<h2 className="text-2xl font-bold text-white sm:text-3xl">Zarządzanie użytkownikami</h2>
 									<p className="mt-2 text-slate-400">
 										Wyświetlaj konta, edytuj ich dane i zarządzaj dostępem do systemu.
 									</p>
 								</div>
 							</div>
 
-							<div className="mt-8 flex flex-wrap gap-3 border-b border-slate-800 pb-4">
+							<div className="mt-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4 sm:mt-8 sm:gap-3">
 								<button
 									type="button"
 									onClick={() => setCurrentPage("manage-users")}
-									className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${currentPage === "manage-users" ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-900 hover:text-white"}`}>
+									className={`flex min-h-10 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${currentPage === "manage-users" ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-900 hover:text-white"}`}>
 									<Users className="h-4 w-4" />
 									Wszyscy użytkownicy
 								</button>
 								<button
 									type="button"
 									onClick={() => setCurrentPage("create-identity")}
-									className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${currentPage === "create-identity" ? "bg-violet-100 text-slate-950" : "text-slate-300 hover:bg-slate-900 hover:text-white"}`}>
+									className={`flex min-h-10 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${currentPage === "create-identity" ? "bg-violet-100 text-slate-950" : "text-slate-300 hover:bg-slate-900 hover:text-white"}`}>
 									<UserPlus className="h-4 w-4" />
 									Dodaj użytkownika
 								</button>

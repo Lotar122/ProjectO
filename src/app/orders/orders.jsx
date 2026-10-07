@@ -58,6 +58,7 @@ const createOrdersCacheKey = ({ page, search, status }) =>
 
 export default function Orders({
 	adminMode = false,
+	initialPage = "orders",
 	isAdmin = false,
 	userEmail,
 	userName,
@@ -65,7 +66,7 @@ export default function Orders({
 })
 {
 	const { disableMotion } = getPerfFlags();
-	const [currentPage, setCurrentPage] = useState("orders");
+	const [currentPage, setCurrentPage] = useState(initialPage);
 	const [orders, setOrders] = useState([]);
 	const [currentOrdersPage, setCurrentOrdersPage] = useState(1);
 	const [totalOrdersCount, setTotalOrdersCount] = useState(0);
@@ -362,6 +363,15 @@ export default function Orders({
 			return next;
 		});
 	}, [fileNamesById]);
+
+	useEffect(() =>
+	{
+		// Drop ?view=… once applied so a refresh lands on the orders list.
+		if (initialPage !== "orders")
+		{
+			window.history.replaceState(null, "", window.location.pathname);
+		}
+	}, [initialPage]);
 
 	useEffect(() =>
 	{
@@ -924,7 +934,7 @@ export default function Orders({
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
 					transition={{ duration: disableMotion ? 0 : 0.45 }}
-					className="min-h-screen bg-transparent text-white">
+					className="min-h-dvh bg-transparent text-white">
 					<DeleteOrderModal
 						isOpen={Boolean(deleteOrderId)}
 						onCancel={() => setDeleteOrderId(null)}
@@ -943,15 +953,15 @@ export default function Orders({
 						userName={userName}
 					/>
 
-					<main className="container mx-auto px-4 py-8">
+					<main className="container mx-auto px-4 py-6 sm:py-8">
 						{currentPage === "orders" && (
 							<motion.div
 								variants={sectionTransition}
 								initial="initial"
 								animate="animate">
-								<div className="mb-8 flex items-center justify-between">
-									<div>
-										<h2 className="text-3xl font-bold text-white">
+								<div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+									<div className="min-w-0">
+										<h2 className="text-2xl font-bold text-white sm:text-3xl">
 											{adminMode ? "Wszystkie zlecenia" : "Zlecenia"}
 										</h2>
 										<p className="text-slate-400">
@@ -964,7 +974,7 @@ export default function Orders({
 										whileHover={{ scale: 1.02, y: -2 }}
 										whileTap={{ scale: 0.985 }}
 										onClick={() => setCurrentPage("create-order")}
-										className="flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
+										className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200 sm:w-auto">
 										<Plus className="h-5 w-5" />
 										Nowe zlecenie
 									</motion.button>}

@@ -88,16 +88,16 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 			transition={{ duration: 0.45 }}
 			className="mx-auto max-w-3xl">
 			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-[0_24px_100px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-				<div className="border-b border-slate-800 bg-slate-950/70 px-6 py-5 sm:px-8">
-					<div className="flex items-start gap-4">
+				<div className="border-b border-slate-800 bg-slate-950/70 px-5 py-5 sm:px-8">
+					<div className="flex items-start gap-3 sm:gap-4">
 						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-100 text-slate-950">
 							<UserPlus className="h-6 w-6" />
 						</div>
-						<div>
+						<div className="min-w-0">
 							<p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
 								Panel administratora
 							</p>
-							<h2 className="text-2xl font-bold text-white">Dodaj użytkownika</h2>
+							<h2 className="text-xl font-bold text-white sm:text-2xl">Dodaj użytkownika</h2>
 							<p className="mt-2 max-w-xl text-sm text-slate-400">
 								Utwórz nową tożsamość w Ory Kratos i nadaj jej odpowiednią rolę.
 							</p>
@@ -105,7 +105,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 					</div>
 				</div>
 
-				<form onSubmit={handleSubmit} className="space-y-6 px-6 py-6 sm:px-8 sm:py-8">
+				<form onSubmit={handleSubmit} className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
 					<div className="flex items-start gap-3 rounded-2xl border border-violet-400/15 bg-violet-400/8 px-4 py-4 text-sm text-violet-100">
 						<ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
 						<p>

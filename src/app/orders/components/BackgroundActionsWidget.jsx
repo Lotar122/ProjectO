@@ -49,7 +49,7 @@ export default function BackgroundActionsWidget({ actions })
 						</p>
 					</div>
 
-					<div className="max-h-72 space-y-2 overflow-y-auto p-3">
+					<div className="max-h-[min(18rem,40dvh)] space-y-2 overflow-y-auto p-3">
 						<AnimatePresence initial={false}>
 							{actions.map((action) =>
 							{
@@ -74,7 +74,7 @@ export default function BackgroundActionsWidget({ actions })
 												{action.title}
 											</p>
 											{action.description ? (
-												<p className="mt-1 text-xs text-slate-400">
+												<p className="mt-1 text-xs wrap-break-word text-slate-400">
 													{action.description}
 												</p>
 											) : null}

@@ -143,14 +143,14 @@ const KratosLogin = () =>
 	}
 
 	return (
-		<div className="relative flex min-h-screen items-center justify-center p-4">
+		<div className="relative flex min-h-dvh items-center justify-center p-4">
 			<motion.div
 				variants={container}
 				initial="hidden"
 				animate="show"
-				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/80 p-8 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-				<motion.div variants={item} className="mb-8 text-center">
-					<h2 className="mb-2 text-3xl font-bold text-white">Witaj ponownie</h2>
+				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/80 p-6 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
+				<motion.div variants={item} className="mb-6 text-center sm:mb-8">
+					<h2 className="mb-2 text-2xl font-bold text-white sm:text-3xl">Witaj ponownie</h2>
 					<p className="text-slate-400">
 						Zaloguj się do panelu
 					</p>

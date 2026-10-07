@@ -185,26 +185,26 @@ export default function ManageUsers({ refreshToken })
 									<div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-slate-300"><UserCircle className="h-6 w-6" /></div>
 									<div className="min-w-0">
 										<div className="flex flex-wrap items-center gap-2">
-											<h4 className="truncate font-semibold text-white">{getIdentityName(identity)}</h4>
+											<h4 className="min-w-0 max-w-full truncate font-semibold text-white">{getIdentityName(identity)}</h4>
 											<span className={`rounded-full px-2.5 py-1 text-xs font-medium ${identity.traits?.role === "admin" ? "bg-violet-400/15 text-violet-200" : "bg-slate-800 text-slate-300"}`}>{identity.traits?.role === "admin" ? "Administrator" : "Użytkownik"}</span>
 										</div>
 										<p className="truncate text-sm text-slate-400">{identity.traits?.email}</p>
 									</div>
 								</div>
 								<div className="flex shrink-0 gap-2">
-									<button type="button" onClick={() => startEditing(identity)} className="flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white"><Pencil className="h-4 w-4" />Edytuj</button>
-									<button type="button" onClick={() => void deleteIdentity(identity)} disabled={deletingId === identity.id} className="flex items-center gap-2 rounded-xl border border-red-500/25 px-3 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />{deletingId === identity.id ? "Usuwanie..." : "Usuń"}</button>
+									<button type="button" onClick={() => startEditing(identity)} className="flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white"><Pencil className="h-4 w-4" />Edytuj</button>
+									<button type="button" onClick={() => void deleteIdentity(identity)} disabled={deletingId === identity.id} className="flex items-center gap-2 rounded-xl border border-red-500/25 px-3 py-2.5 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />{deletingId === identity.id ? "Usuwanie..." : "Usuń"}</button>
 								</div>
 							</div>
 
 							{editingId === identity.id && (
 								<form onSubmit={saveIdentity} className="space-y-5 border-t border-slate-800 bg-slate-950/45 p-5">
-									<div className="flex items-center justify-between"><h4 className="font-semibold text-white">Edytuj konto</h4><button type="button" onClick={stopEditing} className="rounded-lg p-1 text-slate-400 hover:text-white" aria-label="Zamknij edycję"><X className="h-5 w-5" /></button></div>
+									<div className="flex items-center justify-between"><h4 className="font-semibold text-white">Edytuj konto</h4><button type="button" onClick={stopEditing} className="-my-1.5 -mr-1.5 inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:text-white" aria-label="Zamknij edycję"><X className="h-5 w-5" /></button></div>
 									<div className="grid gap-4 md:grid-cols-2">
-										<label className="text-sm text-slate-300">Adres e-mail<input type="email" required value={form.email} onChange={(event) => updateField("email", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white focus:border-violet-300/60 focus:outline-none" /></label>
-										<label className="text-sm text-slate-300">Rola<select value={form.role} onChange={(event) => updateField("role", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white focus:border-violet-300/60 focus:outline-none"><option value="user">Użytkownik</option><option value="admin">Administrator</option></select></label>
-										<label className="text-sm text-slate-300">Imię<input type="text" value={form.firstName} onChange={(event) => updateField("firstName", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white focus:border-violet-300/60 focus:outline-none" /></label>
-										<label className="text-sm text-slate-300">Nazwisko<input type="text" value={form.lastName} onChange={(event) => updateField("lastName", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white focus:border-violet-300/60 focus:outline-none" /></label>
+										<label className="text-sm text-slate-300">Adres e-mail<input type="email" required value={form.email} onChange={(event) => updateField("email", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-base text-white focus:border-violet-300/60 focus:outline-none sm:text-sm" /></label>
+										<label className="text-sm text-slate-300">Rola<select value={form.role} onChange={(event) => updateField("role", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-base text-white focus:border-violet-300/60 focus:outline-none sm:text-sm"><option value="user">Użytkownik</option><option value="admin">Administrator</option></select></label>
+										<label className="text-sm text-slate-300">Imię<input type="text" value={form.firstName} onChange={(event) => updateField("firstName", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-base text-white focus:border-violet-300/60 focus:outline-none sm:text-sm" /></label>
+										<label className="text-sm text-slate-300">Nazwisko<input type="text" value={form.lastName} onChange={(event) => updateField("lastName", event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-base text-white focus:border-violet-300/60 focus:outline-none sm:text-sm" /></label>
 									</div>
 									<div className="max-w-md"><PasswordField id={`identity-password-${identity.id}`} name="password" label="Nowe hasło (opcjonalnie)" autoComplete="new-password" password={form.password} placeholder="Pozostaw puste, aby nie zmieniać" required={false} setPassword={(value) => updateField("password", value)} /></div>
 									<div className="flex flex-col-reverse gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={stopEditing} className="rounded-xl border border-slate-700 px-5 py-3 font-medium text-slate-200 hover:border-slate-500 hover:text-white">Anuluj</button><button type="submit" disabled={isSaving} className="flex items-center justify-center gap-2 rounded-xl bg-violet-100 px-5 py-3 font-semibold text-slate-950 hover:bg-violet-200 disabled:opacity-60"><Save className="h-4 w-4" />{isSaving ? "Zapisywanie..." : "Zapisz zmiany"}</button></div>
