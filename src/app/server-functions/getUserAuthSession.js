@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 import axios from "axios";
 import postgres from "postgres";
@@ -38,7 +38,6 @@ export async function getUserAuthSession(cookie)
 		});
 
 		console.log("[AUTH] Kratos status:", res.status);
-		console.log("[AUTH] Kratos response:", res.data);
 
 		if (res.status !== 200)
 		{

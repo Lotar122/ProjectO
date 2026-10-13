@@ -1,5 +1,3 @@
-"use server";
-
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import {

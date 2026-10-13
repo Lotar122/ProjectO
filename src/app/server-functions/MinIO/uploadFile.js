@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 async function uploadFile(s3, bucket, folder, fileName, content)
 {

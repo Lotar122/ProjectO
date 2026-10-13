@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 async function createFolder(s3, bucket, folder)
 {

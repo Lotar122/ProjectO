@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 async function folderExists(s3, bucket, prefix)
 {

@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 import { HeadBucketCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
 

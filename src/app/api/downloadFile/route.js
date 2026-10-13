@@ -1,5 +1,3 @@
-"use server";
-
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
@@ -65,7 +63,7 @@ export async function GET(req)
 			status: 200,
 			headers: {
 				"Content-Type": file.contentType ?? "application/octet-stream",
-				"Content-Disposition": `attachment; filename="${file.metadata.original_name}"`,
+				"Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.metadata.original_name ?? "file")}`,
 			},
 		});
 

@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
 

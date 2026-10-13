@@ -1,5 +1,3 @@
-"use server";
-
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { cookies } from "next/headers";
 import postgres from "postgres";

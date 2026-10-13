@@ -1,5 +1,3 @@
-"use server";
-
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata";
 
