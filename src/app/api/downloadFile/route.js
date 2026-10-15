@@ -1,7 +1,12 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
+import { CHECKSUM_MISMATCH, sha256Hex } from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFile } from "@/app/server-functions/MinIO/getFile";
+import {
+	ORDER_FILES_BUCKET,
+	setOrderFileChecksum,
+} from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
 import postgres from "postgres";
 
@@ -57,13 +62,33 @@ export async function GET(req)
 		const s3 = await createS3Client();
 
 		// Fetch file from MinIO
-		const file = await getFile(s3, "projecto", fileKey);
+		const file = await getFile(s3, ORDER_FILES_BUCKET, fileKey);
+
+		const actualChecksum = sha256Hex(file.data);
+		const storedChecksum = file.metadata?.sha256;
+
+		if (!storedChecksum)
+		{
+			// Legacy file uploaded before checksumming - backfill on first download
+			await setOrderFileChecksum(s3, fileKey, actualChecksum);
+		}
+		else if (storedChecksum !== actualChecksum)
+		{
+			console.error(
+				`downloadFile checksum mismatch for ${fileKey}: stored ${storedChecksum}, actual ${actualChecksum}`,
+			);
+			return new Response(
+				JSON.stringify({ error: "File integrity check failed", code: CHECKSUM_MISMATCH }),
+				{ status: 500, headers: { "Content-Type": "application/json" } },
+			);
+		}
 
 		return new Response(file.data, {
 			status: 200,
 			headers: {
 				"Content-Type": file.contentType ?? "application/octet-stream",
 				"Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.metadata.original_name ?? "file")}`,
+				"X-Content-SHA256": actualChecksum,
 			},
 		});
 

@@ -1,3 +1,8 @@
+import {
+	ChecksumMismatchError,
+	hexToBase64,
+	sha256Hex,
+} from "@/app/server-functions/MinIO/checksum";
 import { createBucket } from "@/app/server-functions/MinIO/createBucket";
 import {
 	CopyObjectCommand,
@@ -77,14 +82,40 @@ export async function ensureOrderFilesBucket(s3)
 	await createBucket(s3, ORDER_FILES_BUCKET);
 }
 
-export async function uploadOrderFiles(s3, files, patient)
+export async function uploadOrderFiles(s3, files, patient, clientChecksums = [])
 {
+	// Hash and verify every file before writing anything, so a mismatch leaves no orphan objects
+	const preparedFiles = await Promise.all(
+		files.map(async (file, index) =>
+		{
+			const fileBuffer = Buffer.from(await file.arrayBuffer());
+			const sha256 = sha256Hex(fileBuffer);
+			const clientChecksum = String(clientChecksums[index] ?? "").trim().toLowerCase();
+
+			return {
+				file,
+				fileBuffer,
+				sha256,
+				// Empty client checksum means the browser could not hash the file (no crypto.subtle)
+				mismatch: clientChecksum !== "" && clientChecksum !== sha256,
+			};
+		}),
+	);
+
+	const mismatchedFiles = preparedFiles
+		.filter((prepared) => prepared.mismatch)
+		.map((prepared) => prepared.file.name);
+
+	if (mismatchedFiles.length > 0)
+	{
+		throw new ChecksumMismatchError(mismatchedFiles);
+	}
+
 	return Promise.all(
-		files.map(async (file) =>
+		preparedFiles.map(async ({ file, fileBuffer, sha256 }) =>
 		{
 			const fileID = uuid7();
 			const fileName = sanitizeOrderFileName(patient, file.name);
-			const fileBuffer = Buffer.from(await file.arrayBuffer());
 
 			await s3.send(
 				new PutObjectCommand(
@@ -92,14 +123,16 @@ export async function uploadOrderFiles(s3, files, patient)
 						Bucket: ORDER_FILES_BUCKET,
 						Key: fileID,
 						Body: fileBuffer,
+						ChecksumSHA256: hexToBase64(sha256),
 						Metadata:
 					{
 						original_name: fileName,
+						sha256,
 					},
 					}),
 			);
 
-			return { fileID, fileName };
+			return { fileID, fileName, sha256 };
 		}),
 	);
 }
@@ -124,7 +157,7 @@ export async function deleteOrderFiles(s3, fileIds)
 	);
 }
 
-export async function renameOrderFile(s3, fileId, fileName)
+async function updateOrderFileMetadata(s3, fileId, metadataUpdate)
 {
 	const metadata = await s3.send(
 		new HeadObjectCommand({
@@ -139,11 +172,22 @@ export async function renameOrderFile(s3, fileId, fileName)
 			Key: fileId,
 			CopySource: `${ORDER_FILES_BUCKET}/${encodeURIComponent(fileId)}`,
 			ContentType: metadata.ContentType,
+			ChecksumAlgorithm: "SHA256",
 			Metadata: {
 				...metadata.Metadata,
-				original_name: fileName,
+				...metadataUpdate,
 			},
 			MetadataDirective: "REPLACE",
 		}),
 	);
+}
+
+export async function renameOrderFile(s3, fileId, fileName)
+{
+	await updateOrderFileMetadata(s3, fileId, { original_name: fileName });
+}
+
+export async function setOrderFileChecksum(s3, fileId, sha256)
+{
+	await updateOrderFileMetadata(s3, fileId, { sha256 });
 }

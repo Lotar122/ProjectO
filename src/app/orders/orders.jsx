@@ -7,6 +7,7 @@ import axios from "axios";
 
 import BackgroundActionsWidget from "./components/BackgroundActionsWidget";
 import DeleteOrderModal from "./components/DeleteOrderModal";
+import IntegrityErrorModal from "./components/IntegrityErrorModal";
 import OrderCard from "./components/OrderCard";
 import OrderForm from "./components/OrderForm";
 import OrdersHeader from "./components/OrdersHeader";
@@ -24,7 +25,9 @@ import {
 	buildOrderFileName,
 	INITIAL_EDIT_DRAFT,
 	INITIAL_ORDER,
+	computeSha256Hex,
 	createLocalAttachments,
+	getChecksumMismatchError,
 	getDisplayDate,
 	getOrderFiles,
 	normalizeOrderStatus,
@@ -56,6 +59,48 @@ const createOrdersCacheKey = ({ page, search, status }) =>
 		status: normalizeStatusValue(status),
 	});
 
+const UPLOAD_INTEGRITY_MESSAGE =
+	"Pliki zostały uszkodzone podczas przesyłania (niezgodna suma kontrolna), również przy ponownej próbie. Spróbuj ponownie później.";
+
+// Retries the upload once when the server reports a checksum mismatch
+const sendWithChecksumRetry = async (send) =>
+{
+	try
+	{
+		return await send();
+	}
+	catch (err)
+	{
+		if (!(await getChecksumMismatchError(err)))
+		{
+			throw err;
+		}
+
+		return send();
+	}
+};
+
+// Returns the verified blob, or null if it was corrupted in transit twice
+const downloadVerifiedFile = async (fileId) =>
+{
+	for (let attempt = 0; attempt < 2; attempt++)
+	{
+		const response = await axios.get(`/api/downloadFile?file_id=${fileId}`, {
+			withCredentials: true,
+			responseType: "blob",
+		});
+		const expectedChecksum = response.headers["x-content-sha256"];
+		const actualChecksum = await computeSha256Hex(response.data);
+
+		if (!expectedChecksum || actualChecksum === null || actualChecksum === expectedChecksum)
+		{
+			return response.data;
+		}
+	}
+
+	return null;
+};
+
 export default function Orders({
 	adminMode = false,
 	initialPage = "orders",
@@ -84,6 +129,7 @@ export default function Orders({
 	const [expandedOrderId, setExpandedOrderId] = useState(null);
 	const [fileNamesById, setFileNamesById] = useState({});
 	const [backgroundActions, setBackgroundActions] = useState([]);
+	const [integrityError, setIntegrityError] = useState(null);
 	const [openEditMenuId, setOpenEditMenuId] = useState(null);
 	const [statusUpdatingOrderId, setStatusUpdatingOrderId] = useState(null);
 	const [passwordForm, setPasswordForm] = useState(INITIAL_PASSWORD_FORM);
@@ -531,28 +577,32 @@ export default function Orders({
 
 		void (async () =>
 		{
-			const formData = new FormData();
-
-			formData.append("patient", order.patient);
-			formData.append("details", order.details);
-			formData.append("status", order.status);
-			formData.append("dueDate", order.dueDate);
-			formData.append("issueDate", order.issueDate);
-			formData.append("progress", String(order.progress));
-
-			selectedFiles.forEach((file) =>
+			try
 			{
-				formData.append("files", file);
-			});
+				const fileChecksums = await Promise.all(selectedFiles.map(computeSha256Hex));
+				const formData = new FormData();
 
-			try 
-			{
-				const response = await axios.post("/api/postOrder", formData, {
-					withCredentials: true,
-					headers: {
-						"Content-Type": "multipart/form-data",
-					},
+				formData.append("patient", order.patient);
+				formData.append("details", order.details);
+				formData.append("status", order.status);
+				formData.append("dueDate", order.dueDate);
+				formData.append("issueDate", order.issueDate);
+				formData.append("progress", String(order.progress));
+
+				selectedFiles.forEach((file, index) =>
+				{
+					formData.append("files", file);
+					formData.append("fileChecksums", fileChecksums[index] ?? "");
 				});
+
+				const response = await sendWithChecksumRetry(() =>
+					axios.post("/api/postOrder", formData, {
+						withCredentials: true,
+						headers: {
+							"Content-Type": "multipart/form-data",
+						},
+					}),
+				);
 
 				const nextOrders = await refreshOrders({ page: 1 });
 				const createdOrder = nextOrders.find(
@@ -571,6 +621,17 @@ export default function Orders({
 			{
 				console.error("Nie udało się utworzyć zlecenia:", err);
 				failBackgroundAction(actionId, "Nie udało się utworzyć zlecenia", order.patient);
+
+				const checksumMismatch = await getChecksumMismatchError(err);
+
+				if (checksumMismatch)
+				{
+					setIntegrityError({
+						title: "Nie udało się utworzyć zlecenia",
+						message: UPLOAD_INTEGRITY_MESSAGE,
+						files: checksumMismatch.files,
+					});
+				}
 			}
 		})();
 	};
@@ -762,44 +823,54 @@ export default function Orders({
 
 		void (async () =>
 		{
-			const formData = new FormData();
-			formData.append("orderID", orderID);
-			formData.append("patient", patient);
-			formData.append("details", details);
-			formData.append("dueDate", dueDate);
-
-			attachments.forEach((attachment) =>
+			try
 			{
-				if (attachment.isLocal && attachment.file instanceof File)
-				{
-					formData.append("files", attachment.file, attachment.name);
-					return;
-				}
+				const attachmentChecksums = await Promise.all(
+					attachments.map((attachment) =>
+						attachment.isLocal && attachment.file instanceof File
+							? computeSha256Hex(attachment.file)
+							: null,
+					),
+				);
+				const formData = new FormData();
+				formData.append("orderID", orderID);
+				formData.append("patient", patient);
+				formData.append("details", details);
+				formData.append("dueDate", dueDate);
 
-				if (attachment.fileId)
+				attachments.forEach((attachment, index) =>
 				{
-					formData.append("existingFileIds", attachment.fileId);
-					formData.append(
-						"fileNames",
-						JSON.stringify({
-							fileId: attachment.fileId,
-							fileName: attachment.name,
-						}),
-					);
-				}
-			});
-
-			try 
-			{
-				const response = await axios.put(
-					adminMode ? "/api/admin/modifyOrder" : "/api/modifyOrder",
-					formData,
+					if (attachment.isLocal && attachment.file instanceof File)
 					{
-						withCredentials: true,
-						headers: {
-							"Content-Type": "multipart/form-data",
+						formData.append("files", attachment.file, attachment.name);
+						formData.append("fileChecksums", attachmentChecksums[index] ?? "");
+						return;
+					}
+
+					if (attachment.fileId)
+					{
+						formData.append("existingFileIds", attachment.fileId);
+						formData.append(
+							"fileNames",
+							JSON.stringify({
+								fileId: attachment.fileId,
+								fileName: attachment.name,
+							}),
+						);
+					}
+				});
+
+				const response = await sendWithChecksumRetry(() =>
+					axios.put(
+						adminMode ? "/api/admin/modifyOrder" : "/api/modifyOrder",
+						formData,
+						{
+							withCredentials: true,
+							headers: {
+								"Content-Type": "multipart/form-data",
+							},
 						},
-					},
+					),
 				);
 
 				if (Array.isArray(response.data.uploadedFiles))
@@ -841,6 +912,17 @@ export default function Orders({
 			{
 				console.error("Nie udało się zaktualizować zlecenia:", err);
 				failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", patient);
+
+				const checksumMismatch = await getChecksumMismatchError(err);
+
+				if (checksumMismatch)
+				{
+					setIntegrityError({
+						title: "Nie udało się zapisać zmian w zleceniu",
+						message: UPLOAD_INTEGRITY_MESSAGE,
+						files: checksumMismatch.files,
+					});
+				}
 			}
 		})();
 	};
@@ -881,12 +963,41 @@ export default function Orders({
 				? order
 				: orders.find((currentOrder) => currentOrder.order_id === order.order_id) ||
 					order;
-		const response = await axios.get(`/api/downloadFile?file_id=${fileId}`, {
-			withCredentials: true,
-			responseType: "blob",
-		});
-		const objectUrl = URL.createObjectURL(response.data);
 		const baseFileName = fileNamesById[fileId] || attachment.name;
+		let fileBlob;
+
+		try
+		{
+			fileBlob = await downloadVerifiedFile(fileId);
+		}
+		catch (err)
+		{
+			if (!(await getChecksumMismatchError(err)))
+			{
+				throw err;
+			}
+
+			setIntegrityError({
+				title: "Plik na serwerze jest uszkodzony",
+				message:
+					"Suma kontrolna zapisanego pliku jest niezgodna z oryginałem. Plik nie został pobrany. Skontaktuj się z administratorem.",
+				files: [baseFileName],
+			});
+			return;
+		}
+
+		if (!fileBlob)
+		{
+			setIntegrityError({
+				title: "Nie udało się pobrać pliku",
+				message:
+					"Plik został uszkodzony podczas pobierania (niezgodna suma kontrolna), również przy ponownej próbie. Spróbuj ponownie później.",
+				files: [baseFileName],
+			});
+			return;
+		}
+
+		const objectUrl = URL.createObjectURL(fileBlob);
 		const link = document.createElement("a");
 		link.href = objectUrl;
 		link.download = buildOrderFileName(downloadOrder.patient, baseFileName);
@@ -939,6 +1050,11 @@ export default function Orders({
 						isOpen={Boolean(deleteOrderId)}
 						onCancel={() => setDeleteOrderId(null)}
 						onConfirm={confirmDelete}
+					/>
+
+					<IntegrityErrorModal
+						error={integrityError}
+						onClose={() => setIntegrityError(null)}
 					/>
 
 					<OrdersHeader

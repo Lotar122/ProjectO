@@ -1,4 +1,5 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { ChecksumMismatchError } from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import {
 	ensureOrderFilesBucket,
@@ -26,6 +27,7 @@ export async function POST(req)
 		const progress = formData.get("progress");
 
 		const files = formData.getAll("files");
+		const fileChecksums = formData.getAll("fileChecksums");
 
 		// Get user session
 		const cookieHeader = await cookies();
@@ -47,7 +49,7 @@ export async function POST(req)
 		const s3 = await createS3Client();
 		await ensureOrderFilesBucket(s3);
 
-		const uploadedFiles = await uploadOrderFiles(s3, files, patient);
+		const uploadedFiles = await uploadOrderFiles(s3, files, patient, fileChecksums);
 		const fileKeys = uploadedFiles.map((file) => file.fileID);
 
 		// Insert into DB safely
@@ -66,6 +68,14 @@ export async function POST(req)
 	}
 	catch (err) 
 	{
+		if (err instanceof ChecksumMismatchError)
+		{
+			return new Response(
+				JSON.stringify({ success: false, code: err.code, error: err.message, files: err.files }),
+				{ status: 422, headers: { "Content-Type": "application/json" } },
+			);
+		}
+
 		return new Response(
 			JSON.stringify({ success: false, error: err.message }),
 			{ status: 500, headers: { "Content-Type": "application/json" } },

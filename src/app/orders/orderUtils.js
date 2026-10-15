@@ -1,3 +1,43 @@
+export const CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH";
+
+// Returns null when crypto.subtle is unavailable (non-secure context); the server then skips the comparison
+export const computeSha256Hex = async (blob) =>
+{
+	if (!globalThis.crypto?.subtle)
+	{
+		return null;
+	}
+
+	const digest = await globalThis.crypto.subtle.digest(
+		"SHA-256",
+		await blob.arrayBuffer(),
+	);
+
+	return Array.from(new Uint8Array(digest))
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+};
+
+// Works for both JSON and blob (download) error responses
+export const getChecksumMismatchError = async (err) =>
+{
+	let data = err?.response?.data;
+
+	if (data instanceof Blob)
+	{
+		try
+		{
+			data = JSON.parse(await data.text());
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	return data?.code === CHECKSUM_MISMATCH ? data : null;
+};
+
 export const INITIAL_ORDER = {
 	patient: "",
 	details: "",
