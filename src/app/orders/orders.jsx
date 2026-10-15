@@ -508,7 +508,7 @@ export default function Orders({
 	{
 		e.preventDefault();
 
-		if (!newOrder.patient || !newOrder.details)
+		if (!newOrder.patient)
 		{
 			return;
 		}
@@ -1060,6 +1060,7 @@ export default function Orders({
 								<OrderForm
 									description="Wprowadź dane pacjenta i informacje o aparacie"
 									details={newOrder.details}
+									detailsRequired={false}
 									dueDate={newOrder.dueDate}
 									fileSectionMode="create"
 									files={files}

@@ -105,8 +105,8 @@ export default function OrderCard({
 											: status === "in-progress"
 												? "W REALIZACJI"
 												: status === "shipped"
-													? "WYSŁANE"
-													: "ZAKOŃCZONE"}
+													? "GOTOWE"
+													: "ZREALIZOWANE"}
 									</option>
 								))}
 							</select>
@@ -119,8 +119,8 @@ export default function OrderCard({
 									: order.status === "in-progress"
 										? "W REALIZACJI"
 										: order.status === "shipped"
-											? "WYSŁANE"
-											: "ZAKOŃCZONE"}
+											? "GOTOWE"
+											: "ZREALIZOWANE"}
 							</span>
 						)}
 						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">

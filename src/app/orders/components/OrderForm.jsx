@@ -9,6 +9,7 @@ export default function OrderForm({
 	cancelLabel = "Anuluj",
 	description,
 	details,
+	detailsRequired = true,
 	dueDate,
 	files = [],
 	fileSectionMode,
@@ -59,7 +60,7 @@ export default function OrderForm({
 							rows={5}
 							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none resize-y"
 							placeholder="Wpisz szczegóły zlecenia"
-							required
+							required={detailsRequired}
 						/>
 					</div>
 

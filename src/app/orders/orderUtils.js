@@ -46,8 +46,8 @@ export const ORDER_STATUS_OPTIONS = [
 	"Wszystkie statusy",
 	"Oczekujące",
 	"W realizacji",
-	"Wysłane",
-	"Zakończone",
+	"Gotowe",
+	"Zrealizowane",
 ];
 
 export const ORDER_STATUS_VALUES = [
@@ -60,8 +60,8 @@ export const ORDER_STATUS_VALUES = [
 const POLISH_STATUS_VALUES = {
 	"oczekujące": "pending",
 	"w realizacji": "in-progress",
-	"wysłane": "shipped",
-	"zakończone": "completed",
+	"gotowe": "shipped",
+	"zrealizowane": "completed",
 };
 
 export const normalizeOrderStatus = (value) =>
