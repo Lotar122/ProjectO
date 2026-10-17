@@ -49,6 +49,7 @@ const INITIAL_PASSWORD_FORM = {
 };
 
 const ORDERS_PAGE_SIZE = 25;
+const FILE_NAMES_BATCH_SIZE = 100;
 
 const normalizeStatusValue = normalizeOrderStatus;
 
@@ -386,16 +387,31 @@ export default function Orders({
 			return;
 		}
 
-		const responses = await Promise.all(
-			missingFileIds.map(async (fileId) =>
-			{
-				const response = await axios.get(`/api/getFileName?file_id=${fileId}`, {
-					withCredentials: true,
-				});
+		// One batched request per chunk instead of one request per attachment;
+		// the per-file fan-out flooded Postgres and Kratos on every page load.
+		const chunks = [];
 
-				return [fileId, response.data.filename];
-			}),
-		);
+		for (let index = 0; index < missingFileIds.length; index += FILE_NAMES_BATCH_SIZE)
+		{
+			chunks.push(missingFileIds.slice(index, index + FILE_NAMES_BATCH_SIZE));
+		}
+
+		const responses = [];
+
+		for (const chunk of chunks)
+		{
+			const response = await axios.post(
+				"/api/getFileNames",
+				{ fileIds: chunk },
+				{ withCredentials: true },
+			);
+			const filenames = response.data?.filenames || {};
+
+			chunk.forEach((fileId) =>
+			{
+				responses.push([fileId, filenames[fileId]]);
+			});
+		}
 
 		setFileNamesById((current) =>
 		{
@@ -780,7 +796,7 @@ export default function Orders({
 			}
 			catch (err) 
 			{
-				console.error(err);
+				console.error("Nie udało się usunąć zlecenia:", err);
 				failBackgroundAction(actionId, "Nie udało się usunąć zlecenia", orderLabel);
 			}
 		})();

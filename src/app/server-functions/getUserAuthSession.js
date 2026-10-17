@@ -1,21 +1,27 @@
 import "server-only";
 
 import axios from "axios";
-import postgres from "postgres";
 
-import { getNameFromEmail } from "./getUserName";
+import { DB } from "@/app/lib/db";
+import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
+import { createLogger } from "@/app/lib/logger";
+import { getIdentityName } from "./getUserName";
 
+const log = createLogger("auth");
+
+const KRATOS_WHOAMI_URL = "http://kratos:4433/sessions/whoami";
+const SLOW_KRATOS_MS = 1000;
+
+// Throws when Kratos is unreachable or broken. That must not be reported as
+// "logged out": the login page would see a valid session in the browser and
+// send the user straight back, looping.
 export async function getUserAuthSession(cookie)
 {
-	console.log("[AUTH] getUserAuthSession() called");
-
 	const sessionCookie = cookie.get("ory_kratos_session");
-
-	console.log("[AUTH] Session cookie present:", !!sessionCookie);
 
 	if (!sessionCookie)
 	{
-		console.log("[AUTH] No ory_kratos_session cookie");
+		log.debug("No session cookie");
 
 		return {
 			loggedIn: false,
@@ -23,141 +29,101 @@ export async function getUserAuthSession(cookie)
 		};
 	}
 
-	const kratosUrl =
-		"http://kratos:4433/sessions/whoami";
-
-	console.log("[AUTH] Requesting Kratos:", kratosUrl);
+	const startedAt = performance.now();
+	let res;
 
 	try
 	{
-		const res = await axios.get(kratosUrl, {
+		res = await axios.get(KRATOS_WHOAMI_URL, {
 			headers: {
 				Cookie: `ory_kratos_session=${sessionCookie.value}`,
 			},
+			timeout: KRATOS_TIMEOUT_MS,
 			validateStatus: () => true,
 		});
-
-		console.log("[AUTH] Kratos status:", res.status);
-
-		if (res.status !== 200)
-		{
-			console.error(
-				"[AUTH] Kratos whoami returned non-200:",
-				{
-					status: res.status,
-					statusText: res.statusText,
-					data: res.data,
-				},
-			);
-
-			return {
-				loggedIn: false,
-				data: res.data,
-			};
-		}
-
-		if (!res.data?.active)
-		{
-			console.log("[AUTH] Kratos session is not active");
-
-			return {
-				loggedIn: false,
-				data: res.data,
-			};
-		}
-
-		const identityId = res.data.identity?.id;
-		const email = res.data.identity?.traits?.email;
-
-		console.log("[AUTH] Authenticated identity:", {
-			identityId,
-			email,
-		});
-
-		const DB = postgres(process.env.DB_URL, {
-			prepare: true,
-			// ssl: "require",
-		});
-
-		try
-		{
-			console.log("[AUTH] Looking up user in database");
-
-			const users =
-				await DB`SELECT * FROM users WHERE "user_id" = ${identityId}`;
-
-			console.log("[AUTH] Database users found:", users.length);
-
-			if (users.length === 0)
-			{
-				console.log("[AUTH] User does not exist, getting name");
-
-				const name = await getNameFromEmail(email);
-
-				console.log("[AUTH] Name from Kratos:", name);
-
-				try
-				{
-					await DB`
-						INSERT INTO users (
-							user_id,
-							email,
-							name,
-							last_name
-						)
-						VALUES (
-							${identityId},
-							${email},
-							${name.first},
-							${name.last}
-						)
-					`;
-
-					console.log("[AUTH] User inserted successfully");
-				}
-				catch (err)
-				{
-					console.error("[AUTH] Failed to insert user:", err);
-				}
-			}
-		}
-		catch (err)
-		{
-			console.error("[AUTH] Database query failed:", err);
-		}
-		finally
-		{
-			await DB.end();
-			console.log("[AUTH] Database connection closed");
-		}
-
-		console.log("[AUTH] Authentication successful");
-
-		return {
-			loggedIn: true,
-			data: res.data,
-		};
 	}
 	catch (err)
 	{
-		console.error("[AUTH] Unexpected authentication error:", err);
+		const durationMs = Math.round(performance.now() - startedAt);
 
-		if (axios.isAxiosError(err))
-		{
-			console.error("[AUTH] Axios error:", {
-				message: err.message,
-				code: err.code,
-				status: err.response?.status,
-				statusText: err.response?.statusText,
-				data: err.response?.data,
-				url: err.config?.url,
-				method: err.config?.method,
-			});
-		}
+		log.error(`Kratos whoami failed after ${durationMs}ms: ${err.code || err.message}`);
+
+		throw new Error(`Kratos whoami request failed: ${err.code || err.message}`);
+	}
+
+	const durationMs = Math.round(performance.now() - startedAt);
+
+	if (durationMs >= SLOW_KRATOS_MS)
+	{
+		log.warn(`Kratos whoami slow: ${durationMs}ms (status ${res.status})`);
+	}
+
+	if (res.status === 401 || res.status === 403)
+	{
+		log.info(`Session rejected by Kratos (${res.status})`);
 
 		return {
 			loggedIn: false,
-			data: null,
+			data: res.data,
 		};
 	}
+
+	if (res.status !== 200)
+	{
+		log.error(`Kratos whoami returned ${res.status} ${res.statusText}`, res.data);
+
+		throw new Error(`Kratos whoami returned ${res.status}`);
+	}
+
+	const identityId = res.data?.identity?.id;
+
+	if (!res.data?.active)
+	{
+		log.info(`Session for identity ${identityId} is not active`);
+
+		return {
+			loggedIn: false,
+			data: res.data,
+		};
+	}
+
+	try
+	{
+		const users =
+			await DB`SELECT 1 FROM users WHERE "user_id" = ${identityId}`;
+
+		if (users.length === 0)
+		{
+			const name = getIdentityName(res.data.identity);
+
+			await DB`
+				INSERT INTO users (
+					user_id,
+					email,
+					name,
+					last_name
+				)
+				VALUES (
+					${identityId},
+					${res.data.identity.traits?.email},
+					${name.first},
+					${name.last}
+				)
+			`;
+
+			log.info(`Created user row for identity ${identityId}`);
+		}
+	}
+	catch (err)
+	{
+		// The session itself is valid; a failed user-row sync shouldn't log the user out.
+		log.error(`Failed to sync user row for identity ${identityId}`, err);
+	}
+
+	log.debug(`Authenticated identity ${identityId} (Kratos ${durationMs}ms)`);
+
+	return {
+		loggedIn: true,
+		data: res.data,
+	};
 }

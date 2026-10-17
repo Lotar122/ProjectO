@@ -1,7 +1,11 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("admin");
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -17,10 +21,8 @@ const jsonError = (message, status) =>
 		headers: { "Content-Type": "application/json" },
 	});
 
-export async function GET(request)
+async function handleGet(request)
 {
-	let DB = null;
-
 	try 
 	{
 		const userAuthSession = await getUserAuthSession(await cookies());
@@ -52,7 +54,6 @@ export async function GET(request)
 		const hasSearch = searchValue.length > 0;
 		const hasStatus = statusValue.length > 0;
 
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 		const searchCondition = DB`
 			(
 				orders.patient ILIKE ${searchPattern}
@@ -168,8 +169,11 @@ export async function GET(request)
 			totalPages,
 		});
 	}
-	finally 
+	catch (err) 
 	{
-		await DB?.end();
+		log.error("Failed to list orders", err);
+		return Response.json({ error: err.message }, { status: 500 });
 	}
 }
+
+export const GET = withRequestLogging(handleGet);

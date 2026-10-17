@@ -1,7 +1,11 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("admin");
 
 const STATUS_PROGRESS = {
 	pending: 0,
@@ -10,10 +14,8 @@ const STATUS_PROGRESS = {
 	completed: 100,
 };
 
-export async function PUT(req)
+async function handlePut(req)
 {
-	let DB = null;
-
 	try 
 	{
 		const userAuthSession = await getUserAuthSession(await cookies());
@@ -33,8 +35,6 @@ export async function PUT(req)
 			);
 		}
 
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
-
 		const [updatedOrder] = await DB`
 			UPDATE orders
 			SET status = ${status}::order_status,
@@ -48,17 +48,19 @@ export async function PUT(req)
 			return Response.json({ error: "Order not found" }, { status: 404 });
 		}
 
+		log.info(`Order ${orderID} status set to ${status} by admin ${userAuthSession.data.identity.id}`);
+
 		return Response.json({ success: true, order: updatedOrder });
 	}
-	catch (err) 
+	catch (err)
 	{
+		log.error("Failed to update order status", err);
+
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
 	}
-	finally 
-	{
-		await DB?.end();
-	}
 }
+
+export const PUT = withRequestLogging(handlePut);

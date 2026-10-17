@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import axios from "axios";
 import PasswordField from "../components/passwordField";
-import Loading from "../pages/loading";
+import Loading from "../loading";
 import { KRATOS_PUBLIC, getKratosNodeValue } from "../lib/kratos";
 
 const container = {
@@ -132,7 +132,7 @@ const KratosLogin = () =>
 		}
 		catch (err) 
 		{
-			console.error(err);
+			console.error("Logowanie nie powiodło się:", err);
 			setError(err.response?.data?.error || "Logowanie nie powiodło się.");
 		}
 	};

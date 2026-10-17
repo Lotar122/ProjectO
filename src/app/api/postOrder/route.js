@@ -7,14 +7,16 @@ import {
 	uploadOrderFiles,
 } from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
 import { v7 as uuid7 } from "uuid";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("orders");
 
 // Server POST function for inserting orders
-export async function POST(req)
+async function handlePost(req)
 {
-	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: 'require'*/ });
-
 	try 
 	{
 		const formData = await req.formData();
@@ -61,6 +63,8 @@ export async function POST(req)
       )
     `;
 
+		log.info(`Order ${orderID} created by ${userID} (${fileKeys.length} files)`);
+
 		return new Response(JSON.stringify({ success: true, orderID }), {
 			status: 200,
 			headers: { "Content-Type": "application/json" },
@@ -70,20 +74,20 @@ export async function POST(req)
 	{
 		if (err instanceof ChecksumMismatchError)
 		{
+			log.warn(`Upload rejected: checksum mismatch for ${err.files.length} file(s)`);
 			return new Response(
 				JSON.stringify({ success: false, code: err.code, error: err.message, files: err.files }),
 				{ status: 422, headers: { "Content-Type": "application/json" } },
 			);
 		}
 
+		log.error("Failed to create order", err);
+
 		return new Response(
 			JSON.stringify({ success: false, error: err.message }),
 			{ status: 500, headers: { "Content-Type": "application/json" } },
 		);
 	}
-	finally 
-	{
-		// Always close DB connection
-		DB.end();
-	}
 }
+
+export const POST = withRequestLogging(handlePost);

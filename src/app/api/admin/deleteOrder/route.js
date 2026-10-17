@@ -3,12 +3,14 @@ import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { deleteOrderFiles } from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
 
-export async function DELETE(req)
+const log = createLogger("admin");
+
+async function handleDelete(req)
 {
-	let DB = null;
-
 	try 
 	{
 		const userAuthSession = await getUserAuthSession(await cookies());
@@ -24,8 +26,6 @@ export async function DELETE(req)
 		{
 			return Response.json({ error: "orderID is required" }, { status: 400 });
 		}
-
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const [order] = await DB`
 			SELECT order_id, files
@@ -43,17 +43,19 @@ export async function DELETE(req)
 		await deleteOrderFiles(s3, Array.isArray(order.files) ? order.files : []);
 		await DB`DELETE FROM orders WHERE order_id = ${orderID}`;
 
+		log.info(`Order ${orderID} deleted by admin ${userAuthSession.data.identity.id}`);
+
 		return Response.json({ success: true });
 	}
-	catch (err) 
+	catch (err)
 	{
+		log.error("Failed to delete order", err);
+
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
 	}
-	finally 
-	{
-		await DB?.end();
-	}
 }
+
+export const DELETE = withRequestLogging(handleDelete);

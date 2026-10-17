@@ -10,7 +10,11 @@ import {
 	uploadOrderFiles,
 } from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("orders");
 
 function getRetainedFileIds(currentFileIds, requestedFileIds)
 {
@@ -22,10 +26,8 @@ function getRemovedFileIds(currentFileIds, retainedFileIds)
 	return currentFileIds.filter((fileId) => !retainedFileIds.includes(fileId));
 }
 
-export async function PUT(req)
+async function handlePut(req)
 {
-	const DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
-
 	try 
 	{
 		const cookieHeader = await cookies();
@@ -133,6 +135,8 @@ export async function PUT(req)
 			RETURNING *
 		`;
 
+		log.info(`Order ${orderID} updated by ${userID} (+${uploadedFiles.length} / -${removedFileIds.length} files)`);
+
 		return new Response(
 			JSON.stringify({
 				success: true,
@@ -149,19 +153,20 @@ export async function PUT(req)
 	{
 		if (err instanceof ChecksumMismatchError)
 		{
+			log.warn(`Upload rejected: checksum mismatch for ${err.files.length} file(s)`);
 			return new Response(
 				JSON.stringify({ success: false, code: err.code, error: err.message, files: err.files }),
 				{ status: 422, headers: { "Content-Type": "application/json" } },
 			);
 		}
 
+		log.error("Failed to update order", err);
+
 		return new Response(
 			JSON.stringify({ success: false, error: err.message }),
 			{ status: 500, headers: { "Content-Type": "application/json" } },
 		);
 	}
-	finally 
-	{
-		await DB.end();
-	}
 }
+
+export const PUT = withRequestLogging(handlePut);

@@ -2,12 +2,11 @@ import "server-only";
 
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 
-import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwnership";
 
+// Callers must check access first (see verifyFileOwnership.js); this no longer
+// re-authenticates, which cost an extra Kratos + DB round trip per file.
 export async function getFile(s3, bucket, fileKey)
 {
-	await verifyFileOwnership(fileKey);
-
 	const response = await s3.send(
 		new GetObjectCommand({
 			Bucket: bucket,

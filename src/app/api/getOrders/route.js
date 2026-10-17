@@ -1,6 +1,10 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("orders");
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -10,10 +14,8 @@ const normalizeStatus = (value) =>
 		.toLowerCase()
 		.replace(/\s+/g, "-");
 
-export async function GET(request)
+async function handleGet(request)
 {
-	let DB = null;
-
 	try 
 	{
 		const cookieHeader = await cookies();
@@ -40,8 +42,6 @@ export async function GET(request)
 				headers: { "Content-Type": "application/json" },
 			});
 		}
-
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const userId = userAuthSession.data.identity.id;
 		const searchPattern = `%${searchValue}%`;
@@ -153,8 +153,11 @@ export async function GET(request)
 			headers: { "Content-Type": "application/json" },
 		});
 	}
-	finally 
+	catch (err) 
 	{
-		await DB?.end();
+		log.error("Failed to list orders", err);
+		return Response.json({ error: err.message }, { status: 500 });
 	}
 }
+
+export const GET = withRequestLogging(handleGet);

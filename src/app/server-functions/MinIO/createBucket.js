@@ -2,20 +2,24 @@ import "server-only";
 
 import { HeadBucketCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
 
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("minio");
+
 export async function createBucket(s3, bucketName)
 {
-	try 
+	try
 	{
 		// Check if exists
 		await s3.send(new HeadBucketCommand({ Bucket: bucketName }));
-		console.log(`Bucket "${bucketName}" already exists`);
 		return false;
 	}
-	catch (err) 
+	catch (err)
 	{
-		console.error('createBucket error:', err.$metadata, err.message, err.Code);
+		// 404 just means the bucket has to be created below.
 		if (err.$metadata?.httpStatusCode !== 404)
 		{
+			log.error(`HeadBucket "${bucketName}" failed: ${err.message}`, err.$metadata);
 			throw err;
 		}
 	}
@@ -27,6 +31,6 @@ export async function createBucket(s3, bucketName)
 		}),
 	);
 
-	console.log(`Bucket "${bucketName}" created`);
+	log.info(`Bucket "${bucketName}" created`);
 	return true;
 }

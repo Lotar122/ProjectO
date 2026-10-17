@@ -4,13 +4,15 @@ import { deleteFileFromMinio } from "@/app/server-functions/MinIO/deleteFile";
 
 import { cookies } from "next/headers";
 
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("orders");
 
 //Has to be used with credentials
-export async function DELETE(req)
+async function handleDelete(req)
 {
-	let DB = null;
-
 	try 
 	{
 		const cookieHeader = await cookies();
@@ -34,8 +36,6 @@ export async function DELETE(req)
 				headers: { "Content-Type": "application/json" },
 			});
 		}
-
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const [order] = await DB`
 			SELECT order_id, files
@@ -63,17 +63,19 @@ export async function DELETE(req)
 				AND user_id = ${userAuthSession.data.identity.id}
 		`;
 
+		log.info(`Order ${orderID} deleted by ${userAuthSession.data.identity.id} (${order.files.length} files)`);
+
 		return Response.json({ success: true }, { status: 200 });
 	}
-	catch (err) 
+	catch (err)
 	{
+		log.error("Failed to delete order", err);
+
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
 	}
-	finally 
-	{
-		await DB?.end();
-	}
 }
+
+export const DELETE = withRequestLogging(handleDelete);

@@ -1,15 +1,18 @@
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("admin");
 
 const KRATOS_ADMIN_URL = process.env.KRATOS_ADMIN_URL || "http://kratos:4434";
 
-export async function DELETE(request)
+async function handleDelete(request)
 {
-	let DB = null;
-
 	try
 	{
 		const session = await getUserAuthSession(await cookies());
@@ -33,27 +36,28 @@ export async function DELETE(request)
 
 		const response = await fetch(`${KRATOS_ADMIN_URL}/admin/identities/${encodeURIComponent(id)}`, {
 			method: "DELETE",
+			signal: AbortSignal.timeout(KRATOS_TIMEOUT_MS),
 		});
 
 		if (!response.ok)
 		{
+			log.warn(`Kratos rejected deletion of identity ${id}: ${response.status}`);
 			return Response.json({ error: response.status === 404 ? "Nie znaleziono użytkownika." : "Nie udało się usunąć użytkownika z Ory Kratos." }, { status: response.status === 404 ? 404 : 502 });
 		}
 
 		// The application user row is no longer needed after the Kratos identity is gone.
 		// Orders are intentionally retained and become unassigned in the admin order view.
-		DB = postgres(process.env.DB_URL, { prepare: true });
 		await DB`DELETE FROM users WHERE user_id = ${id}`;
+
+		log.info(`Identity ${id} deleted by admin ${session.data.identity.id}`);
 
 		return Response.json({ success: true });
 	}
 	catch (error)
 	{
-		console.error("Nie udało się usunąć tożsamości:", error);
+		log.error("Failed to delete identity", error);
 		return Response.json({ error: "Nie udało się usunąć użytkownika." }, { status: 502 });
 	}
-	finally
-	{
-		await DB?.end();
-	}
 }
+
+export const DELETE = withRequestLogging(handleDelete);

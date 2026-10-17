@@ -13,8 +13,4 @@ async function createFolder(s3, bucket, folder)
 		);
 		console.log(`Folder "${folder}" created`);
 	}
-	else
-	{
-		console.log(`Folder "${folder}" already exists`);
-	}
 }

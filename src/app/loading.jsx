@@ -1,3 +1,7 @@
+"use client";
+
+// Route-level loading UI: shown immediately while server components wait on
+// Kratos/Postgres, instead of a blank page.
 import { motion } from "framer-motion";
 
 export default function Loading()

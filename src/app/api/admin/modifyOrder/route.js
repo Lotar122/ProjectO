@@ -11,17 +11,19 @@ import {
 	uploadOrderFiles,
 } from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { DB } from "@/app/lib/db";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("admin");
 
 function getRetainedFileIds(currentFileIds, requestedFileIds)
 {
 	return currentFileIds.filter((fileId) => requestedFileIds.includes(fileId));
 }
 
-export async function PUT(req)
+async function handlePut(req)
 {
-	let DB = null;
-
 	try 
 	{
 		const userAuthSession = await getUserAuthSession(await cookies());
@@ -48,8 +50,6 @@ export async function PUT(req)
 		{
 			return Response.json({ error: "orderID is required" }, { status: 400 });
 		}
-
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
 
 		const [order] = await DB`
 			SELECT order_id, files
@@ -119,25 +119,28 @@ export async function PUT(req)
 			RETURNING *
 		`;
 
+		log.info(`Order ${orderID} updated by admin ${userAuthSession.data.identity.id} (+${uploadedFiles.length} / -${removedFileIds.length} files)`);
+
 		return Response.json({ success: true, order: updatedOrder, uploadedFiles });
 	}
 	catch (err) 
 	{
 		if (err instanceof ChecksumMismatchError)
 		{
+			log.warn(`Upload rejected: checksum mismatch for ${err.files.length} file(s)`);
 			return Response.json(
 				{ success: false, code: err.code, error: err.message, files: err.files },
 				{ status: 422 },
 			);
 		}
 
+		log.error("Failed to update order", err);
+
 		return Response.json(
 			{ success: false, error: err.message },
 			{ status: 500 },
 		);
 	}
-	finally 
-	{
-		await DB?.end();
-	}
 }
+
+export const PUT = withRequestLogging(handlePut);

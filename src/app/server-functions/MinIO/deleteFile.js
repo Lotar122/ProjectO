@@ -1,8 +1,13 @@
 import "server-only";
 
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { verifyFileOwnership } from "@/app/server-functions/MinIO/verifyFileOwnership";
 
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("minio");
+
+// Callers must check access first (see verifyFileOwnership.js); this no longer
+// re-authenticates, which cost an extra Kratos + DB round trip per file.
 /**
  * Deletes a file from MinIO by its object ID/key.
  * @param {import("@aws-sdk/client-s3").S3Client} s3
@@ -13,8 +18,6 @@ export async function deleteFileById(s3, bucket, fileId)
 {
 	try 
 	{
-		await verifyFileOwnership(fileId);
-
 		await s3.send(
 			new DeleteObjectCommand({
 				Bucket: bucket,
@@ -29,7 +32,7 @@ export async function deleteFileById(s3, bucket, fileId)
 	}
 	catch (err) 
 	{
-		console.error("Failed to delete file from MinIO:", err);
+		log.error(`Failed to delete file ${fileId} from bucket "${bucket}"`, err);
 		return { success: false, error: err.message };
 	}
 }

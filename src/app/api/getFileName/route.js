@@ -1,19 +1,20 @@
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata";
+import { canAccessFile } from "@/app/server-functions/MinIO/verifyFileOwnership";
+import { ORDER_FILES_BUCKET } from "@/app/server-functions/orders/orderFiles";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
-import { isAdminSession } from "@/app/server-functions/isAdminSession";
 
 import { cookies } from "next/headers";
-import postgres from "postgres";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("files");
 
 //Has to be used with credentials
-export async function GET(req)
+async function handleGet(req)
 {
-	let payload = null;
-	let DB = null;
-
-	try 
+	try
 	{
 		const url = new URL(req.url);
 		const file_id = url.searchParams.get("file_id");
@@ -38,21 +39,7 @@ export async function GET(req)
 			});
 		}
 
-		DB = postgres(process.env.DB_URL, { prepare: true, /*ssl: "require"*/ });
-
-		const [fileAccess] = isAdminSession(userAuthSession)
-			? await DB`
-				SELECT 1 FROM orders WHERE ${file_id} = ANY(files) LIMIT 1
-			`
-			: await DB`
-				SELECT 1
-				FROM orders
-				WHERE user_id = ${userAuthSession.data.identity.id}
-					AND ${file_id} = ANY(files)
-				LIMIT 1
-			`;
-
-		if (!fileAccess)
+		if (!(await canAccessFile(userAuthSession, file_id)))
 		{
 			return new Response(JSON.stringify({ error: "File not found" }), {
 				status: 404,
@@ -62,16 +49,17 @@ export async function GET(req)
 
 		const s3 = await createS3Client();
 
-		const metadata = await getFileMetadata(s3, "projecto", file_id);
+		const metadata = await getFileMetadata(s3, ORDER_FILES_BUCKET, file_id);
 
-		payload = { filename: metadata.metadata.original_name };
-
-		return new Response(JSON.stringify(payload), {
+		return new Response(JSON.stringify({ filename: metadata.metadata.original_name }), {
 			headers: { "Content-Type": "application/json" },
 		});
 	}
-	finally 
+	catch (err)
 	{
-		await DB?.end();
+		log.error("Failed to get file name", err);
+		return Response.json({ error: err.message }, { status: 500 });
 	}
 }
+
+export const GET = withRequestLogging(handleGet);

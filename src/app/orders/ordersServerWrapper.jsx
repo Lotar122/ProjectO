@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import Orders from "./orders";
 
 import { getUserAuthSession } from "../server-functions/getUserAuthSession";
-import { getNameFromEmail } from "../server-functions/getUserName";
+import { getIdentityName } from "../server-functions/getUserName";
 import { isAdminSession } from "../server-functions/isAdminSession";
 
 export default async function ProtectedPage()
@@ -16,9 +16,7 @@ export default async function ProtectedPage()
 
 	if (userAuthSession.loggedIn)
 	{
-		const name = await getNameFromEmail(
-			userAuthSession.data.identity.traits.email,
-		);
+		const name = getIdentityName(userAuthSession.data.identity);
 		return (
 			<Orders
 				isAdmin={isAdminSession(userAuthSession)}

@@ -6,6 +6,9 @@ import { redirect } from "next/navigation";
 import AdminDashboard from "./components/AdminDashboard";
 import { getUserAuthSession } from "../server-functions/getUserAuthSession";
 import { isAdminSession } from "../server-functions/isAdminSession";
+import { createLogger } from "../lib/logger";
+
+const log = createLogger("admin");
 
 export default async function AdminServerWrapper()
 {
@@ -19,6 +22,7 @@ export default async function AdminServerWrapper()
 
 	if (!isAdminSession(userAuthSession))
 	{
+		log.warn(`Non-admin identity ${userAuthSession.data.identity.id} tried to open an admin page`);
 		redirect("/orders");
 	}
 

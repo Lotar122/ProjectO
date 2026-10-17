@@ -1,7 +1,12 @@
 import { cookies } from "next/headers";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
+import { withRequestLogging } from "@/app/lib/withRequestLogging";
+import { createLogger } from "@/app/lib/logger";
+
+const log = createLogger("admin");
 
 const IDENTITY_SCHEMA_ID =
 	process.env.KRATOS_IDENTITY_SCHEMA_ID ||
@@ -14,7 +19,7 @@ const VALID_ROLES = new Set(["user", "admin"]);
 const jsonError = (message, status) =>
 	Response.json({ error: message }, { status });
 
-export async function POST(request)
+async function handlePost(request)
 {
 	try
 	{
@@ -72,6 +77,7 @@ export async function POST(request)
 
 		const response = await fetch(`${KRATOS_ADMIN_URL}/admin/identities`, {
 			method: "POST",
+			signal: AbortSignal.timeout(KRATOS_TIMEOUT_MS),
 			headers: {
 				"Content-Type": "application/json",
 			},
@@ -106,6 +112,8 @@ export async function POST(request)
 				errorData?.error?.message ||
 				errorData?.message;
 
+			log.warn(`Kratos rejected identity creation: ${response.status} ${kratosMessage || ""}`);
+
 			return jsonError(
 				kratosMessage || "Nie udało się utworzyć tożsamości w Ory Kratos.",
 				response.status >= 400 && response.status < 500 ? response.status : 502,
@@ -113,6 +121,8 @@ export async function POST(request)
 		}
 
 		const identity = await response.json();
+
+		log.info(`Identity ${identity.id} created with role ${role} by admin ${userAuthSession.data.identity.id}`);
 
 		return Response.json({
 			success: true,
@@ -125,8 +135,10 @@ export async function POST(request)
 	}
 	catch (error)
 	{
-		console.error("Nie udało się utworzyć tożsamości:", error);
+		log.error("Failed to create identity", error);
 
 		return jsonError("Nie udało się połączyć z Ory Kratos.", 502);
 	}
 }
+
+export const POST = withRequestLogging(handlePost);
