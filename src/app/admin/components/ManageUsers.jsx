@@ -1,6 +1,6 @@
 "use client";
 
-import axios from "axios";
+import http from "@/app/lib/http";
 import { motion } from "framer-motion";
 import { Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -37,7 +37,7 @@ export default function ManageUsers({ refreshToken })
 
 		try
 		{
-			const response = await axios.get("/api/admin/getIdentities", {
+			const response = await http.get("/api/admin/getIdentities", {
 				withCredentials: true,
 			});
 			setIdentities(response.data.identities || []);
@@ -93,7 +93,7 @@ export default function ManageUsers({ refreshToken })
 
 		try
 		{
-			const response = await axios.put(
+			const response = await http.put(
 				"/api/admin/updateIdentity",
 				{ id: editingId, ...form },
 				{ withCredentials: true },
@@ -129,7 +129,7 @@ export default function ManageUsers({ refreshToken })
 
 		try
 		{
-			await axios.delete(`/api/admin/deleteIdentity?id=${encodeURIComponent(identity.id)}`, {
+			await http.delete(`/api/admin/deleteIdentity?id=${encodeURIComponent(identity.id)}`, {
 				withCredentials: true,
 			});
 			setIdentities((current) => current.filter((item) => item.id !== identity.id));

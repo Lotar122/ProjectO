@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import axios from "axios";
+import http from "@/app/lib/http";
 import PasswordField from "../components/passwordField";
 import Loading from "../loading";
 import { KRATOS_PUBLIC, getKratosNodeValue } from "../lib/kratos";
@@ -49,7 +49,7 @@ const KratosLogin = () =>
 		{
 			try 
 			{
-				const response = await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
+				const response = await http.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 					withCredentials: true,
 				});
 				router.push(getPostLoginPath(response.data));
@@ -71,7 +71,7 @@ const KratosLogin = () =>
 
 			try 
 			{
-				const response = await axios.get(
+				const response = await http.get(
 					`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
 					{ withCredentials: true },
 				);
@@ -113,7 +113,7 @@ const KratosLogin = () =>
 		{
 			const csrf = getKratosNodeValue(flow, "csrf_token");
 
-			await axios.post(
+			await http.post(
 				flow.ui.action,
 				{
 					method: "password",
@@ -125,7 +125,7 @@ const KratosLogin = () =>
 			);
 
 			setError(null);
-			const sessionResponse = await axios.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
+			const sessionResponse = await http.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 				withCredentials: true,
 			});
 			router.push(getPostLoginPath(sessionResponse.data));

@@ -3,7 +3,7 @@
 import { MotionConfig, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import axios from "axios";
+import http from "@/app/lib/http";
 
 import BackgroundActionsWidget from "./components/BackgroundActionsWidget";
 import DeleteOrderModal from "./components/DeleteOrderModal";
@@ -86,7 +86,7 @@ const downloadVerifiedFile = async (fileId) =>
 {
 	for (let attempt = 0; attempt < 2; attempt++)
 	{
-		const response = await axios.get(`/api/downloadFile?file_id=${fileId}`, {
+		const response = await http.get(`/api/downloadFile?file_id=${fileId}`, {
 			withCredentials: true,
 			responseType: "blob",
 		});
@@ -316,7 +316,7 @@ export default function Orders({
 					params.set("status", normalizeStatusValue(status));
 				}
 
-				const response = await axios.get(
+				const response = await http.get(
 					`${adminMode ? "/api/admin/getOrders" : "/api/getOrders"}?${params.toString()}`,
 					{
 						withCredentials: true,
@@ -400,7 +400,7 @@ export default function Orders({
 
 		for (const chunk of chunks)
 		{
-			const response = await axios.post(
+			const response = await http.post(
 				"/api/getFileNames",
 				{ fileIds: chunk },
 				{ withCredentials: true },
@@ -544,7 +544,7 @@ export default function Orders({
 	{
 		try 
 		{
-			const response = await axios.get(`${KRATOS_PUBLIC}/self-service/logout/browser`, {
+			const response = await http.get(`${KRATOS_PUBLIC}/self-service/logout/browser`, {
 				withCredentials: true,
 			});
 
@@ -612,7 +612,7 @@ export default function Orders({
 				});
 
 				const response = await sendWithChecksumRetry(() =>
-					axios.post("/api/postOrder", formData, {
+					http.post("/api/postOrder", formData, {
 						withCredentials: true,
 						headers: {
 							"Content-Type": "multipart/form-data",
@@ -700,7 +700,7 @@ export default function Orders({
 
 		try 
 		{
-			const refreshFlowResponse = await axios.get(
+			const refreshFlowResponse = await http.get(
 				`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
 				{
 					withCredentials: true,
@@ -711,7 +711,7 @@ export default function Orders({
 				"csrf_token",
 			);
 
-			await axios.post(
+			await http.post(
 				refreshFlowResponse.data.ui.action,
 				{
 					method: "password",
@@ -724,7 +724,7 @@ export default function Orders({
 				},
 			);
 
-			const settingsFlowResponse = await axios.get(
+			const settingsFlowResponse = await http.get(
 				`${KRATOS_PUBLIC}/self-service/settings/browser`,
 				{
 					withCredentials: true,
@@ -735,7 +735,7 @@ export default function Orders({
 				"csrf_token",
 			);
 
-			await axios.post(
+			await http.post(
 				settingsFlowResponse.data.ui.action,
 				{
 					method: "password",
@@ -785,7 +785,7 @@ export default function Orders({
 		{
 			try 
 			{
-				await axios.delete(
+				await http.delete(
 					`${adminMode ? "/api/admin/deleteOrder" : "/api/deleteOrder"}?orderID=${deleteOrderId}`,
 					{
 						withCredentials: true,
@@ -877,7 +877,7 @@ export default function Orders({
 				});
 
 				const response = await sendWithChecksumRetry(() =>
-					axios.put(
+					http.put(
 						adminMode ? "/api/admin/modifyOrder" : "/api/modifyOrder",
 						formData,
 						{
@@ -1035,7 +1035,7 @@ export default function Orders({
 
 		try 
 		{
-			await axios.put(
+			await http.put(
 				"/api/admin/updateOrderStatus",
 				{ orderID: order.order_id, status },
 				{ withCredentials: true },

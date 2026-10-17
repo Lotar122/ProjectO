@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { CheckCircle2, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
-import axios from "axios";
+import http from "@/app/lib/http";
 
 import PasswordField from "@/app/components/passwordField";
 
@@ -52,7 +52,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 
 		try
 		{
-			await axios.post(
+			await http.post(
 				"/api/admin/createIdentity",
 				{
 					email: form.email,

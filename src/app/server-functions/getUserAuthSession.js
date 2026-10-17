@@ -1,7 +1,5 @@
 import "server-only";
 
-import axios from "axios";
-
 import { DB } from "@/app/lib/db";
 import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
 import { createLogger } from "@/app/lib/logger";
@@ -34,21 +32,43 @@ export async function getUserAuthSession(cookie)
 
 	try
 	{
-		res = await axios.get(KRATOS_WHOAMI_URL, {
+		const response = await fetch(KRATOS_WHOAMI_URL, {
 			headers: {
 				Cookie: `ory_kratos_session=${sessionCookie.value}`,
+				Accept: "application/json",
 			},
-			timeout: KRATOS_TIMEOUT_MS,
-			validateStatus: () => true,
+			cache: "no-store",
+			signal: AbortSignal.timeout(KRATOS_TIMEOUT_MS),
 		});
+		const body = await response.text();
+		let data = null;
+
+		try
+		{
+			data = body ? JSON.parse(body) : null;
+		}
+		catch
+		{
+			// Non-JSON error page; keep the raw text for logging.
+			data = body;
+		}
+
+		res = {
+			status: response.status,
+			statusText: response.statusText,
+			data,
+		};
 	}
 	catch (err)
 	{
 		const durationMs = Math.round(performance.now() - startedAt);
+		const reason = err.name === "TimeoutError"
+			? `timed out after ${KRATOS_TIMEOUT_MS}ms`
+			: err.cause?.code || err.message;
 
-		log.error(`Kratos whoami failed after ${durationMs}ms: ${err.code || err.message}`);
+		log.error(`Kratos whoami failed after ${durationMs}ms: ${reason}`);
 
-		throw new Error(`Kratos whoami request failed: ${err.code || err.message}`);
+		throw new Error(`Kratos whoami request failed: ${reason}`);
 	}
 
 	const durationMs = Math.round(performance.now() - startedAt);
