@@ -19,6 +19,19 @@ async function handlePost(req)
 {
 	try 
 	{
+		// Get user session before reading the body, so anonymous requests
+		// don't make the server buffer whole uploads
+		const cookieHeader = await cookies();
+		const userAuthSession = await getUserAuthSession(cookieHeader);
+
+		if (!userAuthSession.loggedIn)
+		{
+			return new Response(JSON.stringify({ error: "Forbidden" }), {
+				status: 403,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
 		const formData = await req.formData();
 
 		const patient = formData.get("patient");
@@ -30,18 +43,6 @@ async function handlePost(req)
 
 		const files = formData.getAll("files");
 		const fileChecksums = formData.getAll("fileChecksums");
-
-		// Get user session
-		const cookieHeader = await cookies();
-		const userAuthSession = await getUserAuthSession(cookieHeader);
-
-		if (!userAuthSession.loggedIn)
-		{
-			return new Response(JSON.stringify({ error: "Forbidden" }), {
-				status: 403,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
 
 		const orderID = uuid7();
 		const userID = userAuthSession.data.identity.id;

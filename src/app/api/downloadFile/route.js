@@ -2,6 +2,7 @@ import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { CHECKSUM_MISMATCH, sha256Hex } from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFile } from "@/app/server-functions/MinIO/getFile";
+import { decodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
 import { canAccessFile } from "@/app/server-functions/MinIO/verifyFileOwnership";
 import {
 	ORDER_FILES_BUCKET,
@@ -77,7 +78,7 @@ async function handleGet(req)
 			status: 200,
 			headers: {
 				"Content-Type": file.contentType ?? "application/octet-stream",
-				"Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.metadata.original_name ?? "file")}`,
+				"Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(decodeMetadataValue(file.metadata.original_name) ?? "file")}`,
 				"X-Content-SHA256": actualChecksum,
 			},
 		});

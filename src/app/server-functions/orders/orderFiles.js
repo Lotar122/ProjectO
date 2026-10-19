@@ -4,6 +4,7 @@ import {
 	sha256Hex,
 } from "@/app/server-functions/MinIO/checksum";
 import { createBucket } from "@/app/server-functions/MinIO/createBucket";
+import { encodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
 import {
 	CopyObjectCommand,
 	DeleteObjectCommand,
@@ -77,9 +78,19 @@ export function toISODate(value)
 	return new Date(value).toISOString().split("T")[0];
 }
 
+// Checked once per process instead of a HeadBucket on every upload.
+// Reset on failure so the next request retries.
+let orderFilesBucketReady = null;
+
 export async function ensureOrderFilesBucket(s3)
 {
-	await createBucket(s3, ORDER_FILES_BUCKET);
+	orderFilesBucketReady ??= createBucket(s3, ORDER_FILES_BUCKET).catch((err) =>
+	{
+		orderFilesBucketReady = null;
+		throw err;
+	});
+
+	await orderFilesBucketReady;
 }
 
 export async function uploadOrderFiles(s3, files, patient, clientChecksums = [])
@@ -126,7 +137,7 @@ export async function uploadOrderFiles(s3, files, patient, clientChecksums = [])
 						ChecksumSHA256: hexToBase64(sha256),
 						Metadata:
 					{
-						original_name: fileName,
+						original_name: encodeMetadataValue(fileName),
 						sha256,
 					},
 					}),
@@ -184,7 +195,7 @@ async function updateOrderFileMetadata(s3, fileId, metadataUpdate)
 
 export async function renameOrderFile(s3, fileId, fileName)
 {
-	await updateOrderFileMetadata(s3, fileId, { original_name: fileName });
+	await updateOrderFileMetadata(s3, fileId, { original_name: encodeMetadataValue(fileName) });
 }
 
 export async function setOrderFileChecksum(s3, fileId, sha256)

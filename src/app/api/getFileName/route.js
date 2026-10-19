@@ -1,5 +1,6 @@
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFileMetadata } from "@/app/server-functions/MinIO/getFileMetadata";
+import { decodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
 import { canAccessFile } from "@/app/server-functions/MinIO/verifyFileOwnership";
 import { ORDER_FILES_BUCKET } from "@/app/server-functions/orders/orderFiles";
 
@@ -51,7 +52,7 @@ async function handleGet(req)
 
 		const metadata = await getFileMetadata(s3, ORDER_FILES_BUCKET, file_id);
 
-		return new Response(JSON.stringify({ filename: metadata.metadata.original_name }), {
+		return new Response(JSON.stringify({ filename: decodeMetadataValue(metadata.metadata.original_name) }), {
 			headers: { "Content-Type": "application/json" },
 		});
 	}
