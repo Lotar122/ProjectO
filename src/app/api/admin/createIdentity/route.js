@@ -62,6 +62,8 @@ async function handlePost(request)
 			return jsonError("Wybierz poprawną rolę użytkownika.", 400);
 		}
 
+		// traits.role is only a mirror for identity schemas that still require
+		// it; authorization reads metadata_public.role (see isAdminSession).
 		const traits = {
 			email,
 			role,
@@ -84,6 +86,7 @@ async function handlePost(request)
 			body: JSON.stringify({
 				schema_id: IDENTITY_SCHEMA_ID,
 				traits,
+				metadata_public: { role },
 				credentials: {
 					password: {
 						config: {

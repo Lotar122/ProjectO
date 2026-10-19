@@ -9,30 +9,14 @@ import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { cookies } from "next/headers";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
+import { mapWithConcurrency } from "@/app/lib/concurrency";
+import { internalError } from "@/app/lib/apiErrors";
+import { isUuid } from "@/app/lib/validate";
 
 const log = createLogger("files");
 
 const MAX_FILE_IDS = 200;
 const S3_CONCURRENCY = 8;
-
-async function mapWithConcurrency(items, limit, fn)
-{
-	const results = new Array(items.length);
-	let nextIndex = 0;
-
-	const worker = async () =>
-	{
-		while (nextIndex < items.length)
-		{
-			const index = nextIndex++;
-			results[index] = await fn(items[index]);
-		}
-	};
-
-	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-
-	return results;
-}
 
 // Batch version of getFileName: one auth check and one DB query for the whole
 // page instead of one request (and Kratos + DB round trip) per attachment.
@@ -41,6 +25,13 @@ async function handlePost(req)
 {
 	try
 	{
+		const userAuthSession = await getUserAuthSession(await cookies());
+
+		if (!userAuthSession.loggedIn)
+		{
+			return Response.json({ error: "Forbidden" }, { status: 403 });
+		}
+
 		let payload;
 
 		try
@@ -56,7 +47,7 @@ async function handlePost(req)
 			...new Set(
 				(Array.isArray(payload?.fileIds) ? payload.fileIds : [])
 					.map((fileId) => String(fileId ?? "").trim())
-					.filter(Boolean),
+					.filter(isUuid),
 			),
 		];
 
@@ -71,13 +62,6 @@ async function handlePost(req)
 				{ error: `At most ${MAX_FILE_IDS} fileIds per request` },
 				{ status: 400 },
 			);
-		}
-
-		const userAuthSession = await getUserAuthSession(await cookies());
-
-		if (!userAuthSession.loggedIn)
-		{
-			return Response.json({ error: "Forbidden" }, { status: 403 });
 		}
 
 		const accessibleFileIds = await getAccessibleFileIds(userAuthSession, fileIds);
@@ -107,7 +91,7 @@ async function handlePost(req)
 	catch (err)
 	{
 		log.error("Failed to get file names", err);
-		return Response.json({ error: err.message }, { status: 500 });
+		return internalError();
 	}
 }
 

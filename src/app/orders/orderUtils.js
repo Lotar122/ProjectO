@@ -1,4 +1,24 @@
 export const CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH";
+export const UPLOAD_LIMIT = "UPLOAD_LIMIT";
+
+// Same limits the API enforces (see multipartUpload.js); checked up front so a
+// too-large order is refused before anything is hashed or sent.
+export const MAX_UPLOAD_FILES = 20;
+export const MAX_UPLOAD_FILE_BYTES = 250 * 1024 * 1024;
+export const MAX_UPLOAD_TOTAL_BYTES = 1024 * 1024 * 1024;
+export const UPLOAD_LIMIT_MESSAGE =
+	"Pliki przekraczają limit: do 20 plików, do 250 MB każdy i do 1 GB łącznie na zlecenie.";
+
+export const getUploadLimitError = (files) =>
+{
+	const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+
+	return (
+		files.length > MAX_UPLOAD_FILES ||
+		totalBytes > MAX_UPLOAD_TOTAL_BYTES ||
+		files.some((file) => file.size > MAX_UPLOAD_FILE_BYTES)
+	) ? UPLOAD_LIMIT_MESSAGE : null;
+};
 
 // Returns null when crypto.subtle is unavailable (non-secure context); the server then skips the comparison
 export const computeSha256Hex = async (blob) =>
@@ -18,22 +38,78 @@ export const computeSha256Hex = async (blob) =>
 		.join("");
 };
 
+// One file at a time: crypto.subtle needs the whole file in memory, so hashing
+// them in parallel held every selected scan in RAM at once.
+export const computeSha256HexSequentially = async (blobs) =>
+{
+	const checksums = [];
+
+	for (const blob of blobs)
+	{
+		checksums.push(blob ? await computeSha256Hex(blob) : null);
+	}
+
+	return checksums;
+};
+
+// The API streams uploads, so every text field and the checksums (one per
+// file, same order) must be appended before the first file.
+export const appendUploadFiles = (formData, files, checksums) =>
+{
+	checksums.forEach((checksum) =>
+	{
+		formData.append("fileChecksums", checksum ?? "");
+	});
+	files.forEach(({ file, name }) =>
+	{
+		formData.append("files", file, name);
+	});
+};
+
+// Stable React keys for files that have no id of their own.
+const localFileKeys = new WeakMap();
+let nextLocalFileKey = 0;
+
+export const getLocalFileKey = (file) =>
+{
+	if (!localFileKeys.has(file))
+	{
+		localFileKeys.set(file, `file-${nextLocalFileKey++}`);
+	}
+
+	return localFileKeys.get(file);
+};
+
 // Works for both JSON and blob (download) error responses
+export const getErrorResponseData = async (err) =>
+{
+	const data = err?.response?.data;
+
+	if (!(data instanceof Blob))
+	{
+		return data;
+	}
+
+	try
+	{
+		return JSON.parse(await data.text());
+	}
+	catch
+	{
+		return null;
+	}
+};
+
+export const getUploadLimitResponseError = async (err) =>
+{
+	const data = await getErrorResponseData(err);
+
+	return data?.code === UPLOAD_LIMIT ? data : null;
+};
+
 export const getChecksumMismatchError = async (err) =>
 {
-	let data = err?.response?.data;
-
-	if (data instanceof Blob)
-	{
-		try
-		{
-			data = JSON.parse(await data.text());
-		}
-		catch
-		{
-			return null;
-		}
-	}
+	const data = await getErrorResponseData(err);
 
 	return data?.code === CHECKSUM_MISMATCH ? data : null;
 };
@@ -82,6 +158,13 @@ export const createLocalAttachments = (files, patient) =>
 		isLocal: true,
 	}));
 
+export const STATUS_LABELS = {
+	pending: "OCZEKUJĄCE",
+	"in-progress": "W REALIZACJI",
+	shipped: "GOTOWE",
+	completed: "ZREALIZOWANE",
+};
+
 export const ORDER_STATUS_OPTIONS = [
 	"Wszystkie statusy",
 	"Oczekujące",
@@ -109,24 +192,6 @@ export const normalizeOrderStatus = (value) =>
 	const normalizedValue = String(value ?? "").trim().toLowerCase();
 
 	return POLISH_STATUS_VALUES[normalizedValue] || normalizedValue.replace(/\s+/g, "-");
-};
-
-export const getFilteredOrders = (orders, searchValue, statusValue) =>
-{
-	const normalizedSearch = searchValue.trim().toLowerCase();
-	const normalizedStatus = normalizeOrderStatus(statusValue);
-
-	return orders.filter((order) =>
-	{
-		const matchesSearch =
-			normalizedSearch === "" ||
-			order.patient.toLowerCase().includes(normalizedSearch);
-		const matchesStatus =
-			statusValue === "Wszystkie statusy" ||
-			order.status.toLowerCase() === normalizedStatus;
-
-		return matchesSearch && matchesStatus;
-	});
 };
 
 export const getDisplayDate = (order) =>

@@ -1,6 +1,8 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { cookies } from "next/headers";
+import { internalError } from "@/app/lib/apiErrors";
+import { isUuid } from "@/app/lib/validate";
 import { DB } from "@/app/lib/db";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
@@ -25,9 +27,20 @@ async function handlePut(req)
 			return Response.json({ error: "Admin access required" }, { status: 403 });
 		}
 
-		const { orderID, status } = await req.json();
+		let payload;
 
-		if (!orderID || !Object.hasOwn(STATUS_PROGRESS, status))
+		try
+		{
+			payload = await req.json();
+		}
+		catch
+		{
+			return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+		}
+
+		const { orderID, status } = payload ?? {};
+
+		if (!isUuid(orderID) || !Object.hasOwn(STATUS_PROGRESS, status))
 		{
 			return Response.json(
 				{ error: "A valid orderID and status are required" },
@@ -56,10 +69,7 @@ async function handlePut(req)
 	{
 		log.error("Failed to update order status", err);
 
-		return Response.json(
-			{ success: false, error: err.message },
-			{ status: 500 },
-		);
+		return internalError();
 	}
 }
 

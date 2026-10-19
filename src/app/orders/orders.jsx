@@ -1,21 +1,16 @@
 "use client";
 
-import { MotionConfig, motion } from "framer-motion";
+import { m } from "framer-motion";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import http from "@/app/lib/http";
+import http, { TRANSFER_TIMEOUT_MS } from "@/app/lib/http";
 
 import BackgroundActionsWidget from "./components/BackgroundActionsWidget";
-import DeleteOrderModal from "./components/DeleteOrderModal";
-import IntegrityErrorModal from "./components/IntegrityErrorModal";
 import OrderCard from "./components/OrderCard";
-import OrderForm from "./components/OrderForm";
 import OrdersHeader from "./components/OrdersHeader";
 import OrdersPagination from "./components/OrdersPagination";
 import OrdersToolbar from "./components/OrdersToolbar";
-import PasswordSettingsForm from "./components/PasswordSettingsForm";
-import PerfProfiler from "@/app/components/perf/PerfProfiler";
-import { getPerfFlags } from "@/app/components/perf/perfFlags";
 import {
 	KRATOS_PUBLIC,
 	getKratosFlowMessages,
@@ -25,20 +20,30 @@ import {
 	buildOrderFileName,
 	INITIAL_EDIT_DRAFT,
 	INITIAL_ORDER,
+	UPLOAD_LIMIT_MESSAGE,
+	appendUploadFiles,
 	computeSha256Hex,
+	computeSha256HexSequentially,
 	createLocalAttachments,
 	getChecksumMismatchError,
 	getDisplayDate,
 	getOrderFiles,
+	getUploadLimitError,
+	getUploadLimitResponseError,
 	normalizeOrderStatus,
 } from "./orderUtils";
 
+// Forms and dialogs are rarely open on first paint, so they load on demand.
+const OrderForm = dynamic(() => import("./components/OrderForm"));
+const PasswordSettingsForm = dynamic(() => import("./components/PasswordSettingsForm"));
+const DeleteOrderModal = dynamic(() => import("./components/DeleteOrderModal"));
+const IntegrityErrorModal = dynamic(() => import("./components/IntegrityErrorModal"));
+
 const sectionTransition = {
-	initial: { opacity: 0, y: 24 },
+	initial: { opacity: 0 },
 	animate: {
 		opacity: 1,
-		y: 0,
-		transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+		transition: { duration: 0.25 },
 	},
 };
 
@@ -50,14 +55,19 @@ const INITIAL_PASSWORD_FORM = {
 
 const ORDERS_PAGE_SIZE = 25;
 const FILE_NAMES_BATCH_SIZE = 100;
-
-const normalizeStatusValue = normalizeOrderStatus;
+const ALL_STATUSES_LABEL = "Wszystkie statusy";
+const MAX_CACHED_ORDER_PAGES = 50;
+// A background action that is still pending after this long is reported as failed instead of spinning forever.
+const ACTION_TIMEOUT_MS = 60000;
+const TRANSFER_ACTION_TIMEOUT_MS = TRANSFER_TIMEOUT_MS + ACTION_TIMEOUT_MS;
+// Object URLs must outlive the click, or some browsers cancel the download.
+const OBJECT_URL_LIFETIME_MS = 60000;
 
 const createOrdersCacheKey = ({ page, search, status }) =>
 	JSON.stringify({
 		page,
 		search: search.trim().toLowerCase(),
-		status: normalizeStatusValue(status),
+		status: normalizeOrderStatus(status),
 	});
 
 const UPLOAD_INTEGRITY_MESSAGE =
@@ -89,6 +99,7 @@ const downloadVerifiedFile = async (fileId) =>
 		const response = await http.get(`/api/downloadFile?file_id=${fileId}`, {
 			withCredentials: true,
 			responseType: "blob",
+			timeout: TRANSFER_TIMEOUT_MS,
 		});
 		const expectedChecksum = response.headers["x-content-sha256"];
 		const actualChecksum = await computeSha256Hex(response.data);
@@ -102,8 +113,25 @@ const downloadVerifiedFile = async (fileId) =>
 	return null;
 };
 
+const saveBlob = (blob, fileName) =>
+{
+	const objectUrl = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+
+	link.href = objectUrl;
+	link.download = fileName;
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
+	window.setTimeout(() => URL.revokeObjectURL(objectUrl), OBJECT_URL_LIFETIME_MS);
+};
+
+// Same value for every collapsed card, so memoized cards don't see a new prop.
+const NO_FILE_NAMES = {};
+
 export default function Orders({
 	adminMode = false,
+	initialOrdersPayload = null,
 	initialPage = "orders",
 	isAdmin = false,
 	userEmail,
@@ -111,16 +139,18 @@ export default function Orders({
 	userLastName,
 })
 {
-	const { disableMotion } = getPerfFlags();
 	const [currentPage, setCurrentPage] = useState(initialPage);
-	const [orders, setOrders] = useState([]);
-	const [currentOrdersPage, setCurrentOrdersPage] = useState(1);
-	const [totalOrdersCount, setTotalOrdersCount] = useState(0);
-	const [totalOrdersPages, setTotalOrdersPages] = useState(1);
-	const [isOrdersLoading, setIsOrdersLoading] = useState(false);
+	const [orders, setOrders] = useState(initialOrdersPayload?.orders ?? []);
+	const [currentOrdersPage, setCurrentOrdersPage] = useState(initialOrdersPayload?.page ?? 1);
+	const [totalOrdersCount, setTotalOrdersCount] = useState(initialOrdersPayload?.totalCount ?? 0);
+	const [totalOrdersPages, setTotalOrdersPages] = useState(initialOrdersPayload?.totalPages ?? 1);
+	// Starts true when nothing was prefetched, so the empty state doesn't flash before the first load.
+	const [isOrdersLoading, setIsOrdersLoading] = useState(
+		initialPage === "orders" && !initialOrdersPayload,
+	);
+	// Committed search text; the text being typed lives in OrdersToolbar.
 	const [orderSearchValue, setOrderSearchValue] = useState("");
-	const [debouncedOrderSearchValue, setDebouncedOrderSearchValue] = useState("");
-	const [orderStatusValue, setOrderStatusValue] = useState("Wszystkie statusy");
+	const [orderStatusValue, setOrderStatusValue] = useState(ALL_STATUSES_LABEL);
 	const [newOrder, setNewOrder] = useState(INITIAL_ORDER);
 	const [files, setFiles] = useState([]);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
@@ -129,6 +159,7 @@ export default function Orders({
 	const [editFiles, setEditFiles] = useState([]);
 	const [expandedOrderId, setExpandedOrderId] = useState(null);
 	const [fileNamesById, setFileNamesById] = useState({});
+	const [downloadingFileIds, setDownloadingFileIds] = useState(() => new Set());
 	const [backgroundActions, setBackgroundActions] = useState([]);
 	const [integrityError, setIntegrityError] = useState(null);
 	const [openEditMenuId, setOpenEditMenuId] = useState(null);
@@ -137,9 +168,42 @@ export default function Orders({
 	const [passwordChangeError, setPasswordChangeError] = useState(null);
 	const [isPasswordChangeSubmitting, setIsPasswordChangeSubmitting] =
 		useState(false);
+	// Pages already fetched, seeded with the server-rendered one. The Map is mutated in place and never rendered.
+	const [ordersCache] = useState(() =>
+	{
+		const cache = new Map();
+
+		if (initialOrdersPayload)
+		{
+			cache.set(
+				createOrdersCacheKey({
+					page: initialOrdersPayload.page,
+					search: "",
+					status: ALL_STATUSES_LABEL,
+				}),
+				initialOrdersPayload,
+			);
+		}
+
+		return cache;
+	});
 	const backgroundActionTimeoutsRef = useRef({});
-	const ordersCacheRef = useRef(new Map());
+	const cacheGenerationRef = useRef(0);
 	const latestOrdersRequestRef = useRef(0);
+	const ordersAbortRef = useRef(null);
+	const fileNameRequestsRef = useRef(new Map());
+	const isLoggingOutRef = useRef(false);
+	// Always-current values for stable callbacks, so memoized cards keep their props.
+	const latestRef = useRef({});
+
+	useEffect(() =>
+	{
+		latestRef.current = {
+			currentOrdersPage,
+			fileNamesById,
+			orders,
+		};
+	});
 
 	const updatePasswordForm = useCallback((field, value) =>
 	{
@@ -174,57 +238,39 @@ export default function Orders({
 		);
 	}, []);
 
-	const removeBackgroundAction = useCallback((actionId) =>
+	const clearActionTimeout = useCallback((key) =>
 	{
-		const timeoutId = backgroundActionTimeoutsRef.current[actionId];
+		const timeoutId = backgroundActionTimeoutsRef.current[key];
 
 		if (timeoutId)
 		{
 			clearTimeout(timeoutId);
-			delete backgroundActionTimeoutsRef.current[actionId];
+			delete backgroundActionTimeoutsRef.current[key];
 		}
+	}, []);
+
+	const removeBackgroundAction = useCallback((actionId) =>
+	{
+		clearActionTimeout(actionId);
+		clearActionTimeout(`${actionId}:watchdog`);
 
 		setBackgroundActions((current) =>
 			current.filter((action) => action.id !== actionId),
 		);
-	}, []);
+	}, [clearActionTimeout]);
 
 	const scheduleBackgroundActionRemoval = useCallback(
 		(actionId, delayMs) =>
 		{
-			const existingTimeout = backgroundActionTimeoutsRef.current[actionId];
-
-			if (existingTimeout)
-			{
-				clearTimeout(existingTimeout);
-			}
+			clearActionTimeout(actionId);
 
 			backgroundActionTimeoutsRef.current[actionId] = window.setTimeout(() =>
 			{
 				removeBackgroundAction(actionId);
 			}, delayMs);
 		},
-		[removeBackgroundAction],
+		[clearActionTimeout, removeBackgroundAction],
 	);
-
-	const startBackgroundAction = useCallback((title, description) =>
-	{
-		const actionId =
-			globalThis.crypto?.randomUUID?.() ??
-			`${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-		setBackgroundActions((current) => [
-			...current,
-			{
-				id: actionId,
-				title,
-				description,
-				status: "pending",
-			},
-		]);
-
-		return actionId;
-	}, []);
 
 	const updateBackgroundAction = useCallback((actionId, updates) =>
 	{
@@ -235,9 +281,41 @@ export default function Orders({
 		);
 	}, []);
 
+	const startBackgroundAction = useCallback(
+		(title, description, { timeoutMs = ACTION_TIMEOUT_MS } = {}) =>
+		{
+			const actionId =
+				globalThis.crypto?.randomUUID?.() ??
+				`${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+			setBackgroundActions((current) => [
+				...current,
+				{
+					id: actionId,
+					title,
+					description,
+					status: "pending",
+				},
+			]);
+
+			backgroundActionTimeoutsRef.current[`${actionId}:watchdog`] = window.setTimeout(() =>
+			{
+				updateBackgroundAction(actionId, {
+					description: "Przekroczono czas oczekiwania.",
+					status: "error",
+				});
+				scheduleBackgroundActionRemoval(actionId, 5000);
+			}, timeoutMs);
+
+			return actionId;
+		},
+		[scheduleBackgroundActionRemoval, updateBackgroundAction],
+	);
+
 	const completeBackgroundAction = useCallback(
 		(actionId, title, description) =>
 		{
+			clearActionTimeout(`${actionId}:watchdog`);
 			updateBackgroundAction(actionId, {
 				title,
 				description,
@@ -245,12 +323,13 @@ export default function Orders({
 			});
 			scheduleBackgroundActionRemoval(actionId, 1800);
 		},
-		[scheduleBackgroundActionRemoval, updateBackgroundAction],
+		[clearActionTimeout, scheduleBackgroundActionRemoval, updateBackgroundAction],
 	);
 
 	const failBackgroundAction = useCallback(
 		(actionId, title, description) =>
 		{
+			clearActionTimeout(`${actionId}:watchdog`);
 			updateBackgroundAction(actionId, {
 				title,
 				description,
@@ -258,13 +337,15 @@ export default function Orders({
 			});
 			scheduleBackgroundActionRemoval(actionId, 5000);
 		},
-		[scheduleBackgroundActionRemoval, updateBackgroundAction],
+		[clearActionTimeout, scheduleBackgroundActionRemoval, updateBackgroundAction],
 	);
 
 	const clearOrdersCache = useCallback(() =>
 	{
-		ordersCacheRef.current.clear();
-	}, []);
+		ordersCache.clear();
+		// Requests started before this must not repopulate the cache with stale pages.
+		cacheGenerationRef.current += 1;
+	}, [ordersCache]);
 
 	const applyOrdersPayload = useCallback((payload) =>
 	{
@@ -277,9 +358,9 @@ export default function Orders({
 	const loadOrdersPage = useCallback(
 		async ({
 			force = false,
-			page = currentOrdersPage,
-			search = debouncedOrderSearchValue,
-			status = orderStatusValue,
+			page = latestRef.current.currentOrdersPage ?? 1,
+			search = "",
+			status = ALL_STATUSES_LABEL,
 		} = {}) =>
 		{
 			const cacheKey = createOrdersCacheKey({
@@ -287,19 +368,29 @@ export default function Orders({
 				search,
 				status,
 			});
+			const requestId = latestOrdersRequestRef.current + 1;
 
-			if (!force && ordersCacheRef.current.has(cacheKey))
+			latestOrdersRequestRef.current = requestId;
+			// A newer request replaces whatever is still in flight.
+			ordersAbortRef.current?.abort();
+			ordersAbortRef.current = null;
+
+			if (!force && ordersCache.has(cacheKey))
 			{
-				const cachedPayload = ordersCacheRef.current.get(cacheKey);
+				const cachedPayload = ordersCache.get(cacheKey);
+
+				setIsOrdersLoading(false);
 				applyOrdersPayload(cachedPayload);
 				return cachedPayload.orders || [];
 			}
 
-			const requestId = latestOrdersRequestRef.current + 1;
-			latestOrdersRequestRef.current = requestId;
+			const controller = new AbortController();
+			const cacheGeneration = cacheGenerationRef.current;
+
+			ordersAbortRef.current = controller;
 			setIsOrdersLoading(true);
 
-			try 
+			try
 			{
 				const params = new URLSearchParams({
 					page: String(page),
@@ -311,15 +402,16 @@ export default function Orders({
 					params.set("search", search.trim());
 				}
 
-				if (status !== "Wszystkie statusy")
+				if (status !== ALL_STATUSES_LABEL)
 				{
-					params.set("status", normalizeStatusValue(status));
+					params.set("status", normalizeOrderStatus(status));
 				}
 
 				const response = await http.get(
 					`${adminMode ? "/api/admin/getOrders" : "/api/getOrders"}?${params.toString()}`,
 					{
 						withCredentials: true,
+						signal: controller.signal,
 					},
 				);
 
@@ -330,13 +422,21 @@ export default function Orders({
 					totalCount: response.data.totalCount || 0,
 					totalPages: response.data.totalPages || 1,
 				};
-				const resolvedCacheKey = createOrdersCacheKey({
-					page: payload.page,
-					search,
-					status,
-				});
 
-				ordersCacheRef.current.set(resolvedCacheKey, payload);
+				if (cacheGeneration === cacheGenerationRef.current)
+				{
+					const cache = ordersCache;
+
+					cache.set(
+						createOrdersCacheKey({ page: payload.page, search, status }),
+						payload,
+					);
+
+					if (cache.size > MAX_CACHED_ORDER_PAGES)
+					{
+						cache.delete(cache.keys().next().value);
+					}
+				}
 
 				if (requestId === latestOrdersRequestRef.current)
 				{
@@ -345,86 +445,89 @@ export default function Orders({
 
 				return payload.orders;
 			}
-			finally 
+			catch (err)
+			{
+				// Replaced by a newer request: that one reports the result.
+				if (controller.signal.aborted)
+				{
+					return [];
+				}
+
+				throw err;
+			}
+			finally
 			{
 				if (requestId === latestOrdersRequestRef.current)
 				{
+					ordersAbortRef.current = null;
 					setIsOrdersLoading(false);
 				}
 			}
 		},
-		[
-			adminMode,
-			applyOrdersPayload,
-			currentOrdersPage,
-			debouncedOrderSearchValue,
-			orderStatusValue,
-		],
+		[adminMode, applyOrdersPayload, ordersCache],
 	);
 
+	// Reloads with the filters currently on screen.
 	const refreshOrders = useCallback(
-		async ({ page = currentOrdersPage } = {}) =>
+		async ({ page } = {}) =>
 		{
 			clearOrdersCache();
 			return loadOrdersPage({
 				force: true,
 				page,
+				search: latestRef.current.search ?? "",
+				status: latestRef.current.status ?? ALL_STATUSES_LABEL,
 			});
 		},
-		[clearOrdersCache, currentOrdersPage, loadOrdersPage],
+		[clearOrdersCache, loadOrdersPage],
 	);
 
+	// Resolves to every file name known after the call (existing plus newly fetched).
 	const loadFileNamesByIds = useCallback(async (fileIds, { force = false } = {}) =>
 	{
-		const missingFileIds = [
+		const known = latestRef.current.fileNamesById ?? {};
+		const requests = fileNameRequestsRef.current;
+		const wantedIds = [
 			...new Set(
-				fileIds.filter((fileId) => fileId && (force || !fileNamesById[fileId])),
+				fileIds.filter((fileId) => fileId && (force || !known[fileId])),
 			),
 		];
-
-		if (missingFileIds.length === 0)
-		{
-			return;
-		}
+		const pending = wantedIds
+			.filter((fileId) => requests.has(fileId))
+			.map((fileId) => requests.get(fileId));
+		const idsToFetch = wantedIds.filter((fileId) => !requests.has(fileId));
+		const resolved = {};
 
 		// One batched request per chunk instead of one request per attachment;
 		// the per-file fan-out flooded Postgres and Kratos on every page load.
-		const chunks = [];
-
-		for (let index = 0; index < missingFileIds.length; index += FILE_NAMES_BATCH_SIZE)
+		for (let index = 0; index < idsToFetch.length; index += FILE_NAMES_BATCH_SIZE)
 		{
-			chunks.push(missingFileIds.slice(index, index + FILE_NAMES_BATCH_SIZE));
+			const chunk = idsToFetch.slice(index, index + FILE_NAMES_BATCH_SIZE);
+			const request = http
+				.post("/api/getFileNames", { fileIds: chunk }, { withCredentials: true })
+				.then((response) =>
+				{
+					const filenames = response.data?.filenames || {};
+
+					chunk.forEach((fileId) =>
+					{
+						resolved[fileId] = filenames[fileId] || known[fileId] || "Załącznik";
+					});
+					setFileNamesById((current) => ({ ...current, ...resolved }));
+				})
+				.finally(() =>
+				{
+					chunk.forEach((fileId) => requests.delete(fileId));
+				});
+
+			chunk.forEach((fileId) => requests.set(fileId, request));
+			pending.push(request);
 		}
 
-		const responses = [];
+		await Promise.all(pending);
 
-		for (const chunk of chunks)
-		{
-			const response = await http.post(
-				"/api/getFileNames",
-				{ fileIds: chunk },
-				{ withCredentials: true },
-			);
-			const filenames = response.data?.filenames || {};
-
-			chunk.forEach((fileId) =>
-			{
-				responses.push([fileId, filenames[fileId]]);
-			});
-		}
-
-		setFileNamesById((current) =>
-		{
-			const next = { ...current };
-
-			responses.forEach(([fileId, filename]) =>
-			{
-				next[fileId] = filename || current[fileId] || "Załącznik";
-			});
-
-			return next;
-		});
-	}, [fileNamesById]);
+		return { ...latestRef.current.fileNamesById, ...resolved };
+	}, []);
 
 	useEffect(() =>
 	{
@@ -437,16 +540,9 @@ export default function Orders({
 
 	useEffect(() =>
 	{
-		const timeoutId = window.setTimeout(() =>
-		{
-			setDebouncedOrderSearchValue(orderSearchValue);
-		}, 250);
-
-		return () =>
-		{
-			window.clearTimeout(timeoutId);
-		};
-	}, [orderSearchValue]);
+		latestRef.current.search = orderSearchValue;
+		latestRef.current.status = orderStatusValue;
+	}, [orderSearchValue, orderStatusValue]);
 
 	useEffect(() =>
 	{
@@ -457,7 +553,7 @@ export default function Orders({
 
 		void loadOrdersPage({
 			page: currentOrdersPage,
-			search: debouncedOrderSearchValue,
+			search: orderSearchValue,
 			status: orderStatusValue,
 		}).catch((err) =>
 		{
@@ -466,14 +562,16 @@ export default function Orders({
 	}, [
 		currentOrdersPage,
 		currentPage,
-		debouncedOrderSearchValue,
 		loadOrdersPage,
+		orderSearchValue,
 		orderStatusValue,
 	]);
 
 	useEffect(
 		() => () =>
 		{
+			ordersAbortRef.current?.abort();
+
 			Object.values(backgroundActionTimeoutsRef.current).forEach((timeoutId) =>
 			{
 				clearTimeout(timeoutId);
@@ -482,88 +580,92 @@ export default function Orders({
 		[],
 	);
 
+	// File names are only shown in the expanded card, so they load when a card opens.
 	useEffect(() =>
 	{
-		if (!editedOrder)
+		const expandedOrder = orders.find((order) => order.order_id === expandedOrderId);
+
+		if (!Array.isArray(expandedOrder?.files) || expandedOrder.files.length === 0)
 		{
-			setEditDraft(INITIAL_EDIT_DRAFT);
-			setEditFiles([]);
 			return;
 		}
 
-		setEditDraft({
-			patient: editedOrder.patient || "",
-			details: editedOrder.details || editedOrder.type || "",
-			dueDate: getDisplayDate(editedOrder),
+		loadFileNamesByIds(expandedOrder.files).catch((err) =>
+		{
+			console.error("Nie udało się pobrać nazw plików:", err);
 		});
-	}, [editedOrder]);
-
-	useEffect(() =>
-	{
-		const missingFileIds = [
-			...new Set(
-				orders
-					.flatMap((order) => (Array.isArray(order.files) ? order.files : []))
-					.filter((fileId) => fileId && !fileNamesById[fileId]),
-			),
-		];
-
-		if (missingFileIds.length === 0)
-		{
-			return;
-		}
-
-		let isMounted = true;
-
-		const loadFileNames = async () =>
-		{
-			try 
-			{
-				if (!isMounted)
-				{
-					return;
-				}
-
-				await loadFileNamesByIds(missingFileIds);
-			}
-			catch (err) 
-			{
-				console.error("Nie udało się pobrać nazw plików:", err);
-			}
-		};
-
-		void loadFileNames();
-
-		return () =>
-		{
-			isMounted = false;
-		};
-	}, [fileNamesById, loadFileNamesByIds, orders]);
+	}, [expandedOrderId, loadFileNamesByIds, orders]);
 
 	const handleLogout = async () =>
 	{
-		try 
+		if (isLoggingOutRef.current)
+		{
+			return;
+		}
+
+		isLoggingOutRef.current = true;
+
+		try
 		{
 			const response = await http.get(`${KRATOS_PUBLIC}/self-service/logout/browser`, {
 				withCredentials: true,
 			});
+			const logoutUrl = response.data?.logout_url;
 
-			window.location.href = response.data.logout_url;
+			if (typeof logoutUrl !== "string" || !logoutUrl)
+			{
+				throw new Error("Kratos nie zwrócił adresu wylogowania.");
+			}
+
+			window.location.href = logoutUrl;
 		}
-		catch (err) 
+		catch (err)
 		{
+			isLoggingOutRef.current = false;
 			console.error("Błąd wylogowania:", err);
+			failBackgroundAction(
+				startBackgroundAction("Wylogowanie", userEmail),
+				"Nie udało się wylogować",
+				"Spróbuj ponownie.",
+			);
 		}
+	};
+
+	const clearEditState = () =>
+	{
+		setEditedOrder(null);
+		setEditDraft(INITIAL_EDIT_DRAFT);
+		setEditFiles([]);
 	};
 
 	const showChangePasswordPage = () =>
 	{
 		setOpenEditMenuId(null);
-		setEditedOrder(null);
+		clearEditState();
 		setDeleteOrderId(null);
 		setExpandedOrderId(null);
 		resetPasswordForm();
 		setCurrentPage("change-password");
+	};
+
+	const showUploadError = async (err, title) =>
+	{
+		const checksumMismatch = await getChecksumMismatchError(err);
+
+		if (checksumMismatch)
+		{
+			setIntegrityError({
+				title,
+				message: UPLOAD_INTEGRITY_MESSAGE,
+				files: checksumMismatch.files,
+			});
+			return;
+		}
+
+		if (await getUploadLimitResponseError(err))
+		{
+			setIntegrityError({ title, message: UPLOAD_LIMIT_MESSAGE, files: [] });
+		}
 	};
 
 	const handleCreateOrder = (e) =>
@@ -575,16 +677,27 @@ export default function Orders({
 			return;
 		}
 
+		const selectedFiles = [...files];
+		const limitError = getUploadLimitError(selectedFiles);
+
+		if (limitError)
+		{
+			setIntegrityError({
+				title: "Nie udało się utworzyć zlecenia",
+				message: limitError,
+				files: [],
+			});
+			return;
+		}
+
 		const order = {
 			patient: newOrder.patient,
 			details: newOrder.details,
-			status: "pending",
 			dueDate: newOrder.dueDate,
-			issueDate: new Date().toISOString(),
-			progress: 0,
 		};
-		const actionId = startBackgroundAction("Tworzenie zlecenia", order.patient);
-		const selectedFiles = [...files];
+		const actionId = startBackgroundAction("Tworzenie zlecenia", order.patient, {
+			timeoutMs: TRANSFER_ACTION_TIMEOUT_MS,
+		});
 
 		setCurrentPage("orders");
 		setCurrentOrdersPage(1);
@@ -593,61 +706,57 @@ export default function Orders({
 
 		void (async () =>
 		{
+			let orderID;
+
 			try
 			{
-				const fileChecksums = await Promise.all(selectedFiles.map(computeSha256Hex));
+				const fileChecksums = await computeSha256HexSequentially(selectedFiles);
 				const formData = new FormData();
 
 				formData.append("patient", order.patient);
 				formData.append("details", order.details);
-				formData.append("status", order.status);
 				formData.append("dueDate", order.dueDate);
-				formData.append("issueDate", order.issueDate);
-				formData.append("progress", String(order.progress));
-
-				selectedFiles.forEach((file, index) =>
-				{
-					formData.append("files", file);
-					formData.append("fileChecksums", fileChecksums[index] ?? "");
-				});
+				appendUploadFiles(
+					formData,
+					selectedFiles.map((file) => ({ file, name: file.name })),
+					fileChecksums,
+				);
 
 				const response = await sendWithChecksumRetry(() =>
 					http.post("/api/postOrder", formData, {
 						withCredentials: true,
-						headers: {
-							"Content-Type": "multipart/form-data",
-						},
+						timeout: TRANSFER_TIMEOUT_MS,
 					}),
 				);
 
-				const nextOrders = await refreshOrders({ page: 1 });
-				const createdOrder = nextOrders.find(
-					(currentOrder) => currentOrder.order_id === response.data.orderID,
-				);
-
-				if (Array.isArray(createdOrder?.files) && createdOrder.files.length > 0)
-				{
-					await loadFileNamesByIds(createdOrder.files);
-				}
-
-				setExpandedOrderId(response.data.orderID);
-				completeBackgroundAction(actionId, "Utworzono zlecenie", order.patient);
+				orderID = response.data.orderID;
 			}
-			catch (err) 
+			catch (err)
 			{
 				console.error("Nie udało się utworzyć zlecenia:", err);
 				failBackgroundAction(actionId, "Nie udało się utworzyć zlecenia", order.patient);
+				// Give the data back so the order can be sent again, unless a new one was started meanwhile.
+				setNewOrder((current) => (current.patient || current.details ? current : order));
+				setFiles((current) => (current.length > 0 ? current : selectedFiles));
+				await showUploadError(err, "Nie udało się utworzyć zlecenia");
+				return;
+			}
 
-				const checksumMismatch = await getChecksumMismatchError(err);
-
-				if (checksumMismatch)
-				{
-					setIntegrityError({
-						title: "Nie udało się utworzyć zlecenia",
-						message: UPLOAD_INTEGRITY_MESSAGE,
-						files: checksumMismatch.files,
-					});
-				}
+			// The order exists now; a failed refresh must not be reported as a failed create.
+			try
+			{
+				await refreshOrders({ page: 1 });
+				setExpandedOrderId(orderID);
+				completeBackgroundAction(actionId, "Utworzono zlecenie", order.patient);
+			}
+			catch (err)
+			{
+				console.error("Nie udało się odświeżyć listy zleceń:", err);
+				completeBackgroundAction(
+					actionId,
+					"Utworzono zlecenie",
+					"Odśwież stronę, aby zobaczyć je na liście.",
+				);
 			}
 		})();
 	};
@@ -671,7 +780,7 @@ export default function Orders({
 	const showOrdersPage = () =>
 	{
 		setOpenEditMenuId(null);
-		setEditedOrder(null);
+		clearEditState();
 		resetPasswordForm();
 		setCurrentPage("orders");
 	};
@@ -698,7 +807,7 @@ export default function Orders({
 		setIsPasswordChangeSubmitting(true);
 		setPasswordChangeError(null);
 
-		try 
+		try
 		{
 			const refreshFlowResponse = await http.get(
 				`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
@@ -750,14 +859,14 @@ export default function Orders({
 			completeBackgroundAction(actionId, "Hasło zostało zmienione", userEmail);
 			showOrdersPage();
 		}
-		catch (err) 
+		catch (err)
 		{
 			console.error("Nie udało się zmienić hasła:", err);
 			const message = getKratosErrorMessage(err, "password");
 			setPasswordChangeError(message);
 			failBackgroundAction(actionId, "Nie udało się zmienić hasła", message);
 		}
-		finally 
+		finally
 		{
 			setIsPasswordChangeSubmitting(false);
 		}
@@ -775,46 +884,94 @@ export default function Orders({
 		);
 		const orderLabel = orderToDelete?.patient || `Zlecenie #${deleteOrderId}`;
 		const actionId = startBackgroundAction("Usuwanie zlecenia", orderLabel);
+		const orderId = deleteOrderId;
 
 		setDeleteOrderId(null);
 		setExpandedOrderId((current) =>
-			current === deleteOrderId ? null : current,
+			current === orderId ? null : current,
 		);
 
 		void (async () =>
 		{
-			try 
+			try
 			{
 				await http.delete(
-					`${adminMode ? "/api/admin/deleteOrder" : "/api/deleteOrder"}?orderID=${deleteOrderId}`,
+					`${adminMode ? "/api/admin/deleteOrder" : "/api/deleteOrder"}?orderID=${orderId}`,
 					{
 						withCredentials: true,
 					},
 				);
-				await refreshOrders({ page: currentOrdersPage });
-				completeBackgroundAction(actionId, "Usunięto zlecenie", orderLabel);
 			}
-			catch (err) 
+			catch (err)
 			{
 				console.error("Nie udało się usunąć zlecenia:", err);
 				failBackgroundAction(actionId, "Nie udało się usunąć zlecenia", orderLabel);
+				return;
+			}
+
+			try
+			{
+				await refreshOrders({ page: currentOrdersPage });
+				completeBackgroundAction(actionId, "Usunięto zlecenie", orderLabel);
+			}
+			catch (err)
+			{
+				console.error("Nie udało się odświeżyć listy zleceń:", err);
+				completeBackgroundAction(
+					actionId,
+					"Usunięto zlecenie",
+					"Odśwież stronę, aby zobaczyć aktualną listę.",
+				);
 			}
 		})();
 	};
 
-	const toggleOrderExpanded = (orderId) =>
+	const toggleOrderExpanded = useCallback((orderId) =>
 	{
 		setOpenEditMenuId(null);
 		setExpandedOrderId((current) => (current === orderId ? null : orderId));
-	};
+	}, []);
 
-	const openEditOrder = (order) =>
+	const toggleOrderMenu = useCallback((orderId) =>
 	{
-		setEditFiles(getOrderFiles(order, fileNamesById));
-		setEditedOrder(order);
+		setOpenEditMenuId((current) => (current === orderId ? null : orderId));
+	}, []);
+
+	const requestDeleteOrder = useCallback((orderId) =>
+	{
 		setOpenEditMenuId(null);
+		setDeleteOrderId(orderId);
+	}, []);
+
+	const openEditOrder = useCallback(async (order) =>
+	{
+		setOpenEditMenuId(null);
+
+		let names = latestRef.current.fileNamesById ?? {};
+
+		try
+		{
+			names = await loadFileNamesByIds(order.files ?? []);
+		}
+		catch (err)
+		{
+			console.error("Nie udało się pobrać nazw plików:", err);
+		}
+
+		setEditFiles(
+			getOrderFiles(order, names).map((attachment) => ({
+				...attachment,
+				initialName: attachment.name,
+			})),
+		);
+		setEditDraft({
+			patient: order.patient || "",
+			details: order.details || order.type || "",
+			dueDate: getDisplayDate(order),
+		});
+		setEditedOrder(order);
 		setCurrentPage("edit-order");
-	};
+	}, [loadFileNamesByIds]);
 
 	const handleEditOrderSave = (e) =>
 	{
@@ -830,64 +987,90 @@ export default function Orders({
 		const details = editDraft.details;
 		const dueDate = editDraft.dueDate;
 		const attachments = [...editFiles];
-		const actionId = startBackgroundAction("Zapisywanie zmian", patient);
+		const localAttachments = attachments.filter(
+			(attachment) => attachment.isLocal && attachment.file instanceof File,
+		);
+		const limitError = getUploadLimitError(localAttachments.map((attachment) => attachment.file));
+
+		if (limitError)
+		{
+			setIntegrityError({
+				title: "Nie udało się zapisać zmian w zleceniu",
+				message: limitError,
+				files: [],
+			});
+			return;
+		}
+
+		// A new patient name changes how every file name is normalized, so then all names are sent.
+		const sendAllNames = patient !== editedOrder.patient;
+		const actionId = startBackgroundAction("Zapisywanie zmian", patient, {
+			timeoutMs: TRANSFER_ACTION_TIMEOUT_MS,
+		});
 
 		setCurrentPage("orders");
-		setEditedOrder(null);
-		setEditDraft(INITIAL_EDIT_DRAFT);
-		setEditFiles([]);
+		clearEditState();
 
 		void (async () =>
 		{
+			let response;
+
 			try
 			{
-				const attachmentChecksums = await Promise.all(
-					attachments.map((attachment) =>
-						attachment.isLocal && attachment.file instanceof File
-							? computeSha256Hex(attachment.file)
-							: null,
-					),
+				const checksums = await computeSha256HexSequentially(
+					localAttachments.map((attachment) => attachment.file),
 				);
 				const formData = new FormData();
+
 				formData.append("orderID", orderID);
 				formData.append("patient", patient);
 				formData.append("details", details);
 				formData.append("dueDate", dueDate);
 
-				attachments.forEach((attachment, index) =>
+				attachments.forEach((attachment) =>
 				{
-					if (attachment.isLocal && attachment.file instanceof File)
-					{
-						formData.append("files", attachment.file, attachment.name);
-						formData.append("fileChecksums", attachmentChecksums[index] ?? "");
-						return;
-					}
-
-					if (attachment.fileId)
+					if (!attachment.isLocal && attachment.fileId)
 					{
 						formData.append("existingFileIds", attachment.fileId);
-						formData.append(
-							"fileNames",
-							JSON.stringify({
-								fileId: attachment.fileId,
-								fileName: attachment.name,
-							}),
-						);
+
+						if (sendAllNames || attachment.name !== attachment.initialName)
+						{
+							formData.append(
+								"fileNames",
+								JSON.stringify({
+									fileId: attachment.fileId,
+									fileName: attachment.name,
+								}),
+							);
+						}
 					}
 				});
 
-				const response = await sendWithChecksumRetry(() =>
+				appendUploadFiles(formData, localAttachments, checksums);
+
+				response = await sendWithChecksumRetry(() =>
 					http.put(
 						adminMode ? "/api/admin/modifyOrder" : "/api/modifyOrder",
 						formData,
 						{
 							withCredentials: true,
-							headers: {
-								"Content-Type": "multipart/form-data",
-							},
+							timeout: TRANSFER_TIMEOUT_MS,
 						},
 					),
 				);
+			}
+			catch (err)
+			{
+				console.error("Nie udało się zaktualizować zlecenia:", err);
+				failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", patient);
+				await showUploadError(err, "Nie udało się zapisać zmian w zleceniu");
+				return;
+			}
+
+			// The changes are saved; a failed refresh must not be reported as a failed save.
+			try
+			{
+				const updatedOrder = response.data.order;
 
 				if (Array.isArray(response.data.uploadedFiles))
 				{
@@ -904,7 +1087,6 @@ export default function Orders({
 					});
 				}
 
-				const updatedOrder = response.data.order;
 				const nextOrders = await refreshOrders({ page: currentOrdersPage });
 				const refreshedOrder =
 					nextOrders.find((order) => order.order_id === updatedOrder.order_id) ||
@@ -924,37 +1106,23 @@ export default function Orders({
 				setExpandedOrderId(updatedOrder.order_id);
 				completeBackgroundAction(actionId, "Zmiany zapisane", patient);
 			}
-			catch (err) 
+			catch (err)
 			{
-				console.error("Nie udało się zaktualizować zlecenia:", err);
-				failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", patient);
-
-				const checksumMismatch = await getChecksumMismatchError(err);
-
-				if (checksumMismatch)
-				{
-					setIntegrityError({
-						title: "Nie udało się zapisać zmian w zleceniu",
-						message: UPLOAD_INTEGRITY_MESSAGE,
-						files: checksumMismatch.files,
-					});
-				}
+				console.error("Nie udało się odświeżyć listy zleceń:", err);
+				completeBackgroundAction(
+					actionId,
+					"Zmiany zapisane",
+					"Odśwież stronę, aby zobaczyć aktualną listę.",
+				);
 			}
 		})();
 	};
 
-	const handleDownloadFile = async (order, attachment, index) =>
+	const handleDownloadFile = useCallback(async (order, attachment, index) =>
 	{
 		if (attachment.file instanceof File)
 		{
-			const objectUrl = URL.createObjectURL(attachment.file);
-			const link = document.createElement("a");
-			link.href = objectUrl;
-			link.download = buildOrderFileName(order.patient, attachment.file.name);
-			document.body.appendChild(link);
-			link.click();
-			link.remove();
-			URL.revokeObjectURL(objectUrl);
+			saveBlob(attachment.file, buildOrderFileName(order.patient, attachment.file.name));
 			return;
 		}
 
@@ -962,7 +1130,7 @@ export default function Orders({
 
 		if (!fileId)
 		{
-			const refreshedOrders = await refreshOrders({ page: currentOrdersPage });
+			const refreshedOrders = await refreshOrders({ page: latestRef.current.currentOrdersPage });
 			const refreshedOrder = refreshedOrders.find(
 				(currentOrder) => currentOrder.order_id === order.order_id,
 			);
@@ -974,56 +1142,77 @@ export default function Orders({
 			return;
 		}
 
+		const setDownloading = (isDownloading) =>
+		{
+			setDownloadingFileIds((current) =>
+			{
+				const next = new Set(current);
+
+				if (isDownloading)
+				{
+					next.add(fileId);
+				}
+				else
+				{
+					next.delete(fileId);
+				}
+
+				return next;
+			});
+		};
+
 		const downloadOrder =
 			order.patient
 				? order
-				: orders.find((currentOrder) => currentOrder.order_id === order.order_id) ||
+				: latestRef.current.orders?.find((currentOrder) => currentOrder.order_id === order.order_id) ||
 					order;
-		const baseFileName = fileNamesById[fileId] || attachment.name;
-		let fileBlob;
+		const baseFileName = latestRef.current.fileNamesById?.[fileId] || attachment.name;
+
+		setDownloading(true);
 
 		try
 		{
-			fileBlob = await downloadVerifiedFile(fileId);
+			const fileBlob = await downloadVerifiedFile(fileId);
+
+			if (!fileBlob)
+			{
+				setIntegrityError({
+					title: "Nie udało się pobrać pliku",
+					message:
+						"Plik został uszkodzony podczas pobierania (niezgodna suma kontrolna), również przy ponownej próbie. Spróbuj ponownie później.",
+					files: [baseFileName],
+				});
+				return;
+			}
+
+			saveBlob(fileBlob, buildOrderFileName(downloadOrder.patient, baseFileName));
 		}
 		catch (err)
 		{
-			if (!(await getChecksumMismatchError(err)))
+			console.error("Nie udało się pobrać pliku:", err);
+
+			if (await getChecksumMismatchError(err))
 			{
-				throw err;
+				setIntegrityError({
+					title: "Plik na serwerze jest uszkodzony",
+					message:
+						"Suma kontrolna zapisanego pliku jest niezgodna z oryginałem. Plik nie został pobrany. Skontaktuj się z administratorem.",
+					files: [baseFileName],
+				});
+				return;
 			}
 
-			setIntegrityError({
-				title: "Plik na serwerze jest uszkodzony",
-				message:
-					"Suma kontrolna zapisanego pliku jest niezgodna z oryginałem. Plik nie został pobrany. Skontaktuj się z administratorem.",
-				files: [baseFileName],
-			});
-			return;
-		}
+			const actionId = startBackgroundAction("Pobieranie pliku", baseFileName);
 
-		if (!fileBlob)
+			failBackgroundAction(actionId, "Nie udało się pobrać pliku", baseFileName);
+		}
+		finally
 		{
-			setIntegrityError({
-				title: "Nie udało się pobrać pliku",
-				message:
-					"Plik został uszkodzony podczas pobierania (niezgodna suma kontrolna), również przy ponownej próbie. Spróbuj ponownie później.",
-				files: [baseFileName],
-			});
-			return;
+			setDownloading(false);
 		}
+	}, [failBackgroundAction, refreshOrders, startBackgroundAction]);
 
-		const objectUrl = URL.createObjectURL(fileBlob);
-		const link = document.createElement("a");
-		link.href = objectUrl;
-		link.download = buildOrderFileName(downloadOrder.patient, baseFileName);
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(objectUrl);
-	};
-
-	const handleStatusChange = async (order, status) =>
+	const handleStatusChange = useCallback(async (order, status) =>
 	{
 		if (!adminMode || !order?.order_id || order.status === status)
 		{
@@ -1033,293 +1222,296 @@ export default function Orders({
 		const actionId = startBackgroundAction("Zmiana statusu zlecenia", order.patient);
 		setStatusUpdatingOrderId(order.order_id);
 
-		try 
+		try
 		{
 			await http.put(
 				"/api/admin/updateOrderStatus",
 				{ orderID: order.order_id, status },
 				{ withCredentials: true },
 			);
-			await refreshOrders({ page: currentOrdersPage });
-			completeBackgroundAction(actionId, "Status zlecenia zmieniony", order.patient);
 		}
-		catch (err) 
+		catch (err)
 		{
 			console.error("Nie udało się zmienić statusu zlecenia:", err);
 			failBackgroundAction(actionId, "Nie udało się zmienić statusu zlecenia", order.patient);
+			setStatusUpdatingOrderId(null);
+			return;
 		}
-		finally 
+
+		try
+		{
+			await refreshOrders({ page: latestRef.current.currentOrdersPage });
+			completeBackgroundAction(actionId, "Status zlecenia zmieniony", order.patient);
+		}
+		catch (err)
+		{
+			console.error("Nie udało się odświeżyć listy zleceń:", err);
+			completeBackgroundAction(
+				actionId,
+				"Status zlecenia zmieniony",
+				"Odśwież stronę, aby zobaczyć aktualną listę.",
+			);
+		}
+		finally
 		{
 			setStatusUpdatingOrderId(null);
 		}
-	};
+	}, [
+		adminMode,
+		completeBackgroundAction,
+		failBackgroundAction,
+		refreshOrders,
+		startBackgroundAction,
+	]);
 
 	return (
-		<MotionConfig reducedMotion={disableMotion ? "always" : "never"}>
-			<PerfProfiler id="OrdersPage">
-				<motion.div
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					transition={{ duration: disableMotion ? 0 : 0.45 }}
-					className="min-h-dvh bg-transparent text-white">
-					<DeleteOrderModal
-						isOpen={Boolean(deleteOrderId)}
-						onCancel={() => setDeleteOrderId(null)}
-						onConfirm={confirmDelete}
-					/>
+		<div className="min-h-dvh bg-transparent text-white">
+			{deleteOrderId && (
+				<DeleteOrderModal
+					isOpen
+					onCancel={() => setDeleteOrderId(null)}
+					onConfirm={confirmDelete}
+				/>
+			)}
 
-					<IntegrityErrorModal
-						error={integrityError}
-						onClose={() => setIntegrityError(null)}
-					/>
+			{integrityError && (
+				<IntegrityErrorModal
+					error={integrityError}
+					onClose={() => setIntegrityError(null)}
+				/>
+			)}
 
-					<OrdersHeader
-						currentPage={currentPage}
-						isAdmin={isAdmin || adminMode}
-						isAdminPage={adminMode}
-						onLogout={handleLogout}
-						onShowChangePassword={showChangePasswordPage}
-						onShowCreateOrder={() => setCurrentPage("create-order")}
-						onShowOrders={showOrdersPage}
-						userLastName={userLastName}
-						userName={userName}
-					/>
+			<OrdersHeader
+				currentPage={currentPage}
+				isAdmin={isAdmin || adminMode}
+				isAdminPage={adminMode}
+				onLogout={handleLogout}
+				onShowChangePassword={showChangePasswordPage}
+				onShowCreateOrder={() => setCurrentPage("create-order")}
+				onShowOrders={showOrdersPage}
+				userLastName={userLastName}
+				userName={userName}
+			/>
 
-					<main className="container mx-auto px-4 py-6 sm:py-8">
-						{currentPage === "orders" && (
-							<motion.div
-								variants={sectionTransition}
-								initial="initial"
-								animate="animate">
-								<div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-									<div className="min-w-0">
-										<h2 className="text-2xl font-bold text-white sm:text-3xl">
-											{adminMode ? "Wszystkie zlecenia" : "Zlecenia"}
-										</h2>
-										<p className="text-slate-400">
-											{adminMode
-												? "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników"
-												: "Zarządzaj i śledź wszystkie zlecenia ortodontyczne"}
-										</p>
-									</div>
-									{!adminMode && <motion.button
-										whileHover={{ scale: 1.02, y: -2 }}
-										whileTap={{ scale: 0.985 }}
-										onClick={() => setCurrentPage("create-order")}
-										className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200 sm:w-auto">
-										<Plus className="h-5 w-5" />
-										Nowe zlecenie
-									</motion.button>}
-								</div>
+			<main className="container mx-auto px-4 py-6 sm:py-8">
+				{currentPage === "orders" && (
+					<m.div
+						variants={sectionTransition}
+						initial="initial"
+						animate="animate">
+						<div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+							<div className="min-w-0">
+								<h2 className="text-2xl font-bold text-white sm:text-3xl">
+									{adminMode ? "Wszystkie zlecenia" : "Zlecenia"}
+								</h2>
+								<p className="text-slate-400">
+									{adminMode
+										? "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników"
+										: "Zarządzaj i śledź wszystkie zlecenia ortodontyczne"}
+								</p>
+							</div>
+							{!adminMode && <button
+								type="button"
+								onClick={() => setCurrentPage("create-order")}
+								className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200 active:scale-[0.985] sm:w-auto">
+								<Plus className="h-5 w-5" />
+								Nowe zlecenie
+							</button>}
+						</div>
 
-								<motion.div
-									initial={{ opacity: 0, y: 12 }}
-									animate={{ opacity: 1, y: 0 }}
-									transition={{ duration: 0.45, delay: 0.05 }}>
-									<OrdersToolbar
-										onSearchChange={handleSearchChange}
-										onStatusChange={handleOrderStatusFilterChange}
-										searchValue={orderSearchValue}
-										statusValue={orderStatusValue}
-										isAdmin={adminMode}
-									/>
-								</motion.div>
+						<OrdersToolbar
+							initialSearchValue={orderSearchValue}
+							isAdmin={adminMode}
+							onSearchChange={handleSearchChange}
+							onStatusChange={handleOrderStatusFilterChange}
+							statusValue={orderStatusValue}
+						/>
 
-								{isOrdersLoading && (
-									<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-400">
-										Wczytywanie zleceń...
-									</div>
-								)}
+						{/* Fixed height, so showing and hiding the message doesn't move the list. */}
+						<p
+							className="mb-4 h-5 text-sm text-slate-400"
+							aria-live="polite">
+							{isOrdersLoading ? "Wczytywanie zleceń..." : ""}
+						</p>
 
-								<PerfProfiler id="OrdersList">
-									<div className="grid gap-6">
-										{orders.map((order) => (
-											<OrderCard
-												key={order.order_id}
-												fileNamesById={fileNamesById}
-												isAdmin={adminMode}
-												isExpanded={expandedOrderId === order.order_id}
-												isMenuOpen={openEditMenuId === order.order_id}
-												isStatusUpdating={statusUpdatingOrderId === order.order_id}
-												onDownloadFile={(attachment, index) =>
-													handleDownloadFile(order, attachment, index)
-												}
-												onOpenEdit={() => openEditOrder(order)}
-												onRequestDelete={() =>
-												{
-													setOpenEditMenuId(null);
-													setDeleteOrderId(order.order_id);
-												}}
-												onStatusChange={(status) =>
-													handleStatusChange(order, status)
-												}
-												onToggleExpanded={() =>
-													toggleOrderExpanded(order.order_id)
-												}
-												onToggleMenu={() =>
-													setOpenEditMenuId((current) =>
-														current === order.order_id ? null : order.order_id,
-													)
-												}
-												order={order}
-											/>
-										))}
-									</div>
-								</PerfProfiler>
-
-								{!isOrdersLoading && orders.length === 0 && (
-									<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/55 px-6 py-12 text-center text-slate-400">
-										Nie znaleziono zleceń dla tej strony lub filtra.
-									</div>
-								)}
-
-								<OrdersPagination
-									currentPage={currentOrdersPage}
-									isLoading={isOrdersLoading}
-									onPageChange={(page) => setCurrentOrdersPage(page)}
-									pageSize={ORDERS_PAGE_SIZE}
-									totalCount={totalOrdersCount}
-									totalPages={totalOrdersPages}
+						<div
+							className={`grid gap-6 transition-opacity duration-200 ${
+								isOrdersLoading ? "opacity-60" : "opacity-100"
+							}`}>
+							{orders.map((order) => (
+								<OrderCard
+									key={order.order_id}
+									downloadingFileIds={expandedOrderId === order.order_id ? downloadingFileIds : undefined}
+									fileNamesById={expandedOrderId === order.order_id ? fileNamesById : NO_FILE_NAMES}
+									isAdmin={adminMode}
+									isExpanded={expandedOrderId === order.order_id}
+									isMenuOpen={openEditMenuId === order.order_id}
+									isStatusUpdating={statusUpdatingOrderId === order.order_id}
+									onDownloadFile={handleDownloadFile}
+									onOpenEdit={openEditOrder}
+									onRequestDelete={requestDeleteOrder}
+									onStatusChange={handleStatusChange}
+									onToggleExpanded={toggleOrderExpanded}
+									onToggleMenu={toggleOrderMenu}
+									order={order}
 								/>
-							</motion.div>
+							))}
+						</div>
+
+						{!isOrdersLoading && orders.length === 0 && (
+							<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900 px-6 py-12 text-center text-slate-400">
+								Nie znaleziono zleceń dla tej strony lub filtra.
+							</div>
 						)}
 
-						{currentPage === "create-order" && (
-							<motion.div
-								variants={sectionTransition}
-								initial="initial"
-								animate="animate">
-								<OrderForm
-									description="Wprowadź dane pacjenta i informacje o aparacie"
-									details={newOrder.details}
-									detailsRequired={false}
-									dueDate={newOrder.dueDate}
-									fileSectionMode="create"
-									files={files}
-									onCancel={showOrdersPage}
-									onDetailsChange={(details) =>
-										setNewOrder((current) => ({
-											...current,
-											details,
-										}))
-									}
-									onDueDateChange={(dueDate) =>
-										setNewOrder((current) => ({
-											...current,
-											dueDate,
-										}))
-									}
-									onFilesSelected={(selectedFiles) =>
-										setFiles((previous) => [...previous, ...selectedFiles])
-									}
-									onPatientChange={(patient) =>
-										setNewOrder((current) => ({
-											...current,
-											patient,
-										}))
-									}
-									onRemoveFile={(index) =>
-										setFiles((previous) =>
-											previous.filter(
-												(_, currentIndex) => currentIndex !== index,
-											),
-										)
-									}
-									onSubmit={handleCreateOrder}
-									patient={newOrder.patient}
-									submitLabel="Utwórz zlecenie"
-									title="Utwórz nowe zlecenie"
-								/>
-							</motion.div>
-						)}
+						<OrdersPagination
+							currentPage={currentOrdersPage}
+							isLoading={isOrdersLoading}
+							onPageChange={setCurrentOrdersPage}
+							pageSize={ORDERS_PAGE_SIZE}
+							totalCount={totalOrdersCount}
+							totalPages={totalOrdersPages}
+						/>
+					</m.div>
+				)}
 
-						{currentPage === "edit-order" && editedOrder && (
-							<motion.div
-								variants={sectionTransition}
-								initial="initial"
-								animate="animate">
-								<OrderForm
-									description={`Zaktualizuj dane i pliki zlecenia #${editedOrder.order_id}`}
-									details={editDraft.details}
-									dueDate={editDraft.dueDate}
-									fileSectionMode="edit"
-									onCancel={showOrdersPage}
-									onDetailsChange={(details) =>
-										setEditDraft((current) => ({
-											...current,
-											details,
-										}))
-									}
-									onDueDateChange={(dueDate) =>
-										setEditDraft((current) => ({
-											...current,
-											dueDate,
-										}))
-									}
-									onPatientChange={(patient) =>
-										setEditDraft((current) => ({
-											...current,
-											patient,
-										}))
-									}
-									onFilesSelected={(selectedFiles) =>
-										setEditFiles((current) => [
-											...current,
-											...createLocalAttachments(
-												selectedFiles,
-												editDraft.patient || editedOrder.patient,
-											),
-										])
-									}
-									onRemoveAttachment={(_, index) =>
-										setEditFiles((current) =>
-											current.filter(
-												(_, currentIndex) => currentIndex !== index,
-											),
-										)
-									}
-									onAttachmentNameChange={(name, attachment) =>
-										setEditFiles((current) =>
-											current.map((item) =>
-												item.id === attachment.id ? { ...item, name } : item,
-											),
-										)
-									}
-									onSubmit={handleEditOrderSave}
-									patient={editDraft.patient}
-									submitLabel="Zapisz zmiany"
-									title="Edytuj zlecenie"
-									attachments={editFiles}
-								/>
-							</motion.div>
-						)}
+				{currentPage === "create-order" && (
+					<m.div
+						variants={sectionTransition}
+						initial="initial"
+						animate="animate">
+						<OrderForm
+							description="Wprowadź dane pacjenta i informacje o aparacie"
+							details={newOrder.details}
+							detailsRequired={false}
+							dueDate={newOrder.dueDate}
+							fileSectionMode="create"
+							files={files}
+							onCancel={showOrdersPage}
+							onDetailsChange={(details) =>
+								setNewOrder((current) => ({
+									...current,
+									details,
+								}))
+							}
+							onDueDateChange={(dueDate) =>
+								setNewOrder((current) => ({
+									...current,
+									dueDate,
+								}))
+							}
+							onFilesSelected={(selectedFiles) =>
+								setFiles((previous) => [...previous, ...selectedFiles])
+							}
+							onPatientChange={(patient) =>
+								setNewOrder((current) => ({
+									...current,
+									patient,
+								}))
+							}
+							onRemoveFile={(index) =>
+								setFiles((previous) =>
+									previous.filter(
+										(_, currentIndex) => currentIndex !== index,
+									),
+								)
+							}
+							onSubmit={handleCreateOrder}
+							patient={newOrder.patient}
+							submitLabel="Utwórz zlecenie"
+							title="Utwórz nowe zlecenie"
+						/>
+					</m.div>
+				)}
 
-						{currentPage === "change-password" && (
-							<PasswordSettingsForm
-								confirmPassword={passwordForm.confirmPassword}
-								currentPassword={passwordForm.currentPassword}
-								errorMessage={passwordChangeError}
-								isSubmitting={isPasswordChangeSubmitting}
-								newPassword={passwordForm.newPassword}
-								onCancel={showOrdersPage}
-								onConfirmPasswordChange={(value) =>
-									updatePasswordForm("confirmPassword", value)
-								}
-								onCurrentPasswordChange={(value) =>
-									updatePasswordForm("currentPassword", value)
-								}
-								onNewPasswordChange={(value) =>
-									updatePasswordForm("newPassword", value)
-								}
-								onSubmit={handlePasswordChange}
-							/>
-						)}
+				{currentPage === "edit-order" && editedOrder && (
+					<m.div
+						variants={sectionTransition}
+						initial="initial"
+						animate="animate">
+						<OrderForm
+							description={`Zaktualizuj dane i pliki zlecenia #${editedOrder.order_id}`}
+							details={editDraft.details}
+							dueDate={editDraft.dueDate}
+							fileSectionMode="edit"
+							onCancel={showOrdersPage}
+							onDetailsChange={(details) =>
+								setEditDraft((current) => ({
+									...current,
+									details,
+								}))
+							}
+							onDueDateChange={(dueDate) =>
+								setEditDraft((current) => ({
+									...current,
+									dueDate,
+								}))
+							}
+							onPatientChange={(patient) =>
+								setEditDraft((current) => ({
+									...current,
+									patient,
+								}))
+							}
+							onFilesSelected={(selectedFiles) =>
+								setEditFiles((current) => [
+									...current,
+									...createLocalAttachments(
+										selectedFiles,
+										editDraft.patient || editedOrder.patient,
+									),
+								])
+							}
+							onRemoveAttachment={(_, index) =>
+								setEditFiles((current) =>
+									current.filter(
+										(_, currentIndex) => currentIndex !== index,
+									),
+								)
+							}
+							onAttachmentNameChange={(name, attachment) =>
+								setEditFiles((current) =>
+									current.map((item) =>
+										item.id === attachment.id ? { ...item, name } : item,
+									),
+								)
+							}
+							onSubmit={handleEditOrderSave}
+							patient={editDraft.patient}
+							submitLabel="Zapisz zmiany"
+							title="Edytuj zlecenie"
+							attachments={editFiles}
+						/>
+					</m.div>
+				)}
 
-					</main>
+				{currentPage === "change-password" && (
+					<PasswordSettingsForm
+						confirmPassword={passwordForm.confirmPassword}
+						currentPassword={passwordForm.currentPassword}
+						errorMessage={passwordChangeError}
+						isSubmitting={isPasswordChangeSubmitting}
+						newPassword={passwordForm.newPassword}
+						onCancel={showOrdersPage}
+						onConfirmPasswordChange={(value) =>
+							updatePasswordForm("confirmPassword", value)
+						}
+						onCurrentPasswordChange={(value) =>
+							updatePasswordForm("currentPassword", value)
+						}
+						onNewPasswordChange={(value) =>
+							updatePasswordForm("newPassword", value)
+						}
+						onSubmit={handlePasswordChange}
+					/>
+				)}
 
-					<BackgroundActionsWidget actions={backgroundActions} />
-				</motion.div>
-			</PerfProfiler>
-		</MotionConfig>
+			</main>
+
+			<BackgroundActionsWidget
+				actions={backgroundActions}
+				onDismiss={removeBackgroundAction}
+			/>
+		</div>
 	);
 }

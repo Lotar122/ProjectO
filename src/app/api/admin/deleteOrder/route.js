@@ -4,6 +4,8 @@ import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { deleteOrderFiles } from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
 import { DB } from "@/app/lib/db";
+import { internalError, jsonError } from "@/app/lib/apiErrors";
+import { isUuid } from "@/app/lib/validate";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
@@ -17,14 +19,14 @@ async function handleDelete(req)
 
 		if (!userAuthSession.loggedIn || !isAdminSession(userAuthSession))
 		{
-			return Response.json({ error: "Admin access required" }, { status: 403 });
+			return jsonError("Admin access required", 403);
 		}
 
 		const orderID = new URL(req.url).searchParams.get("orderID");
 
-		if (!orderID)
+		if (!isUuid(orderID))
 		{
-			return Response.json({ error: "orderID is required" }, { status: 400 });
+			return jsonError("A valid orderID is required", 400);
 		}
 
 		const [order] = await DB`
@@ -36,11 +38,20 @@ async function handleDelete(req)
 
 		if (!order)
 		{
-			return Response.json({ error: "Order not found" }, { status: 404 });
+			return jsonError("Order not found", 404);
 		}
 
 		const s3 = await createS3Client();
-		await deleteOrderFiles(s3, Array.isArray(order.files) ? order.files : []);
+		const undeletedFileIds = await deleteOrderFiles(s3, Array.isArray(order.files) ? order.files : []);
+
+		// Keep the row while files remain, so the order can be deleted again instead of orphaning patient data.
+		if (undeletedFileIds.length > 0)
+		{
+			log.error(`Order ${orderID} kept: ${undeletedFileIds.length} file(s) could not be deleted`);
+
+			return internalError();
+		}
+
 		await DB`DELETE FROM orders WHERE order_id = ${orderID}`;
 
 		log.info(`Order ${orderID} deleted by admin ${userAuthSession.data.identity.id}`);
@@ -51,10 +62,7 @@ async function handleDelete(req)
 	{
 		log.error("Failed to delete order", err);
 
-		return Response.json(
-			{ success: false, error: err.message },
-			{ status: 500 },
-		);
+		return internalError();
 	}
 }
 

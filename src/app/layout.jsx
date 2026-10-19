@@ -1,17 +1,14 @@
 //default layout
 
-import { Geist, Geist_Mono } from "next/font/google";
-import ScrollPerfDiagnostics from "./components/perf/ScrollPerfDiagnostics";
+import { Geist } from "next/font/google";
+import MotionProvider from "./components/MotionProvider";
+import DevDiagnostics from "./components/perf/DevDiagnostics";
 import "./globals.css";
 
+// latin-ext carries the Polish letters (ą ć ę ł ń ś ź ż); without it they fall back to a system font.
 const geistSans = Geist({
 	variable: "--font-geist-sans",
-	subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-	variable: "--font-geist-mono",
-	subsets: ["latin"],
+	subsets: ["latin", "latin-ext"],
 });
 
 export const metadata = {
@@ -29,10 +26,10 @@ export const viewport = {
 export default function RootLayout({ children })
 {
 	return (
-		<html lang="pl">
-			<body className={`${geistSans.variable} ${geistMono.variable}`}>
-				<ScrollPerfDiagnostics />
-				{children}
+		<html lang="pl" data-scroll-behavior="smooth">
+			<body className={geistSans.variable}>
+				<DevDiagnostics />
+				<MotionProvider>{children}</MotionProvider>
 			</body>
 		</html>
 	);

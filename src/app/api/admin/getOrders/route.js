@@ -1,25 +1,15 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
+import {
+	InvalidOrderFilterError,
+	listOrders,
+} from "@/app/server-functions/orders/listOrders";
 import { cookies } from "next/headers";
-import { DB } from "@/app/lib/db";
+import { internalError, jsonError } from "@/app/lib/apiErrors";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
 const log = createLogger("admin");
-
-const DEFAULT_PAGE_SIZE = 25;
-
-const normalizeStatus = (value) =>
-	String(value ?? "")
-		.trim()
-		.toLowerCase()
-		.replace(/\s+/g, "-");
-
-const jsonError = (message, status) =>
-	new Response(JSON.stringify({ error: message }), {
-		status,
-		headers: { "Content-Type": "application/json" },
-	});
 
 async function handleGet(request)
 {
@@ -38,141 +28,25 @@ async function handleGet(request)
 		}
 
 		const { searchParams } = new URL(request.url);
-		const requestedPage = Number.parseInt(searchParams.get("page") || "1", 10);
-		const requestedLimit = Number.parseInt(
-			searchParams.get("limit") || String(DEFAULT_PAGE_SIZE),
-			10,
-		);
-		const searchValue = searchParams.get("search")?.trim() || "";
-		const statusValue = normalizeStatus(searchParams.get("status") || "");
-		const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-		const limit =
-			Number.isFinite(requestedLimit) && requestedLimit > 0
-				? Math.min(requestedLimit, DEFAULT_PAGE_SIZE)
-				: DEFAULT_PAGE_SIZE;
-		const searchPattern = `%${searchValue}%`;
-		const hasSearch = searchValue.length > 0;
-		const hasStatus = statusValue.length > 0;
-
-		const searchCondition = DB`
-			(
-				orders.patient ILIKE ${searchPattern}
-				OR users.name ILIKE ${searchPattern}
-				OR users.last_name ILIKE ${searchPattern}
-				OR users.email ILIKE ${searchPattern}
-				OR CONCAT_WS(' ', users.name, users.last_name) ILIKE ${searchPattern}
-				OR CONCAT_WS(' ', users.last_name, users.name) ILIKE ${searchPattern}
-			)
-		`;
-
-		let countRows = null;
-
-		if (hasSearch && hasStatus)
-		{
-			countRows = await DB`
-				SELECT COUNT(*)::int AS total
-				FROM orders
-				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE ${searchCondition}
-					AND status = ${statusValue}
-			`;
-		}
-		else if (hasSearch)
-		{
-			countRows = await DB`
-				SELECT COUNT(*)::int AS total
-				FROM orders
-				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE ${searchCondition}
-			`;
-		}
-		else if (hasStatus)
-		{
-			countRows = await DB`
-				SELECT COUNT(*)::int AS total
-				FROM orders
-				WHERE status = ${statusValue}
-			`;
-		}
-		else
-		{
-			countRows = await DB`SELECT COUNT(*)::int AS total FROM orders`;
-		}
-
-		const totalCount = Number(countRows[0]?.total || 0);
-		const totalPages = Math.max(1, Math.ceil(totalCount / limit));
-		const safePage = Math.min(page, totalPages);
-		const offset = (safePage - 1) * limit;
-		let orders = null;
-
-		const ownerFields = DB`
-			orders.user_id AS owner_user_id,
-			users.email AS owner_email,
-			users.name AS owner_name,
-			users.last_name AS owner_last_name
-		`;
-
-		if (hasSearch && hasStatus)
-		{
-			orders = await DB`
-				SELECT orders.*, ${ownerFields}
-				FROM orders
-				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE ${searchCondition}
-					AND orders.status = ${statusValue}
-				ORDER BY orders.issue_date DESC, orders.order_id DESC
-				LIMIT ${limit}
-				OFFSET ${offset}
-			`;
-		}
-		else if (hasSearch)
-		{
-			orders = await DB`
-				SELECT orders.*, ${ownerFields}
-				FROM orders
-				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE ${searchCondition}
-				ORDER BY orders.issue_date DESC, orders.order_id DESC
-				LIMIT ${limit}
-				OFFSET ${offset}
-			`;
-		}
-		else if (hasStatus)
-		{
-			orders = await DB`
-				SELECT orders.*, ${ownerFields}
-				FROM orders
-				LEFT JOIN users ON users.user_id = orders.user_id
-				WHERE orders.status = ${statusValue}
-				ORDER BY orders.issue_date DESC, orders.order_id DESC
-				LIMIT ${limit}
-				OFFSET ${offset}
-			`;
-		}
-		else
-		{
-			orders = await DB`
-				SELECT orders.*, ${ownerFields}
-				FROM orders
-				LEFT JOIN users ON users.user_id = orders.user_id
-				ORDER BY orders.issue_date DESC, orders.order_id DESC
-				LIMIT ${limit}
-				OFFSET ${offset}
-			`;
-		}
-
-		return Response.json({
-			orders,
-			page: safePage,
-			pageSize: limit,
-			totalCount,
-			totalPages,
+		const payload = await listOrders({
+			page: searchParams.get("page"),
+			limit: searchParams.get("limit"),
+			search: searchParams.get("search"),
+			status: searchParams.get("status"),
 		});
+
+		return Response.json(payload);
 	}
 	catch (err) 
 	{
+		if (err instanceof InvalidOrderFilterError)
+		{
+			return jsonError(err.message, 400);
+		}
+
 		log.error("Failed to list orders", err);
-		return Response.json({ error: err.message }, { status: 500 });
+
+		return internalError();
 	}
 }
 

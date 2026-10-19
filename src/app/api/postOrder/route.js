@@ -1,23 +1,55 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
-import { ChecksumMismatchError } from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import {
+	deleteOrderFiles,
 	ensureOrderFilesBucket,
-	toISODate,
-	uploadOrderFiles,
 } from "@/app/server-functions/orders/orderFiles";
+import {
+	InvalidUploadError,
+	receiveOrderUpload,
+	uploadErrorResponse,
+} from "@/app/server-functions/orders/multipartUpload";
 import { cookies } from "next/headers";
 import { DB } from "@/app/lib/db";
+import { internalError, jsonError } from "@/app/lib/apiErrors";
+import {
+	MAX_DETAILS_LENGTH,
+	MAX_PATIENT_LENGTH,
+	parseDateInput,
+	readText,
+} from "@/app/lib/validate";
 import { v7 as uuid7 } from "uuid";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
 const log = createLogger("orders");
 
+// Rejects the request before any file is read when the text fields are bad.
+function validateFields(fields)
+{
+	if (!readText(fields.get("patient"), MAX_PATIENT_LENGTH))
+	{
+		throw new InvalidUploadError("A patient name is required");
+	}
+
+	if (readText(fields.get("details") ?? "", MAX_DETAILS_LENGTH) === undefined)
+	{
+		throw new InvalidUploadError("Details are too long");
+	}
+
+	if (parseDateInput(fields.get("dueDate")) === undefined)
+	{
+		throw new InvalidUploadError("Invalid due date");
+	}
+}
+
 // Server POST function for inserting orders
 async function handlePost(req)
 {
-	try 
+	let s3 = null;
+	let uploadedFileIds = [];
+
+	try
 	{
 		// Get user session before reading the body, so anonymous requests
 		// don't make the server buffer whole uploads
@@ -26,68 +58,57 @@ async function handlePost(req)
 
 		if (!userAuthSession.loggedIn)
 		{
-			return new Response(JSON.stringify({ error: "Forbidden" }), {
-				status: 403,
-				headers: { "Content-Type": "application/json" },
-			});
+			return jsonError("Forbidden", 403);
 		}
 
-		const formData = await req.formData();
+		s3 = await createS3Client();
+		await ensureOrderFilesBucket(s3);
 
-		const patient = formData.get("patient");
-		const details = formData.get("details");
-		const status = formData.get("status");
-		const dueDate = formData.get("dueDate");
-		const issueDate = formData.get("issueDate");
-		const progress = formData.get("progress");
+		const { fields, files } = await receiveOrderUpload(req, s3, { validate: validateFields });
 
-		const files = formData.getAll("files");
-		const fileChecksums = formData.getAll("fileChecksums");
+		uploadedFileIds = files.map((file) => file.fileID);
 
 		const orderID = uuid7();
 		const userID = userAuthSession.data.identity.id;
-		const issue_date = toISODate(issueDate);
-		const due_date = toISODate(dueDate);
+		const patient = readText(fields.get("patient"), MAX_PATIENT_LENGTH);
+		const details = readText(fields.get("details") ?? "", MAX_DETAILS_LENGTH);
+		const due_date = parseDateInput(fields.get("dueDate"));
 
-		const s3 = await createS3Client();
-		await ensureOrderFilesBucket(s3);
-
-		const uploadedFiles = await uploadOrderFiles(s3, files, patient, fileChecksums);
-		const fileKeys = uploadedFiles.map((file) => file.fileID);
-
-		// Insert into DB safely
+		// Status, progress and issue date are set here, never taken from the
+		// client: they are the admin's to change (see admin/updateOrderStatus).
 		await DB`
-      INSERT INTO orders (
-        order_id, user_id, patient, details, status, progress, issue_date, due_date, files
-      ) VALUES (
-        ${orderID}, ${userID}, ${patient}, ${details}, ${status}::order_status, ${progress}, ${issue_date}, ${due_date}, ${fileKeys}
-      )
-    `;
+			INSERT INTO orders (
+				order_id, user_id, patient, details, status, progress, issue_date, due_date, files
+			) VALUES (
+				${orderID}, ${userID}, ${patient}, ${details}, 'pending'::order_status, 0, CURRENT_DATE, ${due_date}, ${uploadedFileIds}
+			)
+		`;
 
-		log.info(`Order ${orderID} created by ${userID} (${fileKeys.length} files)`);
+		log.info(`Order ${orderID} created by ${userID} (${uploadedFileIds.length} files)`);
 
-		return new Response(JSON.stringify({ success: true, orderID }), {
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-		});
+		return Response.json({ success: true, orderID });
 	}
-	catch (err) 
+	catch (err)
 	{
-		if (err instanceof ChecksumMismatchError)
+		const uploadResponse = uploadErrorResponse(err);
+
+		if (uploadResponse)
 		{
-			log.warn(`Upload rejected: checksum mismatch for ${err.files.length} file(s)`);
-			return new Response(
-				JSON.stringify({ success: false, code: err.code, error: err.message, files: err.files }),
-				{ status: 422, headers: { "Content-Type": "application/json" } },
-			);
+			return uploadResponse;
 		}
 
 		log.error("Failed to create order", err);
 
-		return new Response(
-			JSON.stringify({ success: false, error: err.message }),
-			{ status: 500, headers: { "Content-Type": "application/json" } },
-		);
+		// The upload cleaned up after itself; files stored for an order whose insert failed would be orphans.
+		if (s3 && uploadedFileIds.length > 0)
+		{
+			await deleteOrderFiles(s3, uploadedFileIds).catch((cleanupErr) =>
+			{
+				log.error("Could not remove files of a failed order", cleanupErr);
+			});
+		}
+
+		return internalError();
 	}
 }
 

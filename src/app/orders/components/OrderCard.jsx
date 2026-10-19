@@ -1,6 +1,7 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
+import { memo } from "react";
 import {
 	CheckCircle,
 	ChevronDown,
@@ -17,6 +18,7 @@ import {
 	getOrderFiles,
 	getStatusTheme,
 	ORDER_STATUS_VALUES,
+	STATUS_LABELS,
 } from "../orderUtils";
 import OrderFilesList from "./OrderFilesList";
 
@@ -36,7 +38,68 @@ const getStatusIcon = (status) =>
 	}
 };
 
-export default function OrderCard({
+// Mounted only while a card is expanded, so collapsed cards don't build file lists.
+function OrderCardDetails({
+	downloadingFileIds,
+	fileNamesById,
+	onDownloadFile,
+	order,
+})
+{
+	const orderFiles = getOrderFiles(order, fileNamesById);
+
+	return (
+		<m.div
+			onClick={(event) => event.stopPropagation()}
+			initial={{ opacity: 0 }}
+			animate={{ opacity: 1 }}
+			transition={{ duration: 0.2 }}>
+			<div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 sm:mt-6 sm:p-5 md:ml-8">
+				<div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+					<div className="min-w-0 space-y-3">
+						<div>
+							<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+								Pacjent
+							</p>
+							<p className="mt-1 text-sm text-white wrap-break-word">{order.patient}</p>
+						</div>
+						<div>
+							<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+								Szczegóły
+							</p>
+							<p className="mt-1 text-sm leading-6 text-slate-300 wrap-break-word">
+								{order.details || "Brak dodatkowych szczegółów."}
+							</p>
+						</div>
+					</div>
+
+					<div className="min-w-0">
+						<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+							Załączone pliki
+						</p>
+						<p className="mt-1 text-sm text-slate-400">
+							{orderFiles.length} {orderFiles.length === 1 ? "plik" : "plików"}
+						</p>
+
+						<div className="mt-4">
+							<OrderFilesList
+								attachments={orderFiles}
+								busyIds={downloadingFileIds}
+								emptyMessage="Do tego zlecenia nie dodano jeszcze plików."
+								onDownload={(attachment, index) =>
+									onDownloadFile(order, attachment, index)
+								}
+							/>
+						</div>
+					</div>
+				</div>
+			</div>
+		</m.div>
+	);
+}
+
+function OrderCard({
+	downloadingFileIds,
 	fileNamesById,
 	isAdmin = false,
 	isExpanded,
@@ -51,22 +114,19 @@ export default function OrderCard({
 	order,
 })
 {
-	const orderFiles = getOrderFiles(order, fileNamesById);
 	const statusTheme = getStatusTheme(order.status);
+	const orderId = order.order_id;
+	const statusLabel = STATUS_LABELS[order.status] ?? STATUS_LABELS.completed;
 
 	return (
-		<motion.div
-			onClick={onToggleExpanded}
-			initial={{ opacity: 0, y: 22 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-			whileHover={{ y: -4 }}
-			className={`relative cursor-pointer rounded-xl border border-slate-800 bg-slate-900/88 p-4 transition-colors duration-200 hover:border-slate-700 sm:p-6 ${
+		<div
+			onClick={() => onToggleExpanded(orderId)}
+			className={`relative cursor-pointer rounded-xl border border-slate-800 bg-slate-900 p-4 transition-colors duration-200 hover:border-slate-700 sm:p-6 ${
 				isMenuOpen ? "z-30" : "z-0"
 			}`}>
 			<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
 				<div className="flex min-w-0 items-start gap-3 sm:gap-4 md:items-center">
-					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-[0_10px_30px_rgba(255,255,255,0.12)] sm:h-12 sm:w-12">
+					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white sm:h-12 sm:w-12">
 						<Package className="h-5 w-5 text-black sm:h-6 sm:w-6" />
 					</div>
 					<div className="min-w-0">
@@ -95,18 +155,12 @@ export default function OrderCard({
 							<select
 								value={order.status}
 								disabled={isStatusUpdating}
-								onChange={(event) => onStatusChange?.(event.target.value)}
+								onChange={(event) => onStatusChange?.(order, event.target.value)}
 								aria-label={`Zmień status zlecenia ${order.order_id}`}
 								className={`min-h-10 max-w-full rounded-full border-0 px-3 py-2 text-base font-medium sm:min-h-0 sm:py-1 sm:text-sm ${statusTheme.badgeClass} focus:outline-none disabled:cursor-wait disabled:opacity-60`}>
 								{ORDER_STATUS_VALUES.map((status) => (
 									<option key={status} value={status} className="bg-slate-950 text-slate-100">
-										{status === "pending"
-											? "OCZEKUJĄCE"
-											: status === "in-progress"
-												? "W REALIZACJI"
-												: status === "shipped"
-													? "GOTOWE"
-													: "ZREALIZOWANE"}
+										{STATUS_LABELS[status]}
 									</option>
 								))}
 							</select>
@@ -114,18 +168,12 @@ export default function OrderCard({
 							<span
 								className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap ${statusTheme.badgeClass}`}>
 								{getStatusIcon(order.status)}
-								{order.status === "pending"
-									? "OCZEKUJĄCE"
-									: order.status === "in-progress"
-										? "W REALIZACJI"
-										: order.status === "shipped"
-											? "GOTOWE"
-											: "ZREALIZOWANE"}
+								{statusLabel}
 							</span>
 						)}
 						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">
 							<div
-								className={`h-2 rounded-full transition-all duration-300 ${statusTheme.progressClass}`}
+								className={`h-2 rounded-full transition-[width] duration-300 ${statusTheme.progressClass}`}
 								style={{
 									width: `${order.progress}%`,
 								}}
@@ -142,7 +190,7 @@ export default function OrderCard({
 							onClick={(event) =>
 							{
 								event.stopPropagation();
-								onToggleExpanded();
+								onToggleExpanded(orderId);
 							}}
 							aria-expanded={isExpanded}
 							className="inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-2.5 text-sm whitespace-nowrap text-slate-200 transition-colors hover:border-slate-500 hover:text-white sm:px-4">
@@ -159,7 +207,7 @@ export default function OrderCard({
 						<div className="relative">
 							<button
 								type="button"
-								onClick={onToggleMenu}
+								onClick={() => onToggleMenu(orderId)}
 								className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
 								aria-label={`Otwórz działania dla zlecenia ${order.order_id}`}>
 								<Ellipsis className="h-4 w-4" />
@@ -167,7 +215,7 @@ export default function OrderCard({
 
 							<AnimatePresence>
 								{isMenuOpen && (
-									<motion.div
+									<m.div
 										initial={{ opacity: 0, y: 8, scale: 0.98 }}
 										animate={{ opacity: 1, y: 0, scale: 1 }}
 										exit={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -178,7 +226,7 @@ export default function OrderCard({
 											onClick={(event) =>
 											{
 												event.stopPropagation();
-												onOpenEdit();
+												onOpenEdit(order);
 											}}
 											className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white">
 											<PencilLine className="h-4 w-4" />
@@ -189,13 +237,13 @@ export default function OrderCard({
 											onClick={(event) =>
 											{
 												event.stopPropagation();
-												onRequestDelete();
+												onRequestDelete(orderId);
 											}}
 											className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
 											<Trash2 className="h-4 w-4" />
 											Usuń zlecenie
 										</button>
-									</motion.div>
+									</m.div>
 								)}
 							</AnimatePresence>
 						</div>
@@ -203,55 +251,16 @@ export default function OrderCard({
 				</div>
 			</div>
 
-			<AnimatePresence initial={false}>
-				{isExpanded && (
-					<motion.div
-						onClick={(event) => event.stopPropagation()}
-						initial={{ opacity: 0, height: 0, y: -8 }}
-						animate={{ opacity: 1, height: "auto", y: 0 }}
-						exit={{ opacity: 0, height: 0, y: -8 }}
-						transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-						className="overflow-hidden">
-						<div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 sm:mt-6 sm:p-5 md:ml-8">
-							<div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-								<div className="min-w-0 space-y-3">
-									<div>
-										<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-											Pacjent
-										</p>
-										<p className="mt-1 text-sm text-white wrap-break-word">{order.patient}</p>
-									</div>
-									<div>
-										<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-											Szczegóły
-										</p>
-										<p className="mt-1 text-sm leading-6 text-slate-300 wrap-break-word">
-											{order.details || "Brak dodatkowych szczegółów."}
-										</p>
-									</div>
-								</div>
-
-								<div className="min-w-0">
-									<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-										Załączone pliki
-									</p>
-									<p className="mt-1 text-sm text-slate-400">
-										{orderFiles.length} {orderFiles.length === 1 ? "plik" : "plików"}
-									</p>
-
-									<div className="mt-4">
-										<OrderFilesList
-											attachments={orderFiles}
-											emptyMessage="Do tego zlecenia nie dodano jeszcze plików."
-											onDownload={onDownloadFile}
-										/>
-									</div>
-								</div>
-							</div>
-						</div>
-					</motion.div>
-				)}
-			</AnimatePresence>
-		</motion.div>
+			{isExpanded && (
+				<OrderCardDetails
+					downloadingFileIds={downloadingFileIds}
+					fileNamesById={fileNamesById}
+					onDownloadFile={onDownloadFile}
+					order={order}
+				/>
+			)}
+		</div>
 	);
 }
+
+export default memo(OrderCard);

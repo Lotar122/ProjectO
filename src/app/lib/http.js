@@ -5,6 +5,16 @@
 //   - rejects on non-2xx with err.response = { status, statusText, data, headers }
 //   - network failures reject without err.response
 //   - responseType: "blob" returns a Blob for success and error bodies alike
+//   - every request has a deadline (config.timeout, default 30 s) and can be
+//     cancelled with config.signal; both reject with a DOMException
+//     (TimeoutError / AbortError) and no err.response
+
+export const DEFAULT_TIMEOUT_MS = 30000;
+// Uploads and downloads of large scans on slow connections.
+export const TRANSFER_TIMEOUT_MS = 30 * 60 * 1000;
+
+export const isAbortError = (err) =>
+	err?.name === "AbortError" || err?.name === "TimeoutError";
 
 export class HttpError extends Error
 {
@@ -67,11 +77,17 @@ async function request(method, url, body, config = {})
 		headers["Content-Type"] ??= "application/json";
 	}
 
+	const signal = AbortSignal.any([
+		AbortSignal.timeout(config.timeout ?? DEFAULT_TIMEOUT_MS),
+		...(config.signal ? [config.signal] : []),
+	]);
+
 	const response = await fetch(url, {
 		method,
 		headers,
 		body: payload,
 		credentials: config.withCredentials ? "include" : "same-origin",
+		signal,
 	});
 
 	const result = {

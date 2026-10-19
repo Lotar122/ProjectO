@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { KeyRound, ShieldCheck } from "lucide-react";
 
 import PasswordField from "@/app/components/passwordField";
@@ -19,12 +19,12 @@ export default function PasswordSettingsForm({
 })
 {
 	return (
-		<motion.div
+		<m.div
 			initial={{ opacity: 0, y: 24 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.45 }}
 			className="mx-auto max-w-2xl">
-			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-[0_24px_100px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-lg">
 				<div className="border-b border-slate-800 bg-slate-950/70 px-5 py-5 sm:px-8">
 					<div className="flex items-start gap-3 sm:gap-4">
 						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-slate-950">
@@ -51,12 +51,12 @@ export default function PasswordSettingsForm({
 					</div>
 
 					{errorMessage && (
-						<motion.p
+						<m.p
 							initial={{ opacity: 0, y: -8 }}
 							animate={{ opacity: 1, y: 0 }}
 							className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
 							{errorMessage}
-						</motion.p>
+						</m.p>
 					)}
 
 					<PasswordField
@@ -105,6 +105,6 @@ export default function PasswordSettingsForm({
 					</div>
 				</form>
 			</div>
-		</motion.div>
+		</m.div>
 	);
 }

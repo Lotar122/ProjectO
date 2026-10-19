@@ -1,7 +1,8 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
+import { AnimatePresence, m } from "framer-motion";
+import { AlertCircle, CheckCircle2, LoaderCircle, X } from "lucide-react";
+import { memo } from "react";
 
 const STATUS_STYLES = {
 	pending: {
@@ -21,49 +22,41 @@ const STATUS_STYLES = {
 	},
 };
 
-export default function BackgroundActionsWidget({ actions })
+function BackgroundActionsWidget({ actions, onDismiss })
 {
-	if (actions.length === 0)
-	{
-		return null;
-	}
-
 	const pendingCount = actions.filter((action) => action.status === "pending").length;
 
 	return (
 		<div className="pointer-events-none fixed bottom-4 right-4 z-50 w-[min(24rem,calc(100vw-2rem))]">
-			<AnimatePresence>
-				<motion.div
-					initial={{ opacity: 0, y: 18, scale: 0.98 }}
-					animate={{ opacity: 1, y: 0, scale: 1 }}
-					exit={{ opacity: 0, y: 18, scale: 0.98 }}
-					className="pointer-events-auto overflow-hidden rounded-xl border border-slate-800 bg-slate-950/95 shadow-2xl backdrop-blur-xl">
-					<div className="border-b border-slate-800 px-4 py-3">
-						<p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-							Działania w tle
-						</p>
-						<p className="mt-1 text-sm text-slate-300">
-							{pendingCount > 0
-								? `W toku: ${pendingCount} ${pendingCount === 1 ? "działanie" : "działania"}`
-								: "Kończenie działań"}
-						</p>
-					</div>
+			<AnimatePresence initial={false}>
+				{actions.length > 0 && (
+					<m.div
+						key="widget"
+						initial={{ opacity: 0, y: 18 }}
+						animate={{ opacity: 1, y: 0 }}
+						exit={{ opacity: 0, y: 18 }}
+						className="pointer-events-auto overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-2xl">
+						<div className="border-b border-slate-800 px-4 py-3">
+							<p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+								Działania w tle
+							</p>
+							<p className="mt-1 text-sm text-slate-300">
+								{pendingCount > 0
+									? `W toku: ${pendingCount} ${pendingCount === 1 ? "działanie" : "działania"}`
+									: "Kończenie działań"}
+							</p>
+						</div>
 
-					<div className="max-h-[min(18rem,40dvh)] space-y-2 overflow-y-auto p-3">
-						<AnimatePresence initial={false}>
+						<div className="max-h-[min(18rem,40dvh)] space-y-2 overflow-y-auto p-3">
 							{actions.map((action) =>
 							{
 								const statusStyle = STATUS_STYLES[action.status];
 								const StatusIcon = statusStyle.icon;
 
 								return (
-									<motion.div
-										layout
+									<div
 										key={action.id}
-										initial={{ opacity: 0, y: 10 }}
-										animate={{ opacity: 1, y: 0 }}
-										exit={{ opacity: 0, y: 10 }}
-										className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/75 px-3 py-3">
+										className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-3">
 										<div
 											className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${statusStyle.iconWrapperClassName}`}>
 											<StatusIcon className={`h-4 w-4 ${statusStyle.iconClassName}`} />
@@ -79,13 +72,23 @@ export default function BackgroundActionsWidget({ actions })
 												</p>
 											) : null}
 										</div>
-									</motion.div>
+
+										<button
+											type="button"
+											onClick={() => onDismiss(action.id)}
+											aria-label="Zamknij powiadomienie"
+											className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-800 hover:text-white">
+											<X className="h-4 w-4" />
+										</button>
+									</div>
 								);
 							})}
-						</AnimatePresence>
-					</div>
-				</motion.div>
+						</div>
+					</m.div>
+				)}
 			</AnimatePresence>
 		</div>
 	);
 }
+
+export default memo(BackgroundActionsWidget);

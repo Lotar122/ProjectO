@@ -1,17 +1,13 @@
-import {
-	ChecksumMismatchError,
-	hexToBase64,
-	sha256Hex,
-} from "@/app/server-functions/MinIO/checksum";
+import "server-only";
+
+import { mapWithConcurrency } from "@/app/lib/concurrency";
 import { createBucket } from "@/app/server-functions/MinIO/createBucket";
 import { encodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
 import {
 	CopyObjectCommand,
-	DeleteObjectCommand,
+	DeleteObjectsCommand,
 	HeadObjectCommand,
-	PutObjectCommand,
 } from "@aws-sdk/client-s3";
-import { v7 as uuid7 } from "uuid";
 
 export const ORDER_FILES_BUCKET = "projecto";
 
@@ -68,16 +64,6 @@ export function sanitizeOrderFileName(patient, originalFileName)
 	return baseName ? `${baseName}${extension}` : `file${extension}`;
 }
 
-export function toISODate(value)
-{
-	if (!value)
-	{
-		return null;
-	}
-
-	return new Date(value).toISOString().split("T")[0];
-}
-
 // Checked once per process instead of a HeadBucket on every upload.
 // Reset on failure so the next request retries.
 let orderFilesBucketReady = null;
@@ -93,82 +79,36 @@ export async function ensureOrderFilesBucket(s3)
 	await orderFilesBucketReady;
 }
 
-export async function uploadOrderFiles(s3, files, patient, clientChecksums = [])
-{
-	// Hash and verify every file before writing anything, so a mismatch leaves no orphan objects
-	const preparedFiles = await Promise.all(
-		files.map(async (file, index) =>
-		{
-			const fileBuffer = Buffer.from(await file.arrayBuffer());
-			const sha256 = sha256Hex(fileBuffer);
-			const clientChecksum = String(clientChecksums[index] ?? "").trim().toLowerCase();
+// S3 DeleteObjects takes at most 1000 keys per call.
+const DELETE_BATCH_SIZE = 1000;
 
-			return {
-				file,
-				fileBuffer,
-				sha256,
-				// Empty client checksum means the browser could not hash the file (no crypto.subtle)
-				mismatch: clientChecksum !== "" && clientChecksum !== sha256,
-			};
-		}),
-	);
-
-	const mismatchedFiles = preparedFiles
-		.filter((prepared) => prepared.mismatch)
-		.map((prepared) => prepared.file.name);
-
-	if (mismatchedFiles.length > 0)
-	{
-		throw new ChecksumMismatchError(mismatchedFiles);
-	}
-
-	return Promise.all(
-		preparedFiles.map(async ({ file, fileBuffer, sha256 }) =>
-		{
-			const fileID = uuid7();
-			const fileName = sanitizeOrderFileName(patient, file.name);
-
-			await s3.send(
-				new PutObjectCommand(
-					{
-						Bucket: ORDER_FILES_BUCKET,
-						Key: fileID,
-						Body: fileBuffer,
-						ChecksumSHA256: hexToBase64(sha256),
-						Metadata:
-					{
-						original_name: encodeMetadataValue(fileName),
-						sha256,
-					},
-					}),
-			);
-
-			return { fileID, fileName, sha256 };
-		}),
-	);
-}
-
+// Resolves to the ids that could not be deleted (empty when everything went through).
 export async function deleteOrderFiles(s3, fileIds)
 {
-	if (fileIds.length === 0)
+	const failedIds = [];
+
+	for (let offset = 0; offset < fileIds.length; offset += DELETE_BATCH_SIZE)
 	{
-		return;
+		const batch = fileIds.slice(offset, offset + DELETE_BATCH_SIZE);
+		const result = await s3.send(
+			new DeleteObjectsCommand({
+				Bucket: ORDER_FILES_BUCKET,
+				Delete: {
+					Objects: batch.map((fileId) => ({ Key: fileId })),
+					Quiet: true,
+				},
+			}),
+		);
+
+		failedIds.push(...(result.Errors ?? []).map((error) => error.Key));
 	}
 
-	await Promise.all(
-		fileIds.map((fileId) =>
-			s3.send(
-				new DeleteObjectCommand(
-					{
-						Bucket: ORDER_FILES_BUCKET,
-						Key: fileId,
-					}),
-			),
-		),
-	);
+	return failedIds;
 }
 
-async function updateOrderFileMetadata(s3, fileId, metadataUpdate)
+// buildUpdate receives the current metadata and returns the keys to change,
+// or null to leave the object untouched (no copy needed).
+async function updateOrderFileMetadata(s3, fileId, buildUpdate)
 {
 	const metadata = await s3.send(
 		new HeadObjectCommand({
@@ -176,6 +116,12 @@ async function updateOrderFileMetadata(s3, fileId, metadataUpdate)
 			Key: fileId,
 		}),
 	);
+	const metadataUpdate = buildUpdate(metadata.Metadata ?? {});
+
+	if (!metadataUpdate)
+	{
+		return false;
+	}
 
 	await s3.send(
 		new CopyObjectCommand({
@@ -191,14 +137,56 @@ async function updateOrderFileMetadata(s3, fileId, metadataUpdate)
 			MetadataDirective: "REPLACE",
 		}),
 	);
+
+	return true;
 }
 
+// Returns false when the file already has that name, so unchanged attachments
+// are not rewritten in S3 on every save.
 export async function renameOrderFile(s3, fileId, fileName)
 {
-	await updateOrderFileMetadata(s3, fileId, { original_name: encodeMetadataValue(fileName) });
+	const encodedName = encodeMetadataValue(fileName);
+
+	return updateOrderFileMetadata(s3, fileId, (metadata) =>
+		metadata.original_name === encodedName ? null : { original_name: encodedName });
 }
 
 export async function setOrderFileChecksum(s3, fileId, sha256)
 {
-	await updateOrderFileMetadata(s3, fileId, { sha256 });
+	return updateOrderFileMetadata(s3, fileId, (metadata) =>
+		metadata.sha256 === sha256 ? null : { sha256 });
+}
+
+const RENAME_CONCURRENCY = 4;
+
+// requestedFileNames are the JSON-encoded { fileId, fileName } entries of the
+// edit form. Only files that stay on the order are renamed.
+export async function renameRetainedFiles(s3, patient, retainedFileIds, requestedFileNames)
+{
+	const updates = [];
+
+	for (const value of requestedFileNames)
+	{
+		let fileNameUpdate;
+
+		try
+		{
+			fileNameUpdate = JSON.parse(String(value));
+		}
+		catch
+		{
+			continue;
+		}
+
+		const fileId = String(fileNameUpdate?.fileId);
+		const fileName = String(fileNameUpdate?.fileName || "").trim();
+
+		if (retainedFileIds.includes(fileId) && fileName)
+		{
+			updates.push({ fileId, fileName: sanitizeOrderFileName(patient, fileName) });
+		}
+	}
+
+	await mapWithConcurrency(updates, RENAME_CONCURRENCY, ({ fileId, fileName }) =>
+		renameOrderFile(s3, fileId, fileName));
 }

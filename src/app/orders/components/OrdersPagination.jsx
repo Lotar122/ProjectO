@@ -20,7 +20,7 @@ export default function OrdersPagination({
 	const endItem = Math.min(currentPage * pageSize, totalCount);
 
 	return (
-		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/85 px-4 py-4 backdrop-blur sm:px-5 md:flex-row md:items-center md:justify-between">
+		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/85 px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
 			<p className="text-sm text-slate-400">
 				Wyświetlono {startItem}-{endItem} z {totalCount} zleceń
 			</p>

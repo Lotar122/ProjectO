@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { getPerfFlags } from "./perfFlags";
+import "./scrollPerfDiagnostics.css";
 
 const SESSION_GAP_MS = 140;
 const ACTIVE_SCROLL_WINDOW_MS = 160;

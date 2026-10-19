@@ -109,28 +109,28 @@ export async function getUserAuthSession(cookie)
 
 	try
 	{
-		const users =
-			await DB`SELECT 1 FROM users WHERE "user_id" = ${identityId}`;
+		const name = getIdentityName(res.data.identity);
 
-		if (users.length === 0)
+		// One round trip; the row only changes for identities seen for the first time.
+		const created = await DB`
+			INSERT INTO users (
+				user_id,
+				email,
+				name,
+				last_name
+			)
+			VALUES (
+				${identityId},
+				${res.data.identity.traits?.email},
+				${name.first},
+				${name.last}
+			)
+			ON CONFLICT (user_id) DO NOTHING
+			RETURNING user_id
+		`;
+
+		if (created.length > 0)
 		{
-			const name = getIdentityName(res.data.identity);
-
-			await DB`
-				INSERT INTO users (
-					user_id,
-					email,
-					name,
-					last_name
-				)
-				VALUES (
-					${identityId},
-					${res.data.identity.traits?.email},
-					${name.first},
-					${name.last}
-				)
-			`;
-
 			log.info(`Created user row for identity ${identityId}`);
 		}
 	}

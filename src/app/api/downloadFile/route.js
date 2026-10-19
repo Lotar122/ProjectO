@@ -1,5 +1,4 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
-import { CHECKSUM_MISMATCH, sha256Hex } from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFile } from "@/app/server-functions/MinIO/getFile";
 import { decodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
@@ -9,10 +8,47 @@ import {
 	setOrderFileChecksum,
 } from "@/app/server-functions/orders/orderFiles";
 import { cookies } from "next/headers";
+import { createHash } from "node:crypto";
+import { Readable, Transform, pipeline } from "node:stream";
+import { internalError, jsonError } from "@/app/lib/apiErrors";
+import { isUuid } from "@/app/lib/validate";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
 const log = createLogger("files");
+
+// Browsers show non-ASCII names through filename*; this is the fallback for clients that ignore it.
+const toAsciiFileName = (name) => name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+
+// Files uploaded before checksumming have none stored. Hash them while they
+// stream to the user and store the result afterwards, off the request path.
+function backfillChecksumWhileStreaming(s3, fileKey, body)
+{
+	const hash = createHash("sha256");
+	const tap = new Transform({
+		transform(chunk, encoding, callback)
+		{
+			hash.update(chunk);
+			callback(null, chunk);
+		},
+		flush(callback)
+		{
+			callback();
+			setOrderFileChecksum(s3, fileKey, hash.digest("hex"))
+				.then(() => log.info(`Backfilled checksum for legacy file ${fileKey}`))
+				.catch((err) => log.warn(`Could not backfill checksum for ${fileKey}: ${err.message}`));
+		},
+	});
+
+	pipeline(body, tap, ignoreStreamError);
+
+	return tap;
+}
+
+// pipeline() needs a callback; failures are handled where the stream is consumed.
+function ignoreStreamError()
+{
+}
 
 async function handleGet(req)
 {
@@ -21,12 +57,9 @@ async function handleGet(req)
 		const { searchParams } = new URL(req.url);
 		const fileKey = searchParams.get("file_id");
 
-		if (!fileKey)
+		if (!isUuid(fileKey))
 		{
-			return new Response(JSON.stringify({ error: "file_id is required" }), {
-				status: 400,
-				headers: { "Content-Type": "application/json" },
-			});
+			return jsonError("A valid file_id is required", 400);
 		}
 
 		// Auth check
@@ -35,51 +68,35 @@ async function handleGet(req)
 
 		if (!userAuthSession.loggedIn)
 		{
-			return new Response(JSON.stringify({ error: "Forbidden" }), {
-				status: 403,
-				headers: { "Content-Type": "application/json" },
-			});
+			return jsonError("Forbidden", 403);
 		}
 
 		if (!(await canAccessFile(userAuthSession, fileKey)))
 		{
-			return new Response(JSON.stringify({ error: "File not found" }), {
-				status: 404,
-				headers: { "Content-Type": "application/json" },
-			});
+			return jsonError("File not found", 404);
 		}
 
 		const s3 = await createS3Client();
 
-		// Fetch file from MinIO
-		const file = await getFile(s3, ORDER_FILES_BUCKET, fileKey);
-
-		const actualChecksum = sha256Hex(file.data);
+		// Streamed to the client instead of buffered; the client checks the stored checksum.
+		const file = await getFile(s3, ORDER_FILES_BUCKET, fileKey, req.signal);
 		const storedChecksum = file.metadata?.sha256;
+		const body = storedChecksum ?
+			file.body :
+			backfillChecksumWhileStreaming(s3, fileKey, file.body);
+		const fileName = decodeMetadataValue(file.metadata?.original_name) ?? "file";
 
-		if (!storedChecksum)
-		{
-			// Legacy file uploaded before checksumming - backfill on first download
-			await setOrderFileChecksum(s3, fileKey, actualChecksum);
-			log.info(`Backfilled checksum for legacy file ${fileKey}`);
-		}
-		else if (storedChecksum !== actualChecksum)
-		{
-			log.error(
-				`Checksum mismatch for file ${fileKey}: stored ${storedChecksum}, actual ${actualChecksum}`,
-			);
-			return new Response(
-				JSON.stringify({ error: "File integrity check failed", code: CHECKSUM_MISMATCH }),
-				{ status: 500, headers: { "Content-Type": "application/json" } },
-			);
-		}
+		req.signal.addEventListener("abort", () => body.destroy(), { once: true });
 
-		return new Response(file.data, {
+		return new Response(Readable.toWeb(body), {
 			status: 200,
 			headers: {
 				"Content-Type": file.contentType ?? "application/octet-stream",
-				"Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(decodeMetadataValue(file.metadata.original_name) ?? "file")}`,
-				"X-Content-SHA256": actualChecksum,
+				...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
+				"Content-Disposition": `attachment; filename="${toAsciiFileName(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+				"Cache-Control": "private, no-store",
+				"X-Content-Type-Options": "nosniff",
+				...(storedChecksum ? { "X-Content-SHA256": storedChecksum } : {}),
 			},
 		});
 
@@ -87,10 +104,8 @@ async function handleGet(req)
 	catch (err) 
 	{
 		log.error("Failed to download file", err);
-		return new Response(
-			JSON.stringify({ error: err.message }),
-			{ status: 500, headers: { "Content-Type": "application/json" } }
-		);
+
+		return internalError();
 	}
 }
 

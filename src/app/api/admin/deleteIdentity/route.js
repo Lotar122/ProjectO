@@ -4,6 +4,7 @@ import { DB } from "@/app/lib/db";
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
+import { isUuid } from "@/app/lib/validate";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
@@ -24,7 +25,7 @@ async function handleDelete(request)
 
 		const id = new URL(request.url).searchParams.get("id")?.trim();
 
-		if (!id)
+		if (!isUuid(id))
 		{
 			return Response.json({ error: "Identity id is required" }, { status: 400 });
 		}
@@ -47,7 +48,15 @@ async function handleDelete(request)
 
 		// The application user row is no longer needed after the Kratos identity is gone.
 		// Orders are intentionally retained and become unassigned in the admin order view.
-		await DB`DELETE FROM users WHERE user_id = ${id}`;
+		try
+		{
+			await DB`DELETE FROM users WHERE user_id = ${id}`;
+		}
+		catch (err)
+		{
+			// The Kratos identity is already gone; report success and leave the row for cleanup.
+			log.error(`Identity ${id} deleted in Kratos but its user row could not be removed`, err);
+		}
 
 		log.info(`Identity ${id} deleted by admin ${session.data.identity.id}`);
 

@@ -1,12 +1,12 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import http from "@/app/lib/http";
+import { useEffect, useRef, useState } from "react";
+import http, { isAbortError } from "@/app/lib/http";
 import PasswordField from "../components/passwordField";
 import Loading from "../loading";
-import { KRATOS_PUBLIC, getKratosNodeValue } from "../lib/kratos";
+import { KRATOS_PUBLIC, getKratosFlowMessages, getKratosNodeValue } from "../lib/kratos";
 
 const container = {
 	hidden: {},
@@ -30,8 +30,43 @@ const item = {
 	},
 };
 
+// The role is only trusted from metadata_public (see isAdminSession).
 const getPostLoginPath = (session) =>
-	session?.identity?.traits?.role === "admin" ? "/admin" : "/orders";
+	session?.identity?.metadata_public?.role === "admin" ? "/admin" : "/orders";
+
+const fetchLoginFlow = async (signal) =>
+{
+	const response = await http.get(
+		`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
+		{ withCredentials: true, signal },
+	);
+
+	return response.data;
+};
+
+// Whatever Kratos (or the network) throws, only a string may reach the JSX.
+const getErrorText = (err, fallback) =>
+{
+	const data = err?.response?.data;
+	const flowMessages = getKratosFlowMessages(data);
+
+	if (flowMessages.length > 0)
+	{
+		return flowMessages.join(" ");
+	}
+
+	if (typeof data?.error === "string" && data.error)
+	{
+		return data.error;
+	}
+
+	if (typeof data?.error?.message === "string" && data.error.message)
+	{
+		return data.error.message;
+	}
+
+	return fallback;
+};
 
 const KratosLogin = () =>
 {
@@ -39,75 +74,92 @@ const KratosLogin = () =>
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState(null);
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [attempt, setAttempt] = useState(0);
+	const submittingRef = useRef(false);
+	const controllerRef = useRef(null);
 	const router = useRouter();
 
 	useEffect(() =>
 	{
-		let isMounted = true;
+		const controller = new AbortController();
+		const { signal } = controller;
 
-		const initFlow = async () =>
+		controllerRef.current = controller;
+
+		// Already signed in: leave. Failures here don't block the form.
+		const checkSession = async () =>
 		{
-			try 
+			try
 			{
 				const response = await http.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 					withCredentials: true,
+					signal,
 				});
-				router.push(getPostLoginPath(response.data));
-				return;
-			}
-			catch (err) 
-			{
-				if (err.response?.status !== 401)
+
+				if (!signal.aborted)
 				{
-					if (isMounted)
-					{
-						setError(
-							err.response?.data?.error || "Nie udało się sprawdzić sesji.",
-						);
-					}
-					return;
+					router.push(getPostLoginPath(response.data));
 				}
 			}
-
-			try 
+			catch (err)
 			{
-				const response = await http.get(
-					`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
-					{ withCredentials: true },
-				);
-
-				if (isMounted)
+				if (!isAbortError(err) && err.response?.status !== 401)
 				{
-					setFlow(response.data);
-				}
-			}
-			catch (err) 
-			{
-				if (isMounted)
-				{
-					setError(
-						err.response?.data?.error || "Nie udało się pobrać formularza logowania.",
-					);
+					console.error("Nie udało się sprawdzić sesji:", err);
 				}
 			}
 		};
 
-		void initFlow();
+		const loadFlow = async () =>
+		{
+			try
+			{
+				const nextFlow = await fetchLoginFlow(signal);
+
+				if (!signal.aborted)
+				{
+					setFlow(nextFlow);
+				}
+			}
+			catch (err)
+			{
+				if (!isAbortError(err) || !signal.aborted)
+				{
+					setError(getErrorText(err, "Nie udało się pobrać formularza logowania."));
+				}
+			}
+		};
+
+		void checkSession();
+		void loadFlow();
 
 		return () =>
 		{
-			isMounted = false;
+			controller.abort();
 		};
-	}, [router]);
+	}, [router, attempt]);
+
+	const retry = () =>
+	{
+		setError(null);
+		setAttempt((value) => value + 1);
+	};
 
 	const handleLogin = async (e) =>
 	{
 		e.preventDefault();
 
-		if (!flow)
+		if (!flow || submittingRef.current)
 		{
 			return;
 		}
+
+		const signal = controllerRef.current?.signal;
+		let navigated = false;
+
+		submittingRef.current = true;
+		setIsSubmitting(true);
 
 		try 
 		{
@@ -121,51 +173,115 @@ const KratosLogin = () =>
 					password,
 					csrf_token: csrf,
 				},
-				{ withCredentials: true },
+				{ withCredentials: true, signal },
 			);
 
 			setError(null);
 			const sessionResponse = await http.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
 				withCredentials: true,
+				signal,
 			});
+
+			// Stays disabled while navigating; the flow is consumed anyway.
+			navigated = true;
 			router.push(getPostLoginPath(sessionResponse.data));
 		}
 		catch (err) 
 		{
+			if (isAbortError(err) && signal?.aborted)
+			{
+				return;
+			}
+
 			console.error("Logowanie nie powiodło się:", err);
-			setError(err.response?.data?.error || "Logowanie nie powiodło się.");
+
+			const status = err.response?.status;
+
+			if (status === 410)
+			{
+				setError(getErrorText(err, "Formularz wygasł. Spróbuj ponownie."));
+
+				try
+				{
+					setFlow(await fetchLoginFlow(signal));
+				}
+				catch (refreshError)
+				{
+					if (!signal?.aborted)
+					{
+						setError(getErrorText(refreshError, "Nie udało się pobrać formularza logowania."));
+					}
+				}
+			}
+			else
+			{
+				// A rejected login answers 400 with the updated flow (fresh csrf token).
+				if (status === 400 && err.response.data?.ui)
+				{
+					setFlow(err.response.data);
+				}
+
+				setError(getErrorText(err, "Logowanie nie powiodło się."));
+			}
+		}
+		finally
+		{
+			submittingRef.current = navigated;
+			setIsSubmitting(navigated);
 		}
 	};
 
 	if (!flow)
 	{
+		if (error)
+		{
+			return (
+				<div className="relative flex min-h-dvh items-center justify-center p-4">
+					<div
+						className="w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/90 p-6 text-center shadow-lg sm:p-8"
+						role="alert">
+						<p className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-red-300">
+							{String(error)}
+						</p>
+						<button
+							type="button"
+							onClick={retry}
+							className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 transition-colors duration-200 hover:bg-sky-200">
+							Spróbuj ponownie
+						</button>
+					</div>
+				</div>
+			);
+		}
+
 		return <Loading />;
 	}
 
 	return (
 		<div className="relative flex min-h-dvh items-center justify-center p-4">
-			<motion.div
+			<m.div
 				variants={container}
 				initial="hidden"
 				animate="show"
-				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/80 p-6 shadow-[0_24px_100px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-8">
-				<motion.div variants={item} className="mb-6 text-center sm:mb-8">
+				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/90 p-6 shadow-lg sm:p-8">
+				<m.div variants={item} className="mb-6 text-center sm:mb-8">
 					<h2 className="mb-2 text-2xl font-bold text-white sm:text-3xl">Witaj ponownie</h2>
 					<p className="text-slate-400">
 						Zaloguj się do panelu
 					</p>
-				</motion.div>
+				</m.div>
 
 				{error && (
-					<motion.p
+					<m.p
 						initial={{ opacity: 0, y: -8 }}
 						animate={{ opacity: 1, y: 0 }}
+						role="alert"
 						className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-red-300">
-						{error}
-					</motion.p>
+						{String(error)}
+					</m.p>
 				)}
 
-				<motion.form
+				<m.form
 					variants={item}
 					onSubmit={handleLogin}
 					method="post"
@@ -185,7 +301,7 @@ const KratosLogin = () =>
 							inputMode="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
-							className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
+							className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
 							placeholder="Wpisz adres e-mail"
 							required
 						/>
@@ -199,15 +315,15 @@ const KratosLogin = () =>
 						setPassword={setPassword}
 					/>
 
-					<motion.button
+					<m.button
 						type="submit"
-						whileHover={{ scale: 1.02, y: -1 }}
+						disabled={isSubmitting}
 						whileTap={{ scale: 0.985 }}
-						className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 shadow-[0_14px_40px_rgba(125,211,252,0.14)] transition-colors duration-200 hover:bg-sky-200">
-						Zaloguj się
-					</motion.button>
-				</motion.form>
-			</motion.div>
+						className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 shadow-md transition-colors duration-200 hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-70">
+						{isSubmitting ? "Logowanie..." : "Zaloguj się"}
+					</m.button>
+				</m.form>
+			</m.div>
 		</div>
 	);
 };

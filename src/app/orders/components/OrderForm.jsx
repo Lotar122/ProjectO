@@ -1,7 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
-
+import { getLocalFileKey } from "../orderUtils";
 import OrderFilesList from "./OrderFilesList";
 
 export default function OrderForm({
@@ -34,7 +33,7 @@ export default function OrderForm({
 				<p className="text-slate-400">{description}</p>
 			</div>
 
-			<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-4 backdrop-blur sm:p-8">
+			<div className="mx-auto max-w-2xl rounded-xl border border-slate-800 bg-slate-900/88 p-4 sm:p-8">
 				<form onSubmit={onSubmit} className="space-y-6">
 					<div>
 						<label className="mb-2 block text-sm font-medium text-slate-300">
@@ -44,7 +43,7 @@ export default function OrderForm({
 							type="text"
 							value={patient}
 							onChange={(event) => onPatientChange(event.target.value)}
-							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-colors duration-200 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
 							placeholder="Wpisz imię i nazwisko pacjenta"
 							required
 						/>
@@ -58,7 +57,7 @@ export default function OrderForm({
 							value={details}
 							onChange={(event) => onDetailsChange(event.target.value)}
 							rows={5}
-							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none resize-y"
+							className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-colors duration-200 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none resize-y"
 							placeholder="Wpisz szczegóły zlecenia"
 							required={detailsRequired}
 						/>
@@ -72,7 +71,7 @@ export default function OrderForm({
 							type="date"
 							value={dueDate}
 							onChange={(event) => onDueDateChange(event.target.value)}
-							className="min-h-12 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-all duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none [&::-webkit-date-and-time-value]:text-left"
+							className="min-h-12 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-colors duration-200 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none [&::-webkit-date-and-time-value]:text-left"
 							required
 						/>
 					</div>
@@ -102,8 +101,8 @@ export default function OrderForm({
 
 								<div className="mt-3">
 									<OrderFilesList
-										attachments={files.map((file, index) => ({
-											id: `${file.name}-${index}-${file.size}`,
+										attachments={files.map((file) => ({
+											id: getLocalFileKey(file),
 											name: file.name,
 										}))}
 										actionLabel="Usuń plik"
@@ -151,13 +150,11 @@ export default function OrderForm({
 					</div>
 
 					<div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
-						<motion.button
+						<button
 							type="submit"
-							whileHover={{ scale: 1.02, y: -1 }}
-							whileTap={{ scale: 0.985 }}
-							className="flex-1 rounded-lg bg-white py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200">
+							className="flex-1 rounded-lg bg-white py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200 active:scale-[0.985]">
 							{submitLabel}
-						</motion.button>
+						</button>
 						<button
 							type="button"
 							onClick={onCancel}

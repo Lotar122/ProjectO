@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { CheckCircle2, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 import http from "@/app/lib/http";
@@ -82,12 +82,12 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 	};
 
 	return (
-		<motion.div
+		<m.div
 			initial={{ opacity: 0, y: 24 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.45 }}
 			className="mx-auto max-w-3xl">
-			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-[0_24px_100px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-lg">
 				<div className="border-b border-slate-800 bg-slate-950/70 px-5 py-5 sm:px-8">
 					<div className="flex items-start gap-3 sm:gap-4">
 						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-100 text-slate-950">
@@ -115,24 +115,24 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 					</div>
 
 					{errorMessage && (
-						<motion.p
+						<m.p
 							initial={{ opacity: 0, y: -8 }}
 							animate={{ opacity: 1, y: 0 }}
 							className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
 							role="alert">
 							{errorMessage}
-						</motion.p>
+						</m.p>
 					)}
 
 					{successMessage && (
-						<motion.p
+						<m.p
 							initial={{ opacity: 0, y: -8 }}
 							animate={{ opacity: 1, y: 0 }}
 							className="flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300"
 							role="status">
 							<CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
 							<span>{successMessage}</span>
-						</motion.p>
+						</m.p>
 					)}
 
 					<div className="grid gap-5 md:grid-cols-2">
@@ -149,7 +149,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								value={form.email}
 								onChange={(event) => updateField("email", event.target.value)}
 								placeholder="uzytkownik@przyklad.pl"
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
+								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
 							/>
 						</div>
 
@@ -165,7 +165,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								value={form.firstName}
 								onChange={(event) => updateField("firstName", event.target.value)}
 								placeholder="Jan"
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
+								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
 							/>
 						</div>
 
@@ -181,7 +181,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								value={form.lastName}
 								onChange={(event) => updateField("lastName", event.target.value)}
 								placeholder="Kowalski"
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
+								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
 							/>
 						</div>
 
@@ -195,7 +195,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								required
 								value={form.role}
 								onChange={(event) => updateField("role", event.target.value)}
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-all duration-300 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none">
+								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none">
 								<option value="user">Użytkownik</option>
 								<option value="admin">Administrator</option>
 							</select>
@@ -240,6 +240,6 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 					</div>
 				</form>
 			</div>
-		</motion.div>
+		</m.div>
 	);
 }

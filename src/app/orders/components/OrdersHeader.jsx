@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { LogOut, Package, Plus, Settings, ShieldCheck, UserCircle, UserPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -34,13 +33,27 @@ export default function OrdersHeader({
 
 	useEffect(() =>
 	{
+		// Only listen while the menu is open; the page has no other document listener.
+		if (!isSettingsOpen)
+		{
+			return;
+		}
+
 		const handlePointerDown = (event) =>
 		{
-			if (!settingsRef.current?.contains(event.target)) setIsSettingsOpen(false);
+			if (!settingsRef.current?.contains(event.target))
+			{
+				setIsSettingsOpen(false);
+			}
 		};
+
 		document.addEventListener("pointerdown", handlePointerDown);
-		return () => document.removeEventListener("pointerdown", handlePointerDown);
-	}, []);
+
+		return () =>
+		{
+			document.removeEventListener("pointerdown", handlePointerDown);
+		};
+	}, [isSettingsOpen]);
 
 	const handleManageUsersClick = (event) =>
 	{
@@ -90,15 +103,12 @@ export default function OrdersHeader({
 
 	return (
 		<>
-			<motion.header
-				initial={{ opacity: 0, y: -18 }}
-				animate={{ opacity: 1, y: 0 }}
-				transition={{ duration: 0.45 }}
-				className="relative z-30 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl">
+			<header
+				className="relative z-30 border-b border-slate-800 bg-slate-900/90">
 				<div className="container mx-auto px-4 py-4">
 					<div className="flex items-center justify-between gap-3">
 						<div className="flex min-w-0 items-center gap-3">
-							<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-[0_12px_40px_rgba(255,255,255,0.12)] sm:h-10 sm:w-10">
+							<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white sm:h-10 sm:w-10">
 								<Package className="h-5 w-5 text-black sm:h-6 sm:w-6" />
 							</div>
 							<h1 className="truncate text-xl font-bold text-white sm:text-2xl">ProjectO</h1>
@@ -149,7 +159,7 @@ export default function OrdersHeader({
 									<Settings className="h-4 w-4" />
 								</button>
 								{isSettingsOpen && (
-									<div className="absolute right-0 top-full z-20 mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)] overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+									<div className="absolute right-0 top-full z-20 mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)] overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
 										<div className="flex items-center gap-3 border-b border-slate-800 px-4 py-3 text-sm text-slate-400 xl:hidden">
 											<UserCircle className="h-4 w-4 shrink-0" />
 											<span className="min-w-0 wrap-break-word">{userLabel}</span>
@@ -179,8 +189,8 @@ export default function OrdersHeader({
 						</div>
 					</div>
 				</div>
-			</motion.header>
-			<div className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl lg:hidden">
+			</header>
+			<div className="border-b border-slate-800 bg-slate-900/90 lg:hidden">
 				<div className="container mx-auto px-4 py-3">
 					<div className="flex gap-2">
 						{!isAdminPage && (

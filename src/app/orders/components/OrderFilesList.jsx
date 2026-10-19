@@ -1,12 +1,12 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { Download, FileText, X } from "lucide-react";
 
 export default function OrderFilesList({
 	actionLabel,
 	actionTextClassName = "text-sm text-slate-400 hover:text-red-400",
 	attachments,
+	busyIds,
 	emptyMessage,
 	metaText = "Gotowe do pobrania w tej sesji",
 	onAction,
@@ -27,10 +27,8 @@ export default function OrderFilesList({
 	return (
 		<div className="space-y-3">
 			{attachments.map((attachment, index) => (
-				<motion.div
+				<div
 					key={attachment.id}
-					initial={{ opacity: 0, y: 10 }}
-					animate={{ opacity: 1, y: 0 }}
 					className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-3 sm:px-4">
 					<div className="flex min-w-0 flex-1 items-center gap-3">
 						<div className="hidden shrink-0 rounded-lg bg-slate-800 p-2 text-slate-300 sm:block">
@@ -59,9 +57,12 @@ export default function OrderFilesList({
 						<button
 							type="button"
 							onClick={() => onDownload?.(attachment, index)}
-							className="inline-flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-white px-2.5 text-sm font-medium text-black transition-colors hover:bg-gray-200 sm:px-3">
+							disabled={busyIds?.has(attachment.fileId)}
+							className="inline-flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-white px-2.5 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:cursor-wait disabled:opacity-60 sm:px-3">
 							<Download className="h-4 w-4" />
-							<span className="sr-only sm:not-sr-only">Pobierz</span>
+							<span className="sr-only sm:not-sr-only">
+								{busyIds?.has(attachment.fileId) ? "Pobieranie..." : "Pobierz"}
+							</span>
 						</button>
 					) : actionLabel && onAction ? (
 						<button
@@ -74,7 +75,7 @@ export default function OrderFilesList({
 					) : (
 						<span className="shrink-0 text-xs text-slate-500">Dostępny</span>
 					)}
-				</motion.div>
+				</div>
 			))}
 		</div>
 	);

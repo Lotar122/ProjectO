@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { useId } from "react";
 
 export default function DeleteOrderModal({ isOpen, onCancel, onConfirm })
@@ -10,8 +10,8 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm })
 	return (
 		<AnimatePresence>
 			{isOpen && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-					<motion.div
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+					<m.div
 						initial={{ opacity: 0, scale: 0.94, y: 18 }}
 						animate={{ opacity: 1, scale: 1, y: 0 }}
 						exit={{ opacity: 0, scale: 0.96 }}
@@ -40,7 +40,7 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm })
 								Usuń
 							</button>
 						</div>
-					</motion.div>
+					</m.div>
 				</div>
 			)}
 		</AnimatePresence>
