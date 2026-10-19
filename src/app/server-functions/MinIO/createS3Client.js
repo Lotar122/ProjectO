@@ -13,7 +13,8 @@ const globalForS3 = globalThis;
 
 // socketTimeout is an idle timeout, so large transfers can take as long as
 // they keep moving, while a silent MinIO fails after 30s instead of hanging.
-// For a private CA, set NODE_EXTRA_CA_CERTS rather than disabling verification.
+// MinIO runs on the Docker internal network with a self-signed certificate,
+// so certificate verification is disabled for it.
 export async function createS3Client()
 {
 	globalForS3.__projectoS3 ??= new S3Client({
@@ -29,7 +30,11 @@ export async function createS3Client()
 			connectionTimeout: 5000,
 			socketTimeout: 30000,
 			httpAgent: new http.Agent({ keepAlive: true, maxSockets: MAX_SOCKETS }),
-			httpsAgent: new https.Agent({ keepAlive: true, maxSockets: MAX_SOCKETS }),
+			httpsAgent: new https.Agent({
+				keepAlive: true,
+				maxSockets: MAX_SOCKETS,
+				rejectUnauthorized: false,
+			}),
 		}),
 	});
 
