@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# auto-archiver recovery copies (patient files, never commit)
+/archiver-recovery/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

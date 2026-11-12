@@ -3,6 +3,7 @@
 import { AnimatePresence, m } from "framer-motion";
 import { memo } from "react";
 import {
+	Archive,
 	CheckCircle,
 	ChevronDown,
 	Clock,
@@ -14,9 +15,13 @@ import {
 } from "lucide-react";
 
 import {
+	ARCHIVED_BADGE_CLASS,
+	ARCHIVED_LABEL,
+	getArchivedTitle,
 	getDisplayDate,
 	getOrderFiles,
 	getStatusTheme,
+	isOrderArchived,
 	ORDER_STATUS_VALUES,
 	STATUS_LABELS,
 } from "../orderUtils";
@@ -47,6 +52,7 @@ function OrderCardDetails({
 })
 {
 	const orderFiles = getOrderFiles(order, fileNamesById);
+	const archived = isOrderArchived(order);
 
 	return (
 		<m.div
@@ -83,6 +89,7 @@ function OrderCardDetails({
 
 						<div className="mt-4">
 							<OrderFilesList
+								archived={archived}
 								attachments={orderFiles}
 								busyIds={downloadingFileIds}
 								emptyMessage="Do tego zlecenia nie dodano jeszcze plików."
@@ -117,6 +124,7 @@ function OrderCard({
 	const statusTheme = getStatusTheme(order.status);
 	const orderId = order.order_id;
 	const statusLabel = STATUS_LABELS[order.status] ?? STATUS_LABELS.completed;
+	const archived = isOrderArchived(order);
 
 	return (
 		<div
@@ -170,6 +178,16 @@ function OrderCard({
 								{getStatusIcon(order.status)}
 								{statusLabel}
 							</span>
+						)}
+						{archived && (
+							<div className="mt-2">
+								<span
+									title={getArchivedTitle(order)}
+									className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap ${ARCHIVED_BADGE_CLASS}`}>
+									<Archive className="h-3.5 w-3.5" />
+									{ARCHIVED_LABEL}
+								</span>
+							</div>
 						)}
 						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">
 							<div

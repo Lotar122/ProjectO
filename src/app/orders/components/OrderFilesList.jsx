@@ -2,9 +2,12 @@
 
 import { Download, FileText, X } from "lucide-react";
 
+import { ARCHIVED_FILE_META_TEXT } from "../orderUtils";
+
 export default function OrderFilesList({
 	actionLabel,
 	actionTextClassName = "text-sm text-slate-400 hover:text-red-400",
+	archived = false,
 	attachments,
 	busyIds,
 	emptyMessage,
@@ -49,7 +52,7 @@ export default function OrderFilesList({
 									{attachment.name}
 								</p>
 							)}
-							<p className="text-xs text-slate-500">{metaText}</p>
+							<p className="text-xs text-slate-500">{archived ? ARCHIVED_FILE_META_TEXT : metaText}</p>
 						</div>
 					</div>
 

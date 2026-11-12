@@ -106,39 +106,69 @@ export async function deleteOrderFiles(s3, fileIds)
 	return failedIds;
 }
 
+const METADATA_UPDATE_ATTEMPTS = 3;
+
+// True for a failed S3 precondition (If-Match / x-amz-copy-source-if-match).
+export function isPreconditionFailed(err)
+{
+	return err?.name === "PreconditionFailed" || err?.$metadata?.httpStatusCode === 412;
+}
+
 // buildUpdate receives the current metadata and returns the keys to change,
 // or null to leave the object untouched (no copy needed).
-async function updateOrderFileMetadata(s3, fileId, buildUpdate)
+//
+// The copy only goes through while the object still has the ETag that was read
+// (CopySourceIfMatch). Otherwise the archiver could replace the bytes between
+// the HEAD and the copy, and the copy would put the stale metadata (without
+// `compression`) on compressed bytes. On a precondition failure the metadata
+// is read again and buildUpdate re-run on it. A metadata-only copy keeps the
+// content ETag, so this guards against content replacements, not against two
+// concurrent metadata updates.
+export async function updateOrderFileMetadata(s3, fileId, buildUpdate)
 {
-	const metadata = await s3.send(
-		new HeadObjectCommand({
-			Bucket: ORDER_FILES_BUCKET,
-			Key: fileId,
-		}),
-	);
-	const metadataUpdate = buildUpdate(metadata.Metadata ?? {});
-
-	if (!metadataUpdate)
+	for (let attempt = 1; ; attempt++)
 	{
-		return false;
+		const head = await s3.send(
+			new HeadObjectCommand({
+				Bucket: ORDER_FILES_BUCKET,
+				Key: fileId,
+			}),
+		);
+		const metadataUpdate = buildUpdate(head.Metadata ?? {});
+
+		if (!metadataUpdate)
+		{
+			return false;
+		}
+
+		try
+		{
+			await s3.send(
+				new CopyObjectCommand({
+					Bucket: ORDER_FILES_BUCKET,
+					Key: fileId,
+					CopySource: `${ORDER_FILES_BUCKET}/${encodeURIComponent(fileId)}`,
+					...(head.ETag ? { CopySourceIfMatch: head.ETag } : {}),
+					ContentType: head.ContentType,
+					ChecksumAlgorithm: "SHA256",
+					Metadata: {
+						...head.Metadata,
+						...metadataUpdate,
+					},
+					MetadataDirective: "REPLACE",
+				}),
+			);
+
+			return true;
+		}
+		catch (err)
+		{
+			if (!isPreconditionFailed(err) || attempt >= METADATA_UPDATE_ATTEMPTS)
+			{
+				throw err;
+			}
+		}
 	}
-
-	await s3.send(
-		new CopyObjectCommand({
-			Bucket: ORDER_FILES_BUCKET,
-			Key: fileId,
-			CopySource: `${ORDER_FILES_BUCKET}/${encodeURIComponent(fileId)}`,
-			ContentType: metadata.ContentType,
-			ChecksumAlgorithm: "SHA256",
-			Metadata: {
-				...metadata.Metadata,
-				...metadataUpdate,
-			},
-			MetadataDirective: "REPLACE",
-		}),
-	);
-
-	return true;
 }
 
 // Returns false when the file already has that name, so unchanged attachments

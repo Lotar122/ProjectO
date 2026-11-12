@@ -264,3 +264,18 @@ export const getStatusTheme = (status) =>
 			};
 	}
 };
+
+export const ARCHIVED_LABEL = "ZARCHIWIZOWANE";
+export const ARCHIVED_BADGE_CLASS = "bg-indigo-100 text-indigo-800";
+export const ARCHIVED_FILE_META_TEXT = "Zarchiwizowany — pobieranie może potrwać dłużej";
+
+export const isOrderArchived = (order) => Boolean(order?.archived_at);
+
+export const getArchivedTitle = (order) =>
+{
+	const date = new Date(order?.archived_at);
+
+	return Number.isNaN(date.getTime())
+		? "Pliki zarchiwizowane (skompresowane)"
+		: `Zarchiwizowano: ${date.toLocaleDateString("pl-PL")}`;
+};

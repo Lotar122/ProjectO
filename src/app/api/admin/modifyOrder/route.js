@@ -105,6 +105,7 @@ async function handlePut(req)
 				details = ${details},
 				due_date = ${due_date},
 				files = ${nextFileIds}
+				${uploadedFileIds.length > 0 ? DB`, archived_at = NULL` : DB``}
 			WHERE order_id = ${orderID}
 			RETURNING *
 		`;

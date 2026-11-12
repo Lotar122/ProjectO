@@ -4,8 +4,9 @@ import { m } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
-import { UserPlus, Users } from "lucide-react";
+import { Archive, UserPlus, Users } from "lucide-react";
 
+import ArchiverPanel from "./ArchiverPanel";
 import ManageUsers from "./ManageUsers";
 import OrdersHeader from "../../orders/components/OrdersHeader";
 import { KRATOS_PUBLIC } from "@/app/lib/kratos";
@@ -17,6 +18,7 @@ export default function AdminDashboard()
 	const router = useRouter();
 	const [currentPage, setCurrentPage] = useState("manage-users");
 	const [hasOpenedCreate, setHasOpenedCreate] = useState(false);
+	const [hasOpenedArchiver, setHasOpenedArchiver] = useState(false);
 	const [refreshToken, setRefreshToken] = useState(0);
 	const isLoggingOutRef = useRef(false);
 
@@ -26,6 +28,12 @@ export default function AdminDashboard()
 	{
 		setHasOpenedCreate(true);
 		setCurrentPage("create-identity");
+	}, []);
+
+	const showArchiver = useCallback(() =>
+	{
+		setHasOpenedArchiver(true);
+		setCurrentPage("archiver");
 	}, []);
 
 	const showChangePassword = useCallback(() =>
@@ -96,9 +104,13 @@ export default function AdminDashboard()
 							<p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
 								Panel administratora
 							</p>
-							<h2 className="text-2xl font-bold text-white sm:text-3xl">Zarządzanie użytkownikami</h2>
+							<h2 className="text-2xl font-bold text-white sm:text-3xl">
+								{currentPage === "archiver" ? "Archiwizacja zleceń" : "Zarządzanie użytkownikami"}
+							</h2>
 							<p className="mt-2 text-slate-400">
-								Wyświetlaj konta, edytuj ich dane i zarządzaj dostępem do systemu.
+								{currentPage === "archiver"
+									? "Kompresuj pliki starszych zleceń, aby oszczędzać miejsce na dysku."
+									: "Wyświetlaj konta, edytuj ich dane i zarządzaj dostępem do systemu."}
 							</p>
 						</div>
 					</div>
@@ -118,6 +130,13 @@ export default function AdminDashboard()
 							<UserPlus className="h-4 w-4" />
 							Dodaj użytkownika
 						</button>
+						<button
+							type="button"
+							onClick={showArchiver}
+							className={`flex min-h-10 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${currentPage === "archiver" ? "bg-violet-100 text-slate-950" : "text-slate-300 hover:bg-slate-900 hover:text-white"}`}>
+							<Archive className="h-4 w-4" />
+							Archiwizacja
+						</button>
 					</div>
 				</m.div>
 
@@ -129,6 +148,13 @@ export default function AdminDashboard()
 				{hasOpenedCreate && (
 					<div hidden={currentPage !== "create-identity"}>
 						<IdentityCreationForm onCancel={showManageUsers} onCreated={handleCreated} />
+					</div>
+				)}
+
+				{/* Mounted on first open so it doesn't poll before it's used. */}
+				{hasOpenedArchiver && (
+					<div hidden={currentPage !== "archiver"}>
+						<ArchiverPanel />
 					</div>
 				)}
 			</main>
