@@ -4,6 +4,7 @@ import { m } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import http, { isAbortError } from "@/app/lib/http";
+import Alert from "../components/Alert";
 import PasswordField from "../components/passwordField";
 import Loading from "../loading";
 import { KRATOS_PUBLIC, getKratosFlowMessages, getKratosNodeValue } from "../lib/kratos";
@@ -238,15 +239,12 @@ const KratosLogin = () =>
 			return (
 				<div className="relative flex min-h-dvh items-center justify-center p-4">
 					<div
-						className="w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/90 p-6 text-center shadow-lg sm:p-8"
-						role="alert">
-						<p className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-red-300">
-							{String(error)}
-						</p>
+						className="w-full max-w-md space-y-5 rounded-xl border border-line bg-surface p-6 shadow-lg sm:p-8">
+						<Alert tone="danger">{String(error)}</Alert>
 						<button
 							type="button"
 							onClick={retry}
-							className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 transition-colors duration-200 hover:bg-sky-200">
+							className="btn btn-primary w-full">
 							Spróbuj ponownie
 						</button>
 					</div>
@@ -263,22 +261,16 @@ const KratosLogin = () =>
 				variants={container}
 				initial="hidden"
 				animate="show"
-				className="relative z-10 w-full max-w-md rounded-[28px] border border-slate-700/80 bg-slate-900/90 p-6 shadow-lg sm:p-8">
+				className="relative z-10 w-full max-w-md rounded-xl border border-line bg-surface p-6 shadow-lg sm:p-8">
 				<m.div variants={item} className="mb-6 text-center sm:mb-8">
-					<h2 className="mb-2 text-2xl font-bold text-white sm:text-3xl">Witaj ponownie</h2>
-					<p className="text-slate-400">
+					<h2 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Witaj ponownie</h2>
+					<p className="text-muted">
 						Zaloguj się do panelu
 					</p>
 				</m.div>
 
 				{error && (
-					<m.p
-						initial={{ opacity: 0, y: -8 }}
-						animate={{ opacity: 1, y: 0 }}
-						role="alert"
-						className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-red-300">
-						{String(error)}
-					</m.p>
+					<Alert tone="danger" className="mb-4">{String(error)}</Alert>
 				)}
 
 				<m.form
@@ -288,9 +280,7 @@ const KratosLogin = () =>
 					autoComplete="on"
 					className="space-y-6">
 					<div>
-						<label
-							htmlFor="login-username"
-							className="mb-2 block text-sm font-medium text-slate-300">
+						<label htmlFor="login-username" className="field-label">
 							Adres e-mail
 						</label>
 						<input
@@ -301,7 +291,7 @@ const KratosLogin = () =>
 							inputMode="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
-							className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
+							className="field"
 							placeholder="Wpisz adres e-mail"
 							required
 						/>
@@ -319,7 +309,7 @@ const KratosLogin = () =>
 						type="submit"
 						disabled={isSubmitting}
 						whileTap={{ scale: 0.985 }}
-						className="w-full rounded-xl bg-sky-100 py-3 font-semibold text-slate-950 shadow-md transition-colors duration-200 hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-70">
+						className="btn btn-primary w-full">
 						{isSubmitting ? "Logowanie..." : "Zaloguj się"}
 					</m.button>
 				</m.form>

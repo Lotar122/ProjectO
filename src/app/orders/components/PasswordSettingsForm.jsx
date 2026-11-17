@@ -3,12 +3,14 @@
 import { m } from "framer-motion";
 import { KeyRound, ShieldCheck } from "lucide-react";
 
+import Alert from "@/app/components/Alert";
 import PasswordField from "@/app/components/passwordField";
 
 export default function PasswordSettingsForm({
 	confirmPassword,
 	currentPassword,
 	errorMessage,
+	hideHeader = false,
 	isSubmitting,
 	newPassword,
 	onCancel,
@@ -16,6 +18,7 @@ export default function PasswordSettingsForm({
 	onCurrentPasswordChange,
 	onNewPasswordChange,
 	onSubmit,
+	successMessage,
 })
 {
 	return (
@@ -23,41 +26,31 @@ export default function PasswordSettingsForm({
 			initial={{ opacity: 0, y: 24 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.45 }}
-			className="mx-auto max-w-2xl">
-			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-lg">
-				<div className="border-b border-slate-800 bg-slate-950/70 px-5 py-5 sm:px-8">
+			className={hideHeader ? "max-w-2xl" : "mx-auto max-w-2xl"}>
+			<div className="overflow-hidden rounded-xl border border-line bg-surface">
+				{!hideHeader && <div className="border-b border-line bg-surface-raised px-5 py-5 sm:px-8">
 					<div className="flex items-start gap-3 sm:gap-4">
-						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-slate-950">
-							<KeyRound className="h-6 w-6" />
+						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-contrast">
+							<KeyRound className="h-6 w-6" aria-hidden="true" />
 						</div>
 						<div className="min-w-0">
-							<h2 className="text-2xl font-bold text-white">Zmień hasło</h2>
-							<p className="mt-2 max-w-xl text-sm text-slate-400">
+							<h2 className="text-2xl font-bold text-foreground">Zmień hasło</h2>
+							<p className="mt-2 max-w-xl text-sm text-muted">
 								Najpierw potwierdź obecne hasło, a następnie ustaw nowe hasło do
 								konta Ory.
 							</p>
 						</div>
 					</div>
-				</div>
+				</div>}
 
 				<form onSubmit={onSubmit} className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
-					<div className="rounded-2xl border border-sky-400/15 bg-sky-400/8 px-4 py-4 text-sm text-sky-100">
-						<div className="flex items-start gap-3">
-							<ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
-							<p>
-								Przed zmianą hasła sesja zostanie ponownie zweryfikowana przez Ory.
-							</p>
-						</div>
-					</div>
+					<Alert tone="info" icon={ShieldCheck} announce={false}>
+						Przed zmianą hasła sesja zostanie ponownie zweryfikowana przez Ory.
+					</Alert>
 
-					{errorMessage && (
-						<m.p
-							initial={{ opacity: 0, y: -8 }}
-							animate={{ opacity: 1, y: 0 }}
-							className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-							{errorMessage}
-						</m.p>
-					)}
+					{successMessage && <Alert tone="success">{successMessage}</Alert>}
+
+					{errorMessage && <Alert tone="danger">{errorMessage}</Alert>}
 
 					<PasswordField
 						autoComplete="current-password"
@@ -90,16 +83,10 @@ export default function PasswordSettingsForm({
 					/>
 
 					<div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-						<button
-							type="button"
-							onClick={onCancel}
-							className="rounded-xl border border-slate-700 px-5 py-3 font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
+						<button type="button" onClick={onCancel} className="btn btn-secondary px-5">
 							Anuluj
 						</button>
-						<button
-							type="submit"
-							disabled={isSubmitting}
-							className="rounded-xl bg-sky-100 px-5 py-3 font-semibold text-slate-950 transition-colors hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-70">
+						<button type="submit" disabled={isSubmitting} className="btn btn-primary px-5">
 							{isSubmitting ? "Zapisywanie..." : "Zmień hasło"}
 						</button>
 					</div>

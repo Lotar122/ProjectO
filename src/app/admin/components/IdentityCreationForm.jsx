@@ -1,10 +1,11 @@
 "use client";
 
 import { m } from "framer-motion";
-import { CheckCircle2, ShieldCheck, UserPlus } from "lucide-react";
+import { ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 import http from "@/app/lib/http";
 
+import Alert from "@/app/components/Alert";
 import PasswordField from "@/app/components/passwordField";
 
 const INITIAL_FORM = {
@@ -86,59 +87,22 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 			initial={{ opacity: 0, y: 24 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.45 }}
-			className="mx-auto max-w-3xl">
-			<div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-900/80 shadow-lg">
-				<div className="border-b border-slate-800 bg-slate-950/70 px-5 py-5 sm:px-8">
-					<div className="flex items-start gap-3 sm:gap-4">
-						<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-100 text-slate-950">
-							<UserPlus className="h-6 w-6" />
-						</div>
-						<div className="min-w-0">
-							<p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
-								Panel administratora
-							</p>
-							<h2 className="text-xl font-bold text-white sm:text-2xl">Dodaj użytkownika</h2>
-							<p className="mt-2 max-w-xl text-sm text-slate-400">
-								Utwórz nową tożsamość w Ory Kratos i nadaj jej odpowiednią rolę.
-							</p>
-						</div>
-					</div>
-				</div>
-
+			className="max-w-3xl">
+			<div className="overflow-hidden rounded-xl border border-line bg-surface">
 				<form onSubmit={handleSubmit} className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
-					<div className="flex items-start gap-3 rounded-2xl border border-violet-400/15 bg-violet-400/8 px-4 py-4 text-sm text-violet-100">
-						<ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
-						<p>
-							Adres e-mail będzie identyfikatorem logowania. Hasło przekaż użytkownikowi
-							bezpiecznym kanałem.
-						</p>
-					</div>
+					<Alert tone="info" icon={ShieldCheck} announce={false}>
+						Adres e-mail będzie identyfikatorem logowania. Hasło przekaż użytkownikowi
+						bezpiecznym kanałem.
+					</Alert>
 
-					{errorMessage && (
-						<m.p
-							initial={{ opacity: 0, y: -8 }}
-							animate={{ opacity: 1, y: 0 }}
-							className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-							role="alert">
-							{errorMessage}
-						</m.p>
-					)}
+					{errorMessage && <Alert tone="danger">{errorMessage}</Alert>}
 
-					{successMessage && (
-						<m.p
-							initial={{ opacity: 0, y: -8 }}
-							animate={{ opacity: 1, y: 0 }}
-							className="flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300"
-							role="status">
-							<CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-							<span>{successMessage}</span>
-						</m.p>
-					)}
+					{successMessage && <Alert tone="success">{successMessage}</Alert>}
 
 					<div className="grid gap-5 md:grid-cols-2">
 						<div className="md:col-span-2">
-							<label htmlFor="identity-email" className="mb-2 block text-sm font-medium text-slate-300">
-								Adres e-mail <span className="text-violet-300">*</span>
+							<label htmlFor="identity-email" className="field-label">
+								Adres e-mail <span className="text-accent-text" aria-hidden="true">*</span>
 							</label>
 							<input
 								type="email"
@@ -149,12 +113,12 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								value={form.email}
 								onChange={(event) => updateField("email", event.target.value)}
 								placeholder="uzytkownik@przyklad.pl"
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
+								className="field"
 							/>
 						</div>
 
 						<div>
-							<label htmlFor="identity-first-name" className="mb-2 block text-sm font-medium text-slate-300">
+							<label htmlFor="identity-first-name" className="field-label">
 								Imię
 							</label>
 							<input
@@ -165,12 +129,12 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								value={form.firstName}
 								onChange={(event) => updateField("firstName", event.target.value)}
 								placeholder="Jan"
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
+								className="field"
 							/>
 						</div>
 
 						<div>
-							<label htmlFor="identity-last-name" className="mb-2 block text-sm font-medium text-slate-300">
+							<label htmlFor="identity-last-name" className="field-label">
 								Nazwisko
 							</label>
 							<input
@@ -181,13 +145,13 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								value={form.lastName}
 								onChange={(event) => updateField("lastName", event.target.value)}
 								placeholder="Kowalski"
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 placeholder:text-slate-600 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none"
+								className="field"
 							/>
 						</div>
 
 						<div>
-							<label htmlFor="identity-role" className="mb-2 block text-sm font-medium text-slate-300">
-								Rola <span className="text-violet-300">*</span>
+							<label htmlFor="identity-role" className="field-label">
+								Rola <span className="text-accent-text" aria-hidden="true">*</span>
 							</label>
 							<select
 								id="identity-role"
@@ -195,14 +159,14 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								required
 								value={form.role}
 								onChange={(event) => updateField("role", event.target.value)}
-								className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-white transition-colors duration-300 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-200/20 focus:outline-none">
+								className="field">
 								<option value="user">Użytkownik</option>
 								<option value="admin">Administrator</option>
 							</select>
 						</div>
 					</div>
 
-					<div className="grid gap-5 border-t border-slate-800 pt-6 md:grid-cols-2">
+					<div className="grid gap-5 border-t border-line pt-6 md:grid-cols-2">
 						<PasswordField
 							id="identity-password"
 							name="password"
@@ -223,18 +187,18 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 						/>
 					</div>
 
-					<div className="flex flex-col-reverse gap-3 border-t border-slate-800 pt-6 sm:flex-row sm:justify-end">
+					<div className="flex flex-col-reverse gap-3 border-t border-line pt-6 sm:flex-row sm:justify-end">
 						<button
 							type="button"
 							onClick={onCancel}
-							className="rounded-xl border border-slate-700 px-5 py-3 font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
+							className="btn btn-secondary px-5">
 							Anuluj
 						</button>
 						<button
 							type="submit"
 							disabled={isSubmitting}
-							className="flex items-center justify-center gap-2 rounded-xl bg-violet-100 px-5 py-3 font-semibold text-slate-950 transition-colors hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-70">
-							<UserPlus className="h-4 w-4" />
+							className="btn btn-primary px-5">
+							<UserPlus className="h-4 w-4" aria-hidden="true" />
 							{isSubmitting ? "Tworzenie..." : "Utwórz użytkownika"}
 						</button>
 					</div>

@@ -2,18 +2,23 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
-import AdminDashboard from "./components/AdminDashboard";
 import { getUserAuthSession } from "../server-functions/getUserAuthSession";
 import { isAdminSession } from "../server-functions/isAdminSession";
 import { createLogger } from "../lib/logger";
 
 const log = createLogger("admin");
 
-export default async function AdminServerWrapper()
+/**
+ * The one admin guard. Redirects logged-out visitors to "/" and non-admins to
+ * "/orders", otherwise returns the session. Cached per request, so the layout
+ * and a page that needs the identity share a single Kratos round trip.
+ * @returns {Promise<{ loggedIn: true, data: object }>}
+ */
+export const requireAdminSession = cache(async () =>
 {
-	const cookieStore = await cookies();
-	const userAuthSession = await getUserAuthSession(cookieStore);
+	const userAuthSession = await getUserAuthSession(await cookies());
 
 	if (!userAuthSession.loggedIn)
 	{
@@ -26,5 +31,5 @@ export default async function AdminServerWrapper()
 		redirect("/orders");
 	}
 
-	return <AdminDashboard />;
-}
+	return userAuthSession;
+});

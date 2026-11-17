@@ -5,6 +5,8 @@ import { AnimatePresence, m } from "framer-motion";
 import { Archive, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 
+import Alert from "@/app/components/Alert";
+
 const POLL_INTERVAL_MS = 3000;
 
 const STATE_LABELS = {
@@ -15,10 +17,10 @@ const STATE_LABELS = {
 };
 
 const STATE_CLASSES = {
-	idle: "bg-slate-800 text-slate-300",
-	running: "bg-blue-100 text-blue-800",
-	done: "bg-green-100 text-green-800",
-	failed: "bg-red-100 text-red-800",
+	idle: "bg-surface-raised text-muted",
+	running: "bg-accent-soft text-accent-text",
+	done: "bg-success-soft text-success-text",
+	failed: "bg-danger-soft text-danger-text",
 };
 
 const formatBytes = (value) =>
@@ -60,7 +62,7 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 	return (
 		<AnimatePresence>
 			{isOpen && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
 					<m.div
 						initial={{ opacity: 0, scale: 0.94, y: 18 }}
 						animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -68,25 +70,25 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby={titleId}
-						className="w-full max-w-sm rounded-xl bg-gray-900 p-6">
-						<h2 id={titleId} className="mb-4 text-lg font-semibold text-white">
+						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6">
+						<h2 id={titleId} className="mb-4 text-lg font-semibold text-foreground">
 							Uruchomić archiwizację?
 						</h2>
-						<p className="mb-6 text-gray-400">
+						<p className="mb-6 text-muted">
 							Pliki zleceń starszych niż 30 dni zostaną skompresowane. Operacja może potrwać
 							dłuższą chwilę i działa w tle.
 						</p>
-						<div className="flex justify-end gap-4">
+						<div className="flex justify-end gap-3">
 							<button
 								type="button"
 								onClick={onCancel}
-								className="min-w-24 rounded bg-gray-700 px-4 py-2.5 transition-colors hover:bg-gray-600">
+								className="btn btn-secondary min-w-24">
 								Anuluj
 							</button>
 							<button
 								type="button"
 								onClick={onConfirm}
-								className="min-w-24 rounded bg-white px-4 py-2.5 font-medium text-black transition-colors hover:bg-gray-200">
+								className="btn btn-primary min-w-24">
 								Uruchom
 							</button>
 						</div>
@@ -100,9 +102,9 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 function Stat({ label, value })
 {
 	return (
-		<div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-			<p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
-			<p className="mt-1 text-lg font-semibold text-white">{value}</p>
+		<div className="rounded-lg border border-line bg-background p-4">
+			<p className="text-xs uppercase tracking-[0.18em] text-muted">{label}</p>
+			<p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
 		</div>
 	);
 }
@@ -218,14 +220,14 @@ export default function ArchiverPanel()
 	const hasRun = state !== "idle";
 
 	return (
-		<section className="rounded-xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
+		<section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
 			<div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
 				<div className="min-w-0">
-					<p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+					<p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-text">
 						Konserwacja
 					</p>
-					<h3 className="text-xl font-bold text-white">Archiwizacja zleceń</h3>
-					<p className="mt-2 max-w-2xl text-sm text-slate-400">
+					<h3 className="text-xl font-bold text-foreground">Archiwizacja zleceń</h3>
+					<p className="mt-2 max-w-2xl text-sm text-muted">
 						Pliki zleceń starszych niż 30 dni są kompresowane bezstratnie (zstd / brotli, wybierany
 						jest lepszy wynik), aby oszczędzać miejsce na dysku. Pobieranie rozpakowuje pliki
 						automatycznie, ale może potrwać dłużej.
@@ -240,56 +242,54 @@ export default function ArchiverPanel()
 							setInfo("");
 							loadStatus();
 						}}
-						className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-700 px-4 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
-						<RefreshCw className="h-4 w-4" />
+						className="btn btn-secondary">
+						<RefreshCw className="h-4 w-4" aria-hidden="true" />
 						Odśwież
 					</button>
 					<button
 						type="button"
 						onClick={() => setIsConfirmOpen(true)}
 						disabled={isRunning || isLoading || isStarting}
-						className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60">
+						className="btn btn-primary">
 						{isRunning || isStarting
-							? <Loader2 className="h-4 w-4 animate-spin" />
-							: <Archive className="h-4 w-4" />}
+							? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+							: <Archive className="h-4 w-4" aria-hidden="true" />}
 						Uruchom archiwizację
 					</button>
 				</div>
 			</div>
 
-			{error && (
-				<p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-					{error}
-				</p>
-			)}
-			{info && (
-				<p className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-300">
-					{info}
-				</p>
-			)}
+			{error && <Alert tone="danger" className="mt-4">{error}</Alert>}
+			{info && <Alert tone="info" className="mt-4">{info}</Alert>}
 
 			{isLoading ? (
-				<p className="mt-6 text-sm text-slate-400">Ładowanie...</p>
+				<p className="mt-6 text-sm text-muted">Ładowanie...</p>
 			) : status && (
 				<div className="mt-6 space-y-4">
 					<div className="flex flex-wrap items-center gap-3">
 						<span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${STATE_CLASSES[state] ?? STATE_CLASSES.idle}`}>
 							{STATE_LABELS[state] ?? state}
 						</span>
-						<span className="text-sm text-slate-400">
-							Zlecenia do archiwizacji: <span className="font-semibold text-white">{candidates ?? "—"}</span>
+						<span className="text-sm text-muted">
+							Zlecenia do archiwizacji: <span className="font-semibold text-foreground">{candidates ?? "—"}</span>
 						</span>
 					</div>
 
 					{isRunning && (
 						<div>
-							<div className="h-2 w-full rounded-full bg-slate-700">
+							<div
+								className="h-2 w-full rounded-full bg-surface-raised"
+								role="progressbar"
+								aria-label="Postęp archiwizacji"
+								aria-valuemin={0}
+								aria-valuemax={100}
+								aria-valuenow={percent}>
 								<div
-									className="h-2 rounded-full bg-blue-500 transition-[width] duration-300"
+									className="h-2 rounded-full bg-accent-text transition-[width] duration-300"
 									style={{ width: `${percent}%` }}
 								/>
 							</div>
-							<p className="mt-1 text-sm text-slate-500">
+							<p className="mt-1 text-sm text-muted">
 								{processed} / {total} zleceń ({percent}%)
 							</p>
 						</div>
@@ -306,7 +306,7 @@ export default function ArchiverPanel()
 								<Stat label="Pliki pominięte" value={status.filesSkipped ?? 0} />
 								<Stat label="Pliki z błędem" value={status.filesFailed ?? 0} />
 							</div>
-							<p className="text-xs text-slate-500">
+							<p className="text-xs text-muted">
 								Zlecenia: przetworzone / z błędem.
 							</p>
 
@@ -315,15 +315,15 @@ export default function ArchiverPanel()
 								value={`${formatBytes(saved)} (${savedPercent}%)`}
 							/>
 
-							<div className="grid gap-1 text-sm text-slate-400 sm:grid-cols-2">
-								<p>Rozpoczęto: <span className="text-slate-300">{formatTime(status.startedAt)}</span></p>
-								<p>Zakończono: <span className="text-slate-300">{formatTime(status.finishedAt)}</span></p>
+							<div className="grid gap-1 text-sm text-muted sm:grid-cols-2">
+								<p>Rozpoczęto: <span className="text-foreground">{formatTime(status.startedAt)}</span></p>
+								<p>Zakończono: <span className="text-foreground">{formatTime(status.finishedAt)}</span></p>
 							</div>
 						</>
 					)}
 
 					{status.lastError && (
-						<p className="text-sm text-red-400 wrap-break-word">
+						<p className="text-sm text-danger-text wrap-break-word">
 							Ostatni błąd: {status.lastError}
 						</p>
 					)}

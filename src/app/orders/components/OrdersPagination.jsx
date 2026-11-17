@@ -20,8 +20,8 @@ export default function OrdersPagination({
 	const endItem = Math.min(currentPage * pageSize, totalCount);
 
 	return (
-		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/85 px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
-			<p className="text-sm text-slate-400">
+		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-line bg-surface px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
+			<p className="text-sm text-muted">
 				Wyświetlono {startItem}-{endItem} z {totalCount} zleceń
 			</p>
 
@@ -30,12 +30,12 @@ export default function OrdersPagination({
 					type="button"
 					onClick={() => onPageChange(currentPage - 1)}
 					disabled={currentPage <= 1 || isLoading}
-					className="inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-lg border border-slate-700 px-2.5 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:px-4">
-					<ChevronLeft className="h-4 w-4" />
+					className="btn btn-secondary min-w-11 px-2.5 sm:px-4">
+					<ChevronLeft className="h-4 w-4" aria-hidden="true" />
 					<span className="sr-only sm:not-sr-only">Poprzednia</span>
 				</button>
 
-				<span className="min-w-0 text-center text-sm font-medium whitespace-nowrap text-slate-200 sm:min-w-28">
+				<span className="min-w-0 text-center text-sm font-medium whitespace-nowrap text-foreground sm:min-w-28">
 					Strona {currentPage} z {totalPages}
 				</span>
 
@@ -43,9 +43,9 @@ export default function OrdersPagination({
 					type="button"
 					onClick={() => onPageChange(currentPage + 1)}
 					disabled={currentPage >= totalPages || isLoading}
-					className="inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-lg border border-slate-700 px-2.5 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:px-4">
+					className="btn btn-secondary min-w-11 px-2.5 sm:px-4">
 					<span className="sr-only sm:not-sr-only">Następna</span>
-					<ChevronRight className="h-4 w-4" />
+					<ChevronRight className="h-4 w-4" aria-hidden="true" />
 				</button>
 			</div>
 		</div>

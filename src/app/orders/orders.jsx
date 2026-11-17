@@ -11,11 +11,12 @@ import OrderCard from "./components/OrderCard";
 import OrdersHeader from "./components/OrdersHeader";
 import OrdersPagination from "./components/OrdersPagination";
 import OrdersToolbar from "./components/OrdersToolbar";
+import { KRATOS_PUBLIC } from "@/app/lib/kratos";
 import {
-	KRATOS_PUBLIC,
-	getKratosFlowMessages,
-	getKratosNodeValue,
-} from "@/app/lib/kratos";
+	changeOwnPassword,
+	getPasswordChangeErrorMessage,
+	validatePasswordChange,
+} from "@/app/lib/changePassword";
 import {
 	buildOrderFileName,
 	INITIAL_EDIT_DRAFT,
@@ -218,24 +219,6 @@ export default function Orders({
 		setPasswordForm(INITIAL_PASSWORD_FORM);
 		setPasswordChangeError(null);
 		setIsPasswordChangeSubmitting(false);
-	}, []);
-
-	const getKratosErrorMessage = useCallback((error, group) =>
-	{
-		const flowMessages = getKratosFlowMessages(error?.response?.data, group);
-
-		if (flowMessages.length > 0)
-		{
-			return flowMessages[0];
-		}
-
-		return (
-			error?.response?.data?.error?.reason ||
-			error?.response?.data?.error?.message ||
-			error?.response?.data?.message ||
-			error?.message ||
-			"Podczas zmiany hasła wystąpił błąd."
-		);
 	}, []);
 
 	const clearActionTimeout = useCallback((key) =>
@@ -789,17 +772,11 @@ export default function Orders({
 	{
 		e.preventDefault();
 
-		const { confirmPassword, currentPassword, newPassword } = passwordForm;
+		const validationError = validatePasswordChange(passwordForm);
 
-		if (!currentPassword || !newPassword || !confirmPassword)
+		if (validationError)
 		{
-			setPasswordChangeError("Uzupełnij wszystkie pola hasła.");
-			return;
-		}
-
-		if (newPassword !== confirmPassword)
-		{
-			setPasswordChangeError("Potwierdzenie nowego hasła jest niezgodne.");
+			setPasswordChangeError(validationError);
 			return;
 		}
 
@@ -809,52 +786,11 @@ export default function Orders({
 
 		try
 		{
-			const refreshFlowResponse = await http.get(
-				`${KRATOS_PUBLIC}/self-service/login/browser?refresh=true`,
-				{
-					withCredentials: true,
-				},
-			);
-			const refreshCsrfToken = getKratosNodeValue(
-				refreshFlowResponse.data,
-				"csrf_token",
-			);
-
-			await http.post(
-				refreshFlowResponse.data.ui.action,
-				{
-					method: "password",
-					identifier: userEmail,
-					password: currentPassword,
-					csrf_token: refreshCsrfToken,
-				},
-				{
-					withCredentials: true,
-				},
-			);
-
-			const settingsFlowResponse = await http.get(
-				`${KRATOS_PUBLIC}/self-service/settings/browser`,
-				{
-					withCredentials: true,
-				},
-			);
-			const settingsCsrfToken = getKratosNodeValue(
-				settingsFlowResponse.data,
-				"csrf_token",
-			);
-
-			await http.post(
-				settingsFlowResponse.data.ui.action,
-				{
-					method: "password",
-					password: newPassword,
-					csrf_token: settingsCsrfToken,
-				},
-				{
-					withCredentials: true,
-				},
-			);
+			await changeOwnPassword({
+				email: userEmail,
+				currentPassword: passwordForm.currentPassword,
+				newPassword: passwordForm.newPassword,
+			});
 
 			completeBackgroundAction(actionId, "Hasło zostało zmienione", userEmail);
 			showOrdersPage();
@@ -862,7 +798,7 @@ export default function Orders({
 		catch (err)
 		{
 			console.error("Nie udało się zmienić hasła:", err);
-			const message = getKratosErrorMessage(err, "password");
+			const message = getPasswordChangeErrorMessage(err);
 			setPasswordChangeError(message);
 			failBackgroundAction(actionId, "Nie udało się zmienić hasła", message);
 		}
@@ -1264,8 +1200,12 @@ export default function Orders({
 		startBackgroundAction,
 	]);
 
+	// Inside the admin layout, which already renders the top bar and <main>.
+	const ContentTag = adminMode ? "div" : "main";
+	const HeadingTag = adminMode ? "h1" : "h2";
+
 	return (
-		<div className="min-h-dvh bg-transparent text-white">
+		<div className={adminMode ? "text-foreground" : "min-h-dvh bg-transparent text-foreground"}>
 			{deleteOrderId && (
 				<DeleteOrderModal
 					isOpen
@@ -1281,19 +1221,20 @@ export default function Orders({
 				/>
 			)}
 
-			<OrdersHeader
-				currentPage={currentPage}
-				isAdmin={isAdmin || adminMode}
-				isAdminPage={adminMode}
-				onLogout={handleLogout}
-				onShowChangePassword={showChangePasswordPage}
-				onShowCreateOrder={() => setCurrentPage("create-order")}
-				onShowOrders={showOrdersPage}
-				userLastName={userLastName}
-				userName={userName}
-			/>
+			{!adminMode && (
+				<OrdersHeader
+					currentPage={currentPage}
+					isAdmin={isAdmin}
+					onLogout={handleLogout}
+					onShowChangePassword={showChangePasswordPage}
+					onShowCreateOrder={() => setCurrentPage("create-order")}
+					onShowOrders={showOrdersPage}
+					userLastName={userLastName}
+					userName={userName}
+				/>
+			)}
 
-			<main className="container mx-auto px-4 py-6 sm:py-8">
+			<ContentTag className={adminMode ? undefined : "container mx-auto px-4 py-6 sm:py-8"}>
 				{currentPage === "orders" && (
 					<m.div
 						variants={sectionTransition}
@@ -1301,20 +1242,20 @@ export default function Orders({
 						animate="animate">
 						<div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
 							<div className="min-w-0">
-								<h2 className="text-2xl font-bold text-white sm:text-3xl">
-									{adminMode ? "Wszystkie zlecenia" : "Zlecenia"}
-								</h2>
-								<p className="text-slate-400">
+								<HeadingTag className="text-2xl font-bold text-foreground sm:text-3xl">
+									Zlecenia
+								</HeadingTag>
+								<p className={adminMode ? "mt-2 text-muted" : "text-muted"}>
 									{adminMode
-										? "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników"
+										? "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników."
 										: "Zarządzaj i śledź wszystkie zlecenia ortodontyczne"}
 								</p>
 							</div>
 							{!adminMode && <button
 								type="button"
 								onClick={() => setCurrentPage("create-order")}
-								className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-white px-6 py-3 font-semibold text-black transition-colors duration-200 hover:bg-gray-200 active:scale-[0.985] sm:w-auto">
-								<Plus className="h-5 w-5" />
+								className="btn btn-primary w-full px-6 sm:w-auto">
+								<Plus className="h-5 w-5" aria-hidden="true" />
 								Nowe zlecenie
 							</button>}
 						</div>
@@ -1329,7 +1270,7 @@ export default function Orders({
 
 						{/* Fixed height, so showing and hiding the message doesn't move the list. */}
 						<p
-							className="mb-4 h-5 text-sm text-slate-400"
+							className="mb-4 h-5 text-sm text-muted"
 							aria-live="polite">
 							{isOrdersLoading ? "Wczytywanie zleceń..." : ""}
 						</p>
@@ -1359,7 +1300,7 @@ export default function Orders({
 						</div>
 
 						{!isOrdersLoading && orders.length === 0 && (
-							<div className="rounded-xl border border-dashed border-slate-700 bg-slate-900 px-6 py-12 text-center text-slate-400">
+							<div className="rounded-xl border border-dashed border-line-control bg-surface px-6 py-12 text-center text-muted">
 								Nie znaleziono zleceń dla tej strony lub filtra.
 							</div>
 						)}
@@ -1506,7 +1447,7 @@ export default function Orders({
 					/>
 				)}
 
-			</main>
+			</ContentTag>
 
 			<BackgroundActionsWidget
 				actions={backgroundActions}

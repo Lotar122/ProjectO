@@ -18,7 +18,7 @@ export default function PasswordField({
 
 	return (
 		<div>
-			<label htmlFor={id} className="mb-2 block text-sm font-medium text-slate-300">
+			<label htmlFor={id} className="field-label">
 				{label}
 			</label>
 			<div className="relative">
@@ -29,7 +29,7 @@ export default function PasswordField({
 					type={showPassword ? "text" : "password"}
 					value={password}
 					onChange={(e) => setPassword(e.target.value)}
-					className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3 pr-12 text-white transition-colors duration-300 focus:border-sky-300/60 focus:ring-2 focus:ring-sky-200/20 focus:outline-none"
+					className="field pr-12"
 					placeholder={placeholder}
 					required={required}
 				/>
@@ -37,11 +37,11 @@ export default function PasswordField({
 					type="button"
 					onClick={() => setShowPassword(!showPassword)}
 					aria-label={showPassword ? "Ukryj hasło" : "Pokaż hasło"}
-					className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition-colors hover:text-slate-200">
+					className="btn btn-ghost absolute right-1 top-1/2 size-10 min-h-0 -translate-y-1/2 px-0">
 					{showPassword ? (
-						<EyeOff className="w-5 h-5" />
+						<EyeOff className="h-5 w-5" aria-hidden="true" />
 					) : (
-						<Eye className="w-5 h-5" />
+						<Eye className="h-5 w-5" aria-hidden="true" />
 					)}
 				</button>
 			</div>

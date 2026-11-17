@@ -32,14 +32,14 @@ const getStatusIcon = (status) =>
 	switch (status)
 	{
 		case "completed":
-			return <CheckCircle className="h-4 w-4" />;
+			return <CheckCircle className="h-4 w-4" aria-hidden="true" />;
 		case "in-progress":
 		case "pending":
-			return <Clock className="h-4 w-4" />;
+			return <Clock className="h-4 w-4" aria-hidden="true" />;
 		case "shipped":
-			return <Package className="h-4 w-4" />;
+			return <Package className="h-4 w-4" aria-hidden="true" />;
 		default:
-			return <XCircle className="h-4 w-4" />;
+			return <XCircle className="h-4 w-4" aria-hidden="true" />;
 	}
 };
 
@@ -60,30 +60,30 @@ function OrderCardDetails({
 			initial={{ opacity: 0 }}
 			animate={{ opacity: 1 }}
 			transition={{ duration: 0.2 }}>
-			<div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 sm:mt-6 sm:p-5 md:ml-8">
+			<div className="mt-4 rounded-xl border border-line bg-background p-4 sm:mt-6 sm:p-5 md:ml-8">
 				<div className="grid grid-cols-1 gap-5 md:grid-cols-2">
 					<div className="min-w-0 space-y-3">
 						<div>
-							<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+							<p className="text-xs uppercase tracking-[0.2em] text-muted">
 								Pacjent
 							</p>
-							<p className="mt-1 text-sm text-white wrap-break-word">{order.patient}</p>
+							<p className="mt-1 text-sm text-foreground wrap-break-word">{order.patient}</p>
 						</div>
 						<div>
-							<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+							<p className="text-xs uppercase tracking-[0.2em] text-muted">
 								Szczegóły
 							</p>
-							<p className="mt-1 text-sm leading-6 text-slate-300 wrap-break-word">
+							<p className="mt-1 text-sm leading-6 text-foreground wrap-break-word">
 								{order.details || "Brak dodatkowych szczegółów."}
 							</p>
 						</div>
 					</div>
 
 					<div className="min-w-0">
-						<p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+						<p className="text-xs uppercase tracking-[0.2em] text-muted">
 							Załączone pliki
 						</p>
-						<p className="mt-1 text-sm text-slate-400">
+						<p className="mt-1 text-sm text-muted">
 							{orderFiles.length} {orderFiles.length === 1 ? "plik" : "plików"}
 						</p>
 
@@ -129,26 +129,26 @@ function OrderCard({
 	return (
 		<div
 			onClick={() => onToggleExpanded(orderId)}
-			className={`relative cursor-pointer rounded-xl border border-slate-800 bg-slate-900 p-4 transition-colors duration-200 hover:border-slate-700 sm:p-6 ${
+			className={`relative cursor-pointer rounded-xl border border-line bg-surface p-4 transition-colors duration-200 hover:border-line-control sm:p-6 ${
 				isMenuOpen ? "z-30" : "z-0"
 			}`}>
 			<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
 				<div className="flex min-w-0 items-start gap-3 sm:gap-4 md:items-center">
-					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white sm:h-12 sm:w-12">
-						<Package className="h-5 w-5 text-black sm:h-6 sm:w-6" />
+					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent sm:h-12 sm:w-12">
+						<Package className="h-5 w-5 text-accent-contrast sm:h-6 sm:w-6" aria-hidden="true" />
 					</div>
 					<div className="min-w-0">
-						<h3 className="text-lg font-semibold text-white wrap-break-word">{order.patient}</h3>
-						<p className="text-slate-300 wrap-break-word line-clamp-2 md:line-clamp-none">{order.details || order.type}</p>
+						<h3 className="text-lg font-semibold text-foreground wrap-break-word">{order.patient}</h3>
+						<p className="text-foreground wrap-break-word line-clamp-2 md:line-clamp-none">{order.details || order.type}</p>
 						{(order.owner_email || order.owner_user_id) && (
-							<p className="text-sm text-sky-300 wrap-anywhere">
+							<p className="text-sm text-accent-text wrap-anywhere">
 								Złożone przez: {order.owner_name || order.owner_last_name
 									? `${order.owner_name || ""} ${order.owner_last_name || ""}`.trim()
 									: order.owner_email || order.owner_user_id}
 								{order.owner_email ? ` (${order.owner_email})` : ""}
 							</p>
 						)}
-						<p className="text-sm text-slate-500">
+						<p className="text-sm text-muted">
 							Zlecenie #{order.order_id} - {getDisplayDate(order)}
 						</p>
 					</div>
@@ -165,9 +165,9 @@ function OrderCard({
 								disabled={isStatusUpdating}
 								onChange={(event) => onStatusChange?.(order, event.target.value)}
 								aria-label={`Zmień status zlecenia ${order.order_id}`}
-								className={`min-h-10 max-w-full rounded-full border-0 px-3 py-2 text-base font-medium sm:min-h-0 sm:py-1 sm:text-sm ${statusTheme.badgeClass} focus:outline-none disabled:cursor-wait disabled:opacity-60`}>
+								className={`min-h-10 max-w-full rounded-full border-0 px-3 py-2 text-base font-medium sm:min-h-0 sm:py-1 sm:text-sm ${statusTheme.badgeClass} focus-ring disabled:cursor-wait disabled:opacity-60`}>
 								{ORDER_STATUS_VALUES.map((status) => (
-									<option key={status} value={status} className="bg-slate-950 text-slate-100">
+									<option key={status} value={status} className="bg-surface-sunken text-foreground">
 										{STATUS_LABELS[status]}
 									</option>
 								))}
@@ -184,12 +184,12 @@ function OrderCard({
 								<span
 									title={getArchivedTitle(order)}
 									className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap ${ARCHIVED_BADGE_CLASS}`}>
-									<Archive className="h-3.5 w-3.5" />
+									<Archive className="h-3.5 w-3.5" aria-hidden="true" />
 									{ARCHIVED_LABEL}
 								</span>
 							</div>
 						)}
-						<div className="mt-2 h-2 w-32 rounded-full bg-slate-700">
+						<div className="mt-2 h-2 w-32 rounded-full bg-surface-raised">
 							<div
 								className={`h-2 rounded-full transition-[width] duration-300 ${statusTheme.progressClass}`}
 								style={{
@@ -197,7 +197,7 @@ function OrderCard({
 								}}
 							/>
 						</div>
-						<p className="mt-1 text-sm text-slate-500">
+						<p className="mt-1 text-sm text-muted">
 							{order.progress}% ukończono
 						</p>
 					</div>
@@ -211,7 +211,7 @@ function OrderCard({
 								onToggleExpanded(orderId);
 							}}
 							aria-expanded={isExpanded}
-							className="inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-2.5 text-sm whitespace-nowrap text-slate-200 transition-colors hover:border-slate-500 hover:text-white sm:px-4">
+							className="btn btn-secondary min-w-11 px-2.5 sm:px-4">
 							<span className="sr-only sm:not-sr-only">
 								{isExpanded ? "Ukryj szczegóły" : "Zobacz szczegóły"}
 							</span>
@@ -219,6 +219,7 @@ function OrderCard({
 								className={`h-4 w-4 transition-transform ${
 									isExpanded ? "rotate-180" : ""
 								}`}
+								aria-hidden="true"
 							/>
 						</button>
 
@@ -226,9 +227,9 @@ function OrderCard({
 							<button
 								type="button"
 								onClick={() => onToggleMenu(orderId)}
-								className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+								className="btn btn-secondary w-11 px-0"
 								aria-label={`Otwórz działania dla zlecenia ${order.order_id}`}>
-								<Ellipsis className="h-4 w-4" />
+								<Ellipsis className="h-4 w-4" aria-hidden="true" />
 							</button>
 
 							<AnimatePresence>
@@ -238,7 +239,7 @@ function OrderCard({
 										animate={{ opacity: 1, y: 0, scale: 1 }}
 										exit={{ opacity: 0, y: 8, scale: 0.98 }}
 										transition={{ duration: 0.18 }}
-										className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl">
+										className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-line bg-surface-raised p-2 shadow-2xl">
 										<button
 											type="button"
 											onClick={(event) =>
@@ -246,8 +247,8 @@ function OrderCard({
 												event.stopPropagation();
 												onOpenEdit(order);
 											}}
-											className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-200 transition-colors hover:bg-slate-900 hover:text-white">
-											<PencilLine className="h-4 w-4" />
+											className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-surface-hover active:bg-surface-active">
+											<PencilLine className="h-4 w-4" aria-hidden="true" />
 											Edytuj zlecenie
 										</button>
 										<button
@@ -257,8 +258,8 @@ function OrderCard({
 												event.stopPropagation();
 												onRequestDelete(orderId);
 											}}
-											className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200">
-											<Trash2 className="h-4 w-4" />
+											className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-danger-text transition-colors hover:bg-danger-soft active:bg-danger-line">
+											<Trash2 className="h-4 w-4" aria-hidden="true" />
 											Usuń zlecenie
 										</button>
 									</m.div>

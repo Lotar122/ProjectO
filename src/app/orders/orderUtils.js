@@ -239,34 +239,34 @@ export const getStatusTheme = (status) =>
 	{
 		case "completed":
 			return {
-				badgeClass: "bg-green-100 text-green-800",
-				progressClass: "bg-green-500",
+				badgeClass: "bg-success-soft text-success-text",
+				progressClass: "bg-success-text",
 			};
 		case "in-progress":
 			return {
-				badgeClass: "bg-blue-100 text-blue-800",
-				progressClass: "bg-blue-500",
+				badgeClass: "bg-accent-soft text-accent-text",
+				progressClass: "bg-accent-text",
 			};
 		case "pending":
 			return {
-				badgeClass: "bg-yellow-100 text-yellow-800",
-				progressClass: "bg-yellow-500",
+				badgeClass: "bg-warning-soft text-warning-text",
+				progressClass: "bg-warning-text",
 			};
 		case "shipped":
 			return {
-				badgeClass: "bg-purple-100 text-purple-800",
-				progressClass: "bg-purple-500",
+				badgeClass: "bg-surface-active text-foreground",
+				progressClass: "bg-foreground",
 			};
 		default:
 			return {
-				badgeClass: "bg-gray-100 text-gray-800",
-				progressClass: "bg-gray-500",
+				badgeClass: "bg-surface-raised text-muted",
+				progressClass: "bg-muted",
 			};
 	}
 };
 
 export const ARCHIVED_LABEL = "ZARCHIWIZOWANE";
-export const ARCHIVED_BADGE_CLASS = "bg-indigo-100 text-indigo-800";
+export const ARCHIVED_BADGE_CLASS = "border border-line-control bg-surface-raised text-muted";
 export const ARCHIVED_FILE_META_TEXT = "Zarchiwizowany — pobieranie może potrwać dłużej";
 
 export const isOrderArchived = (order) => Boolean(order?.archived_at);

@@ -46,28 +46,30 @@ export default function OrdersToolbar({
 	}, [searchValue]);
 
 	return (
-		<div className="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-4 sm:mb-8 sm:p-6">
+		<div className="mb-6 rounded-xl border border-line bg-surface p-4 sm:mb-8 sm:p-6">
 			<div className="flex flex-col gap-4 md:flex-row">
 				<div className="relative flex-1">
-					<Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+					<Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" aria-hidden="true" />
 					<input
 						value={searchValue}
 						onChange={(event) => setSearchValue(event.target.value)}
 						type="text"
+						aria-label={isAdmin ? "Szukaj zleceń lub lekarza" : "Szukaj zleceń"}
 						placeholder={isAdmin ? "Szukaj zleceń lub lekarza..." : "Szukaj zleceń..."}
-						className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-slate-100 transition-colors duration-200 placeholder:text-slate-500 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none"
+						className="field pl-10"
 					/>
 				</div>
 				<div className="flex gap-2">
 					<select
 						value={statusValue}
 						onChange={(event) => onStatusChange(event.target.value)}
-						className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 transition-colors duration-200 focus:border-slate-500 focus:ring-2 focus:ring-slate-400/20 focus:outline-none md:w-auto">
+						aria-label="Filtruj według statusu"
+						className="field md:w-auto">
 						{ORDER_STATUS_OPTIONS.map((status) => (
 							<option
 								key={status}
 								value={status}
-								className="bg-slate-950 text-slate-100">
+								className="bg-surface-sunken text-foreground">
 								{status}
 							</option>
 						))}

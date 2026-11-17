@@ -5,7 +5,7 @@
 	--background: #0B101C;
 	--foreground: #e8eefb;
 	--sb-width: 10px;
-	--sb-thumb: rgba(186, 208, 255, 0.9);
+	--sb-thumb: var(--color-accent-hover);
 	--sb-track: transparent;
 }
 
@@ -13,6 +13,107 @@
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--font-sans: var(--font-geist-sans);
+}
+
+/*
+ * Semantic color tokens. Components use these names (bg-surface, text-muted,
+ * border-line-control, ...) and never raw palette values or hex codes.
+ * The hue family is the original navy/slate one (hue about 260) with a sky
+ * accent (hue about 250). Targets, checked against every surface a token is
+ * used on:
+ *   text on any surface        >= 4.5:1
+ *   control borders, focus     >= 3:1
+ * Roles: background and surface-* are grounds, line-* are borders, foreground
+ * and muted are text, accent-* is the primary action and selection, and
+ * danger-*, warning-* and success-* are status. A -text token is bright enough
+ * to double as a fill (progress bars). The page background is also set in layout.jsx as themeColor, which
+ * cannot read CSS variables; keep the two in sync.
+ */
+@theme static {
+	--color-surface: oklch(0.21 0.035 262);
+	--color-surface-raised: oklch(0.275 0.038 260);
+	--color-surface-hover: oklch(0.32 0.04 260);
+	--color-surface-active: oklch(0.37 0.045 260);
+	--color-surface-sunken: oklch(0.15 0.035 264);
+
+	--color-line: oklch(0.32 0.035 260);
+	--color-line-control: oklch(0.60 0.045 258);
+
+	--color-muted: oklch(0.74 0.035 258);
+
+	--color-accent: oklch(0.94 0.025 250);
+	--color-accent-hover: oklch(0.88 0.05 250);
+	--color-accent-active: oklch(0.82 0.07 250);
+	--color-accent-contrast: oklch(0.18 0.03 265);
+	--color-accent-text: oklch(0.80 0.10 250);
+	--color-accent-soft: oklch(0.30 0.06 255);
+	--color-accent-line: oklch(0.45 0.09 255);
+
+	--color-focus: oklch(0.80 0.10 245);
+
+	--color-danger-text: oklch(0.82 0.10 22);
+	--color-danger-soft: oklch(0.26 0.07 22);
+	--color-danger-line: oklch(0.42 0.12 22);
+
+	--color-warning-text: oklch(0.85 0.12 85);
+	--color-warning-soft: oklch(0.27 0.045 85);
+	--color-warning-line: oklch(0.46 0.09 85);
+
+	--color-success-text: oklch(0.83 0.12 160);
+	--color-success-soft: oklch(0.26 0.05 160);
+	--color-success-line: oklch(0.45 0.09 160);
+
+	--color-disabled: oklch(0.26 0.02 260);
+	--color-disabled-text: oklch(0.66 0.03 258);
+
+	--color-overlay: oklch(0 0 0 / 0.6);
+}
+
+@utility focus-ring {
+	&:focus-visible {
+		outline: 2px solid var(--color-focus);
+		outline-offset: 2px;
+	}
+}
+
+@layer components {
+	.btn {
+		@apply focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-transparent px-4 text-sm font-medium whitespace-nowrap transition-colors;
+		@apply disabled:cursor-not-allowed disabled:border-transparent disabled:bg-disabled disabled:text-disabled-text;
+	}
+
+	.btn-primary {
+		@apply bg-accent font-semibold text-accent-contrast enabled:hover:bg-accent-hover enabled:active:bg-accent-active;
+	}
+
+	.btn-secondary {
+		@apply border-line-control text-foreground enabled:hover:bg-surface-hover enabled:active:bg-surface-active;
+	}
+
+	.btn-danger {
+		@apply border-danger-line bg-danger-soft text-danger-text enabled:hover:border-danger-text enabled:active:bg-danger-line;
+	}
+
+	.btn-ghost {
+		@apply text-muted hover:bg-surface-hover hover:text-foreground active:bg-surface-active;
+	}
+
+	.nav-link {
+		@apply focus-ring flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 whitespace-nowrap text-muted transition-colors hover:bg-surface-hover hover:text-foreground active:bg-surface-active;
+	}
+
+	.nav-link[aria-current="page"] {
+		@apply bg-accent text-accent-contrast hover:bg-accent-hover active:bg-accent-active;
+	}
+
+	.field-label {
+		@apply mb-2 block text-sm font-medium text-foreground;
+	}
+
+	.field {
+		@apply focus-ring w-full rounded-lg border border-line-control bg-surface-sunken px-4 py-3 text-base text-foreground transition-colors placeholder:text-muted;
+		@apply focus-visible:border-focus disabled:cursor-not-allowed disabled:bg-disabled disabled:text-disabled-text;
+	}
 }
 
 html {
@@ -32,8 +133,8 @@ body {
 }
 
 ::selection {
-	background: rgba(191, 219, 254, 0.9);
-	color: #060d18;
+	background: var(--color-accent-hover);
+	color: var(--color-accent-contrast);
 }
 
 html::-webkit-scrollbar,
