@@ -15,6 +15,11 @@ import {
 	isCompressed,
 	windowLogFor,
 } from "../src/app/server-functions/orders/fileCompression.js";
+import {
+	ChecksumMismatchError,
+	assertChecksum,
+	createChecksumVerifyStream,
+} from "../src/app/server-functions/MinIO/checksum.js";
 
 const sha = (data) => createHash("sha256").update(data).digest("hex");
 
@@ -52,6 +57,7 @@ const decompress = (method, data) => buffer(Readable.from([data]).pipe(createDec
 test("isCompressed is true only for zstd and br", () =>
 {
 	assert.equal(ARCHIVE_META.method, "compression");
+	assert.equal(ARCHIVE_META.sha256, "sha256");
 	assert.equal(isCompressed({ compression: "zstd" }), true);
 	assert.equal(isCompressed({ compression: "br" }), true);
 	assert.equal(isCompressed({ compression: "identity" }), false);
@@ -179,4 +185,130 @@ test("compressBest returns null for an empty file", async () =>
 	{
 		assert.equal(await compressBest(filePath), null);
 	});
+});
+
+// ---- Checksum verification of decompressed bytes (download path) ----
+
+// Splits data into chunks of chunkSize so the stream sees several writes.
+function chunked(data, chunkSize = 4096)
+{
+	const chunks = [];
+
+	for (let offset = 0; offset < data.length; offset += chunkSize)
+	{
+		chunks.push(data.subarray(offset, offset + chunkSize));
+	}
+
+	return Readable.from(chunks);
+}
+
+// Collects what a consumer receives before the stream ends or fails.
+function consume(stream)
+{
+	return new Promise((resolve) =>
+	{
+		const received = [];
+
+		stream.on("data", (chunk) => received.push(chunk));
+		stream.on("end", () => resolve({ data: Buffer.concat(received), error: null }));
+		stream.on("error", (error) => resolve({ data: Buffer.concat(received), error }));
+	});
+}
+
+function decompressAndVerify(method, compressed, expected)
+{
+	return chunked(compressed)
+		.pipe(createDecompressStream(method))
+		.pipe(createChecksumVerifyStream("file-1", expected));
+}
+
+test("decompressed bytes that match the stored checksum stream through unchanged", async () =>
+{
+	const data = compressibleData();
+
+	for (const [method, compressed] of [
+		["zstd", zlib.zstdCompressSync(data)],
+		["br", zlib.brotliCompressSync(data)],
+	])
+	{
+		const { data: received, error } = await consume(
+			decompressAndVerify(method, compressed, { sha256: sha(data), size: data.length }),
+		);
+
+		assert.equal(error, null);
+		assert.ok(received.equals(data));
+	}
+});
+
+test("decompressed bytes that do not match fail the stream before the last chunk", async () =>
+{
+	const data = compressibleData();
+	const wrong = Buffer.from(data);
+
+	wrong[wrong.length - 1] ^= 0xff;
+
+	const { data: received, error } = await consume(
+		decompressAndVerify("zstd", zlib.zstdCompressSync(wrong), { sha256: sha(data), size: data.length }),
+	);
+
+	assert.ok(error instanceof ChecksumMismatchError);
+	assert.equal(error.expected, sha(data));
+	assert.equal(error.actual, sha(wrong));
+	assert.deepEqual(error.files, ["file-1"]);
+	assert.match(error.message, /Checksum mismatch for: file-1 \(expected sha256 [0-9a-f]{64}, got [0-9a-f]{64}\)/);
+	// The consumer never gets the complete (corrupted) content.
+	assert.ok(received.length < wrong.length);
+	assert.ok(received.equals(wrong.subarray(0, received.length)));
+});
+
+test("a stream longer than the stored size fails as soon as it goes past it", async () =>
+{
+	const data = compressibleData();
+	const { data: received, error } = await consume(
+		chunked(data).pipe(createChecksumVerifyStream("file-1", { sha256: sha(data), size: 1000 })),
+	);
+
+	assert.ok(error instanceof ChecksumMismatchError);
+	assert.equal(error.expectedSize, 1000);
+	assert.ok(error.actualSize > 1000);
+	assert.ok(received.length <= 1000);
+});
+
+test("a stream shorter than the stored size fails", async () =>
+{
+	const data = compressibleData();
+	const { error } = await consume(
+		chunked(data).pipe(createChecksumVerifyStream("file-1", { sha256: sha(data), size: data.length + 1 })),
+	);
+
+	assert.ok(error instanceof ChecksumMismatchError);
+	assert.equal(error.expectedSize, data.length + 1);
+	assert.equal(error.actualSize, data.length);
+});
+
+test("assertChecksum accepts a match and reports expected and actual on a mismatch", () =>
+{
+	assertChecksum("f", { sha256: sha("a"), size: 1 }, { sha256: sha("a"), size: 1 });
+	// The size is only compared when it is expected.
+	assertChecksum("f", { sha256: sha("a") }, { sha256: sha("a"), size: 99 });
+
+	assert.throws(
+		() => assertChecksum("f", { sha256: sha("a"), size: 1 }, { sha256: sha("b"), size: 1 }),
+		(err) => err instanceof ChecksumMismatchError && err.expected === sha("a") && err.actual === sha("b"),
+	);
+	assert.throws(
+		() => assertChecksum("f", { sha256: sha("a"), size: 1 }, { sha256: sha("a"), size: 2 }),
+		(err) => err instanceof ChecksumMismatchError && err.expectedSize === 1 && err.actualSize === 2,
+	);
+	assert.throws(() => assertChecksum("f", { sha256: "nope" }, { sha256: sha("a"), size: 1 }), TypeError);
+	assert.throws(() => createChecksumVerifyStream("f", { sha256: sha("a"), size: -1 }), RangeError);
+});
+
+test("the upload's ChecksumMismatchError keeps its message without details", () =>
+{
+	const err = new ChecksumMismatchError(["a.stl", "b.stl"]);
+
+	assert.equal(err.message, "Checksum mismatch for: a.stl, b.stl");
+	assert.equal(err.code, "CHECKSUM_MISMATCH");
+	assert.equal(err.expected, null);
 });

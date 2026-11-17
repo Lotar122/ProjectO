@@ -1,4 +1,9 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import {
+	ChecksumMismatchError,
+	createChecksumVerifyStream,
+	isSha256Hex,
+} from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFile } from "@/app/server-functions/MinIO/getFile";
 import { decodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
@@ -65,6 +70,24 @@ function decompressWhileStreaming(method, body)
 	return decompressed;
 }
 
+// Checks the bytes sent to the client (after decompression) against the stored
+// checksum. On a mismatch the stream fails before its last chunk, so the
+// client gets a broken transfer instead of silently corrupted content.
+function verifyWhileStreaming(fileKey, content, expected)
+{
+	const verifier = createChecksumVerifyStream(fileKey, expected);
+
+	pipeline(content, verifier, (err) =>
+	{
+		if (err instanceof ChecksumMismatchError)
+		{
+			log.error(`Download of ${fileKey} failed checksum verification`, err);
+		}
+	});
+
+	return verifier;
+}
+
 // Size of the original bytes, or undefined when the metadata has no valid one.
 function parseOriginalSize(value)
 {
@@ -108,18 +131,21 @@ async function handleGet(req)
 
 		// Streamed to the client instead of buffered; the client checks the stored checksum.
 		const file = await getFile(s3, ORDER_FILES_BUCKET, fileKey, req.signal);
-		const storedChecksum = file.metadata?.sha256;
+		// A malformed value is treated as missing, so it gets backfilled.
+		const storedChecksum = isSha256Hex(file.metadata?.[ARCHIVE_META.sha256]) ?
+			file.metadata[ARCHIVE_META.sha256] :
+			undefined;
 		const compressed = isCompressed(file.metadata);
 		const content = compressed ?
 			decompressWhileStreaming(file.metadata[ARCHIVE_META.method], file.body) :
 			file.body;
-		// The archiver always stores a checksum, so compressed files skip this.
-		const body = storedChecksum ?
-			content :
-			backfillChecksumWhileStreaming(s3, fileKey, content);
 		const contentLength = compressed ?
 			parseOriginalSize(file.metadata[ARCHIVE_META.originalSize]) :
 			file.contentLength;
+		// The archiver always stores a checksum, so compressed files are verified.
+		const body = storedChecksum ?
+			verifyWhileStreaming(fileKey, content, { sha256: storedChecksum, size: contentLength }) :
+			backfillChecksumWhileStreaming(s3, fileKey, content);
 		const fileName = decodeMetadataValue(file.metadata?.original_name) ?? "file";
 
 		req.signal.addEventListener("abort", () => body.destroy(), { once: true });

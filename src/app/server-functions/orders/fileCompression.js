@@ -12,10 +12,14 @@ import zlib from "node:zlib";
 // `compression` is "zstd" or "br" for compressed bytes, "identity" for files
 // that were checked but left as they were (compression would not pay off).
 // `original_size` is the size of the original bytes, `archived_at` an ISO date.
+// `sha256` is the hex sha256 of the original (uncompressed) bytes. It is the
+// same key the upload stores, so the archiver checks against it before
+// compressing and the download checks the decompressed bytes against it.
 export const ARCHIVE_META = {
 	method: "compression",
 	originalSize: "original_size",
 	archivedAt: "archived_at",
+	sha256: "sha256",
 };
 
 export const COMPRESSION_METHODS = {

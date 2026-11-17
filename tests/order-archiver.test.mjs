@@ -2,22 +2,27 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
+import zlib from "node:zlib";
 import { S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import {
 	ArchiveFileError,
+	ChecksumMismatchError,
 	FILE_OUTCOMES,
 	archiveOrderFile,
 	getArchiveJobStatus,
 	recordFileResult,
 	startArchiveJob,
 } from "../src/app/server-functions/orders/orderArchiver.js";
-import { createDecompressStream } from "../src/app/server-functions/orders/fileCompression.js";
+import {
+	createDecompressStream,
+	createTempFilePath,
+} from "../src/app/server-functions/orders/fileCompression.js";
 import {
 	renameOrderFile,
 	setOrderFileChecksum,
@@ -439,12 +444,78 @@ test("a stored sha256 that does not match leaves the object untouched", async ()
 
 		const before = structuredClone(objects.get(FILE_ID));
 
-		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), ArchiveFileError);
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), (err) =>
+		{
+			assert.ok(err instanceof ChecksumMismatchError);
+			assert.equal(err.expected, sha("something else"));
+			assert.equal(err.actual, sha(data));
+			assert.match(err.message, /expected sha256/);
+			assert.deepEqual(err.files, [FILE_ID]);
+			assert.equal(err.context, "stored sha256 vs. content; original left untouched");
+			return true;
+		});
 
 		const after = objects.get(FILE_ID);
 
 		assert.ok(after.body.equals(data));
 		assert.deepEqual(after.metadata, before.metadata);
+		assert.equal(counters.put, 0);
+		assert.equal(counters.copy, 0);
+	});
+
+	assert.deepEqual(await archiverTempFiles(), tempBefore);
+});
+
+// A compressor whose output decompresses to different bytes of the same size.
+function corruptingCompressor(data)
+{
+	return async () =>
+	{
+		const wrong = Buffer.from(data);
+
+		wrong[0] ^= 0xff;
+
+		const candidatePath = createTempFilePath(".zst");
+		const compressed = zlib.zstdCompressSync(wrong);
+
+		await writeFile(candidatePath, compressed);
+
+		return { method: "zstd", path: candidatePath, size: compressed.length };
+	};
+}
+
+test("a compressed result that does not round-trip is never uploaded", async () =>
+{
+	const data = compressibleData();
+	const tempBefore = await archiverTempFiles();
+
+	await withS3(async (s3, { objects, counters }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+
+		const before = structuredClone(objects.get(FILE_ID));
+		const wrong = Buffer.from(data);
+
+		wrong[0] ^= 0xff;
+
+		await assert.rejects(
+			archiveOrderFile({ s3, fileId: FILE_ID, compress: corruptingCompressor(data) }),
+			(err) =>
+			{
+				assert.ok(err instanceof ChecksumMismatchError);
+				assert.equal(err.expected, sha(data));
+				assert.equal(err.actual, sha(wrong));
+				assert.match(err.message, /round trip; original left untouched/);
+				assert.deepEqual(err.files, [FILE_ID]);
+				return true;
+			},
+		);
+
+		const after = objects.get(FILE_ID);
+
+		assert.ok(after.body.equals(data));
+		assert.deepEqual(after.metadata, before.metadata);
+		assert.equal(after.metadata.compression, undefined);
 		assert.equal(counters.put, 0);
 		assert.equal(counters.copy, 0);
 	});
@@ -460,7 +531,10 @@ test("restores the original when the stored archive fails read-back", async () =
 	{
 		seed(objects, data, { sha256: sha(data) });
 
-		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), ArchiveFileError);
+		await assert.rejects(
+			archiveOrderFile({ s3, fileId: FILE_ID }),
+			(err) => err instanceof ArchiveFileError && /original restored/.test(err.message) && err.cause !== undefined,
+		);
 
 		const stored = objects.get(FILE_ID);
 
@@ -525,6 +599,18 @@ test("recordFileResult counts bytes only for files handled in this run", () =>
 	assert.equal(status.filesChanged, 1);
 	assert.equal(status.bytesBefore, 150);
 	assert.equal(status.bytesAfter, 70);
+});
+
+test("recordFileResult counts a failed file and keeps its error", () =>
+{
+	const status = { filesFailed: 0, filesCompressed: 0, lastError: null };
+	const error = new ChecksumMismatchError([FILE_ID], { expected: sha("a"), actual: sha("b") });
+
+	recordFileResult(status, { outcome: FILE_OUTCOMES.failed, error }, FILE_ID);
+
+	assert.equal(status.filesFailed, 1);
+	assert.equal(status.filesCompressed, 0);
+	assert.equal(status.lastError, `File ${FILE_ID}: ${error.message}`);
 });
 
 // ---- Concurrent writers ----
@@ -838,7 +924,7 @@ const hang = () => new Promise(() => undefined);
 
 // postgres.js stand-in: tagged-template queries matched by their text.
 // reservedHandler(text) answers queries on the reserved connection.
-function fakeSql({ reservedHandler, reserve } = {})
+function fakeSql({ reservedHandler, reserve, orders = [{ order_id: 7, files: [] }] } = {})
 {
 	const released = { count: 0 };
 	const reserved = (strings) => reservedHandler(strings.join("?"));
@@ -854,7 +940,7 @@ function fakeSql({ reservedHandler, reserve } = {})
 
 		if (text.includes("SELECT order_id, files"))
 		{
-			return Promise.resolve([{ order_id: 7, files: [] }]);
+			return Promise.resolve(orders);
 		}
 
 		if (text.includes("UPDATE orders"))
@@ -978,4 +1064,34 @@ test("a connection that cannot be reserved in time does not block later starts",
 
 	assert.equal((await startArchiveJob({ triggeredBy: "test", sql: healthy.sql, s3: {}, dbTimeoutMs: 50 })).started, true);
 	assert.equal((await waitForJob()).state, "done");
+});
+
+test("a checksum mismatch fails the file and its order instead of archiving it", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects, counters }) =>
+	{
+		seed(objects, data, { sha256: sha("something else") });
+
+		const { sql, released } = fakeSql({
+			reservedHandler: lockHandler(),
+			orders: [{ order_id: 7, files: [FILE_ID] }],
+		});
+
+		assert.equal((await startArchiveJob({ triggeredBy: "test", sql, s3, dbTimeoutMs: 1000 })).started, true);
+
+		const status = await waitForJob();
+
+		assert.equal(status.state, "done");
+		assert.equal(status.filesFailed, 1);
+		assert.equal(status.filesCompressed, 0);
+		assert.equal(status.ordersFailed, 1);
+		assert.equal(status.ordersArchived, 0);
+		assert.equal(status.ordersDone, 0);
+		assert.match(status.lastError, new RegExp(`^File ${FILE_ID}: Checksum mismatch`));
+		assert.ok(objects.get(FILE_ID).body.equals(data));
+		assert.equal(counters.put, 0);
+		assert.equal(released.count, 1);
+	});
 });

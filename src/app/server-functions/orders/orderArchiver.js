@@ -15,6 +15,11 @@ import { pipeline } from "node:stream/promises";
 
 import { DB } from "@/app/lib/db";
 import { createLogger } from "@/app/lib/logger";
+import {
+	ChecksumMismatchError,
+	assertChecksum,
+	isSha256Hex,
+} from "@/app/server-functions/MinIO/checksum";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import { getFile } from "@/app/server-functions/MinIO/getFile";
 import {
@@ -63,13 +68,23 @@ export const FILE_OUTCOMES = {
 	// archived, so nothing was written (or our write was refused). Not an
 	// error: the order is not marked archived and the next run retries it.
 	changed: "changed",
+	// archiveOrderFile threw (e.g. ChecksumMismatchError); the object is left
+	// as it was (or restored) and the order is not marked archived.
+	failed: "failed",
 };
+
+// Re-exported so callers can tell a checksum failure from other failures.
+export { ChecksumMismatchError };
 
 export class ArchiveFileError extends Error
 {
-	constructor(message)
+	/**
+	 * @param {string} message
+	 * @param {{ cause?: unknown }} [options]
+	 */
+	constructor(message, options)
 	{
-		super(message);
+		super(message, options);
 		this.name = "ArchiveFileError";
 	}
 }
@@ -315,6 +330,7 @@ async function saveForRecovery({ fileId, originalPath, contentType, metadata, or
 }
 
 // Reads the stored object back and checks that it decompresses to the original.
+// Throws ChecksumMismatchError when it decompresses to different bytes.
 async function verifyStoredObject(s3, fileId, candidate, original)
 {
 	const stored = await getFile(s3, ORDER_FILES_BUCKET, fileId);
@@ -330,10 +346,18 @@ async function verifyStoredObject(s3, fileId, candidate, original)
 
 	const roundTrip = await hashStream(stored.body, createDecompressStream(candidate.method));
 
-	if (roundTrip.sha256 !== original.sha256 || roundTrip.size !== original.size)
-	{
-		throw new ArchiveFileError("Stored archive does not decompress to the original");
-	}
+	assertChecksum(fileId, original, roundTrip, `stored ${candidate.method} archive read back`);
+}
+
+function failedResult(err)
+{
+	return {
+		outcome: FILE_OUTCOMES.failed,
+		method: null,
+		originalSize: null,
+		storedSize: null,
+		error: err,
+	};
 }
 
 function alreadyArchivedResult(metadata, storedSize)
@@ -371,12 +395,21 @@ function changedResult(originalSize)
 // archived; the object is then unchanged (or, at worst, replaced by a verified
 // archive of the same bytes). If neither the read-back nor the restore works,
 // the verified original is kept in ARCHIVER_RECOVERY_DIR.
+//
+// Checksums: the sha256 of the original is computed while it is downloaded,
+// checked against the stored ARCHIVE_META.sha256 (if any) and written to the
+// archive's metadata. The compressed result is decompressed and hashed before
+// anything is written, and the stored object again after the upload. Any
+// mismatch throws ChecksumMismatchError (expected/actual on the error; for the
+// read-back it is the cause of the ArchiveFileError), and the file counts as
+// failed. compress is for tests.
 export async function archiveOrderFile({
 	s3,
 	fileId,
 	isStillAttached = async () => true,
 	minSavingsRatio = MIN_SAVINGS_RATIO,
 	now = () => new Date(),
+	compress = compressBest,
 })
 {
 	const head = await headOrderFile(s3, fileId);
@@ -407,22 +440,29 @@ export async function archiveOrderFile({
 			throw new ArchiveFileError(`Read ${original.size} of ${file.contentLength} bytes`);
 		}
 
-		const storedChecksum = file.metadata?.sha256;
+		const storedChecksum = file.metadata?.[ARCHIVE_META.sha256];
 
-		if (storedChecksum && storedChecksum !== original.sha256)
+		if (storedChecksum)
 		{
-			throw new ArchiveFileError("Stored sha256 does not match the object's content");
+			if (!isSha256Hex(storedChecksum))
+			{
+				throw new ArchiveFileError(`Stored sha256 of ${fileId} is malformed; original left untouched`);
+			}
+
+			// The bytes no longer match what was uploaded: archiving them would
+			// make the corruption permanent.
+			assertChecksum(fileId, { sha256: storedChecksum }, original, "stored sha256 vs. content; original left untouched");
 		}
 
 		const archivedAt = now().toISOString();
 		const archiveMetadata = (method) => ({
-			sha256: original.sha256,
+			[ARCHIVE_META.sha256]: original.sha256,
 			[ARCHIVE_META.method]: method,
 			[ARCHIVE_META.originalSize]: String(original.size),
 			[ARCHIVE_META.archivedAt]: archivedAt,
 		});
 
-		candidate = await compressBest(originalPath, { minSavingsRatio });
+		candidate = await compress(originalPath, { minSavingsRatio });
 
 		if (!candidate)
 		{
@@ -437,7 +477,9 @@ export async function archiveOrderFile({
 						return null;
 					}
 
-					if (current.sha256 && current.sha256 !== original.sha256)
+					const currentChecksum = current[ARCHIVE_META.sha256];
+
+					if (currentChecksum && currentChecksum !== original.sha256)
 					{
 						throw new ObjectChangedError();
 					}
@@ -476,15 +518,13 @@ export async function archiveOrderFile({
 		}
 
 		// Never upload anything that does not decompress to the original bytes.
+		// A throw here (mismatch or a decoder error) leaves the object untouched.
 		const verified = await hashStream(
 			createReadStream(candidate.path),
 			createDecompressStream(candidate.method),
 		);
 
-		if (verified.sha256 !== original.sha256 || verified.size !== original.size)
-		{
-			throw new ArchiveFileError(`${candidate.method} result failed verification; original left untouched`);
-		}
+		assertChecksum(fileId, original, verified, `${candidate.method} round trip; original left untouched`);
 
 		// Fresh metadata, so a rename that happened during compression is kept.
 		let latest;
@@ -509,9 +549,11 @@ export async function archiveOrderFile({
 			return alreadyArchivedResult(latest.Metadata, latest.ContentLength);
 		}
 
+		const latestChecksum = latest.Metadata?.[ARCHIVE_META.sha256];
+
 		if (
 			latest.ContentLength !== original.size ||
-			(latest.Metadata?.sha256 && latest.Metadata.sha256 !== original.sha256)
+			(latestChecksum && latestChecksum !== original.sha256)
 		)
 		{
 			log.info(`File ${fileId} changed during archiving; left for the next run`);
@@ -519,7 +561,7 @@ export async function archiveOrderFile({
 		}
 
 		const contentType = latest.ContentType ?? file.contentType;
-		const originalMetadata = { ...latest.Metadata, sha256: original.sha256 };
+		const originalMetadata = { ...latest.Metadata, [ARCHIVE_META.sha256]: original.sha256 };
 		const orphanedResult = {
 			outcome: FILE_OUTCOMES.orphaned,
 			method: candidate.method,
@@ -627,10 +669,14 @@ export async function archiveOrderFile({
 
 				throw new ArchiveFileError(
 					`Read-back verification and restore failed; original kept at ${location}`,
+					{ cause: verifyErr },
 				);
 			}
 
-			throw new ArchiveFileError(`Read-back verification failed: ${verifyErr.message}`);
+			throw new ArchiveFileError(
+				`Read-back verification failed, original restored: ${verifyErr.message}`,
+				{ cause: verifyErr },
+			);
 		}
 
 		if (!(await isStillAttached()))
@@ -864,7 +910,8 @@ export function getArchiveJobStatus()
 	return { ...getArchiver().status };
 }
 
-export function recordFileResult(status, result)
+// fileId is only used in lastError for a failed result.
+export function recordFileResult(status, result, fileId = null)
 {
 	switch (result.outcome)
 	{
@@ -889,6 +936,14 @@ export function recordFileResult(status, result)
 		case FILE_OUTCOMES.changed:
 			status.filesChanged++;
 			break;
+		case FILE_OUTCOMES.failed:
+		{
+			const message = result.error?.message ?? String(result.error);
+
+			status.filesFailed++;
+			status.lastError = fileId ? `File ${fileId}: ${message}` : message;
+			break;
+		}
 		default:
 			break;
 	}
@@ -925,9 +980,16 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 		catch (err)
 		{
 			failedFiles++;
-			status.filesFailed++;
-			status.lastError = `File ${fileId}: ${err.message}`;
-			log.warn(`Could not archive file ${fileId} of order ${orderId}: ${err.message}`);
+			recordFileResult(status, failedResult(err), fileId);
+
+			if (err instanceof ChecksumMismatchError)
+			{
+				log.error(`Checksum verification failed for file ${fileId} of order ${orderId}; source left untouched`, err);
+			}
+			else
+			{
+				log.warn(`Could not archive file ${fileId} of order ${orderId}: ${err.message}`);
+			}
 		}
 	}
 
