@@ -4,9 +4,7 @@ const kratosOrigin = (() =>
 {
 	try
 	{
-		return new URL(
-			process.env.NEXT_PUBLIC_KRATOS_PUBLIC_URL || "https://orto.lotar122.dev/kratos",
-		).origin;
+		return new URL(process.env.NEXT_PUBLIC_KRATOS_PUBLIC_URL).origin;
 	}
 	catch
 	{
@@ -16,16 +14,21 @@ const kratosOrigin = (() =>
 
 // Next.js hydrates through inline scripts, so script-src needs 'unsafe-inline'
 // (a nonce would force every page to render dynamically). The rest stays tight.
+if (!kratosOrigin)
+{
+	console.warn("NEXT_PUBLIC_KRATOS_PUBLIC_URL is not set or invalid: the CSP will not allow Kratos.");
+}
+
 const contentSecurityPolicy = [
 	"default-src 'self'",
 	`script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
 	"style-src 'self' 'unsafe-inline'",
 	"img-src 'self' data: blob:",
 	"font-src 'self' data:",
-	`connect-src 'self' ${kratosOrigin}${isProduction ? "" : " ws: wss:"}`,
+	`connect-src 'self'${kratosOrigin ? ` ${kratosOrigin}` : ""}${isProduction ? "" : " ws: wss:"}`,
 	"object-src 'none'",
 	"base-uri 'self'",
-	`form-action 'self' ${kratosOrigin}`,
+	`form-action 'self'${kratosOrigin ? ` ${kratosOrigin}` : ""}`,
 	"frame-ancestors 'none'",
 ].join("; ");
 

@@ -9,6 +9,8 @@ import {
 } from "@/app/lib/validate";
 
 export const ORDERS_PAGE_SIZE = 25;
+// Keeps OFFSET far inside bigint and Number precision for absurd ?page= values.
+export const MAX_PAGE = 100000;
 
 export class InvalidOrderFilterError extends Error
 {
@@ -23,7 +25,13 @@ const toPositiveInt = (value, fallback) =>
 {
 	const parsed = Number.parseInt(value, 10);
 
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+	if (!Number.isFinite(parsed) || parsed <= 0)
+	{
+		return fallback;
+	}
+
+	// Past 2^53 parseInt loses precision; treat it as "very large", not as garbage.
+	return Number.isSafeInteger(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
 };
 
 // Pages of orders for the list views. `userId` limits the list to one owner;
@@ -32,7 +40,7 @@ const toPositiveInt = (value, fallback) =>
 export async function listOrders({ userId = null, page, limit, search, status })
 {
 	const pageSize = Math.min(toPositiveInt(limit, ORDERS_PAGE_SIZE), ORDERS_PAGE_SIZE);
-	const requestedPage = toPositiveInt(page, 1);
+	const requestedPage = Math.min(toPositiveInt(page, 1), MAX_PAGE);
 	const searchValue = String(search ?? "").trim();
 	const statusValue = normalizeStatus(status);
 

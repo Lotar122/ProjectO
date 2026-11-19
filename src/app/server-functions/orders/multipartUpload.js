@@ -14,7 +14,7 @@ import {
 import { encodeMetadataValue } from "@/app/server-functions/MinIO/metadataEncoding";
 import {
 	ORDER_FILES_BUCKET,
-	deleteOrderFiles,
+	cleanUpOrderFiles,
 	sanitizeOrderFileName,
 	setOrderFileChecksum,
 } from "@/app/server-functions/orders/orderFiles";
@@ -101,16 +101,99 @@ export function uploadErrorResponse(err)
 	return null;
 }
 
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+// @aws-sdk/client-s3 is a Next.js server-external package, so command class
+// names survive the production build. Matching by name (not instanceof) also
+// works when lib-storage and this module load different builds of the SDK.
+function isAbortMultipartUpload(command)
+{
+	return command?.constructor?.name === "AbortMultipartUploadCommand";
+}
+
+// Wraps the S3 client so every request it sends can be awaited. `Upload.abort()`
+// only stops lib-storage from waiting; a PutObject or CompleteMultipartUpload
+// already on the wire can still create the object afterwards, so cleanup has to
+// wait for those requests before deleting.
+function trackRequests(s3)
+{
+	const requests = new Set();
+
+	const send = (command, ...rest) =>
+	{
+		const request = Promise.resolve(s3.send(command, ...rest));
+		const forget = () => requests.delete(request);
+
+		requests.add(request);
+		request.then(forget, forget);
+
+		if (isAbortMultipartUpload(command))
+		{
+			// lib-storage swallows this failure once the upload was aborted; the parts stay in storage.
+			request.catch((err) =>
+			{
+				log.error(`Could not abort the multipart upload of ${command.input?.Key}`, err);
+			});
+		}
+
+		return request;
+	};
+
+	const client = new Proxy(s3, {
+		get(target, property)
+		{
+			if (property === "send")
+			{
+				return send;
+			}
+
+			const value = Reflect.get(target, property, target);
+
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+
+	// A settled request can trigger a follow-up a few microtasks later (lib-storage
+	// sends AbortMultipartUpload once its last UploadPart returns), so the set only
+	// counts as drained when it is still empty after a full event-loop turn.
+	const settled = async () =>
+	{
+		do
+		{
+			while (requests.size > 0)
+			{
+				await Promise.allSettled([...requests]);
+			}
+
+			await nextTurn();
+		}
+		while (requests.size > 0);
+	};
+
+	return { client, settled };
+}
+
+// Keeps the last MAX_FILE_NAME_LENGTH code points, so a surrogate pair is never split.
+function truncateFileName(name)
+{
+	const codePoints = Array.from(name);
+
+	return codePoints.length > MAX_FILE_NAME_LENGTH ?
+		codePoints.slice(-MAX_FILE_NAME_LENGTH).join("") :
+		name;
+}
+
 // Streams a multipart order request straight from the request body to S3, so
 // a file never has to fit in memory. Contract with the client: every text
 // field (including `fileChecksums`, one per file in the same order) comes
-// before the first `files` part.
+// before the first `files` part; a text field after a file is rejected.
 //
 // `validate` runs once the text fields are complete (before the first file is
 // read, so a bad request costs no upload); throw InvalidUploadError from it.
 //
-// Resolves to { fields, files }. On any failure the objects already written
-// by this request are deleted again before the error is rethrown.
+// Resolves to { fields, files }, with `files` in request order. On any failure
+// every object this request started is deleted again (after the in-flight
+// requests for it have finished) before the error is rethrown.
 export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LIMITS } = {})
 {
 	const contentType = req.headers.get("content-type") || "";
@@ -135,15 +218,21 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 		get: (name) => fields.get(name)?.[0] ?? null,
 		getAll: (name) => fields.get(name) ?? [],
 	};
+	// Indexed by the file's position in the request, not by completion order.
 	const uploaded = [];
-	const inFlight = new Set();
 	const mismatched = [];
+	// Every upload this request created: { key, upload, meter }.
+	const started = [];
+	const inFlight = new Set();
 	const pending = [];
+	const tracked = trackRequests(s3);
 	let fileCount = 0;
 	let totalBytes = 0;
 	let failure = null;
+	let settled = false;
 	let idleTimer = null;
 	let validated = false;
+	let onAbort = null;
 
 	let parser;
 
@@ -171,11 +260,12 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 	{
 		const fail = (err) =>
 		{
-			if (failure)
+			if (settled)
 			{
 				return;
 			}
 
+			settled = true;
 			failure = err;
 			clearTimeout(idleTimer);
 			reject(err);
@@ -192,11 +282,34 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 				{
 					Promise.resolve(upload.abort()).catch(ignoreError);
 				}
+
+				// Ends lib-storage's part readers, so its background loop can finish and abort multipart uploads.
+				for (const { meter } of started)
+				{
+					meter.destroy();
+				}
 			});
+		};
+
+		const succeed = () =>
+		{
+			if (settled)
+			{
+				return;
+			}
+
+			settled = true;
+			clearTimeout(idleTimer);
+			resolve();
 		};
 
 		const touch = () =>
 		{
+			if (settled)
+			{
+				return;
+			}
+
 			clearTimeout(idleTimer);
 			idleTimer = setTimeout(
 				() => fail(new InvalidUploadError("Upload stalled")),
@@ -221,6 +334,108 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 			fields.set(name, values);
 		};
 
+		const startUpload = (fileStream, info, index) =>
+		{
+			const patient = fieldsApi.get("patient");
+
+			if (patient === null)
+			{
+				fileStream.resume();
+				fail(new InvalidUploadError("Text fields must precede the files"));
+				return;
+			}
+
+			const rawChecksum = String(fields.get("fileChecksums")?.[index] ?? "")
+				.trim()
+				.toLowerCase();
+			// Anything that is not a SHA-256 hex digest (for example "null") counts as absent.
+			const clientChecksum = SHA256_PATTERN.test(rawChecksum) ? rawChecksum : "";
+			const originalName = truncateFileName(String(info.filename || "file"));
+			const fileName = sanitizeOrderFileName(patient, originalName);
+			const encodedFileName = encodeMetadataValue(fileName);
+			const fileID = uuid7();
+			const hash = createHash("sha256");
+
+			const meter = new Transform({
+				transform(chunk, encoding, callback)
+				{
+					touch();
+					totalBytes += chunk.length;
+
+					if (totalBytes > limits.maxTotalBytes)
+					{
+						const err = new UploadLimitError("Order files are too large in total");
+
+						fail(err);
+						callback(err);
+						return;
+					}
+
+					hash.update(chunk);
+					callback(null, chunk);
+				},
+			});
+
+			const upload = new Upload({
+				client: tracked.client,
+				params: {
+					Bucket: ORDER_FILES_BUCKET,
+					Key: fileID,
+					Body: meter,
+					Metadata: {
+						original_name: encodedFileName,
+						...(clientChecksum ? { sha256: clientChecksum } : {}),
+					},
+				},
+				queueSize: 2,
+				partSize: PART_SIZE_BYTES,
+				leavePartsOnError: false,
+			});
+
+			started.push({ key: fileID, upload, meter });
+			inFlight.add(upload);
+
+			fileStream.on("limit", () =>
+			{
+				const err = new UploadLimitError(
+					`A file exceeds ${limits.maxFileBytes / (1024 * 1024)} MB`,
+				);
+
+				fail(err);
+				meter.destroy(err);
+			});
+
+			pipeline(fileStream, meter, ignoreError);
+
+			pending.push(
+				upload
+					.done()
+					.then(async () =>
+					{
+						const sha256 = hash.digest("hex");
+
+						uploaded[index] = { fileID, fileName, sha256 };
+
+						if (clientChecksum && clientChecksum !== sha256)
+						{
+							mismatched[index] = originalName;
+							return;
+						}
+
+						if (!clientChecksum)
+						{
+							// The browser could not hash the file; store the server's hash instead.
+							await setOrderFileChecksum(s3, fileID, sha256).catch((err) =>
+							{
+								log.warn(`Could not store checksum for ${fileID}: ${err.message}`);
+							});
+						}
+					})
+					.catch(fail)
+					.finally(() => inFlight.delete(upload)),
+			);
+		};
+
 		parser.on("field", (name, value, info) =>
 		{
 			if (info.valueTruncated || info.nameTruncated)
@@ -229,7 +444,8 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 				return;
 			}
 
-			if (fileCount > 0 && name === "fileChecksums")
+			// `validate` already ran on the fields before the first file.
+			if (fileCount > 0)
 			{
 				fail(new InvalidUploadError("Text fields must precede the files"));
 				return;
@@ -261,117 +477,25 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 
 			const index = fileCount++;
 
+			// A throw here would escape the busboy event, so it is turned into a failed upload.
 			try
 			{
 				validateOnce();
+				startUpload(fileStream, info, index);
 			}
 			catch (err)
 			{
 				fileStream.resume();
 				fail(err);
-				return;
 			}
-
-			const patient = fieldsApi.get("patient");
-
-			if (patient === null)
-			{
-				fileStream.resume();
-				fail(new InvalidUploadError("Text fields must precede the files"));
-				return;
-			}
-
-			const clientChecksum = String(fields.get("fileChecksums")?.[index] ?? "")
-				.trim()
-				.toLowerCase();
-			const originalName = String(info.filename || "file").slice(-MAX_FILE_NAME_LENGTH);
-			const fileName = sanitizeOrderFileName(patient, originalName);
-			const fileID = uuid7();
-			const hash = createHash("sha256");
-
-			const meter = new Transform({
-				transform(chunk, encoding, callback)
-				{
-					touch();
-					totalBytes += chunk.length;
-
-					if (totalBytes > limits.maxTotalBytes)
-					{
-						const err = new UploadLimitError("Order files are too large in total");
-
-						fail(err);
-						callback(err);
-						return;
-					}
-
-					hash.update(chunk);
-					callback(null, chunk);
-				},
-			});
-
-			fileStream.on("limit", () =>
-			{
-				const err = new UploadLimitError(
-					`A file exceeds ${limits.maxFileBytes / (1024 * 1024)} MB`,
-				);
-
-				fail(err);
-				meter.destroy(err);
-			});
-
-			pipeline(fileStream, meter, ignoreError);
-
-			const upload = new Upload({
-				client: s3,
-				params: {
-					Bucket: ORDER_FILES_BUCKET,
-					Key: fileID,
-					Body: meter,
-					Metadata: {
-						original_name: encodeMetadataValue(fileName),
-						...(SHA256_PATTERN.test(clientChecksum) ? { sha256: clientChecksum } : {}),
-					},
-				},
-				queueSize: 2,
-				partSize: PART_SIZE_BYTES,
-				leavePartsOnError: false,
-			});
-
-			inFlight.add(upload);
-
-			pending.push(
-				upload
-					.done()
-					.then(async () =>
-					{
-						const sha256 = hash.digest("hex");
-
-						uploaded.push({ fileID, fileName, sha256 });
-
-						if (clientChecksum !== "" && clientChecksum !== sha256)
-						{
-							mismatched.push(originalName);
-							return;
-						}
-
-						if (!SHA256_PATTERN.test(clientChecksum))
-						{
-							// The browser could not hash the file; store the server's hash instead.
-							await setOrderFileChecksum(s3, fileID, sha256).catch((err) =>
-							{
-								log.warn(`Could not store checksum for ${fileID}: ${err.message}`);
-							});
-						}
-					})
-					.catch(fail)
-					.finally(() => inFlight.delete(upload)),
-			);
 		});
 
 		parser.on("error", fail);
 		body.on("error", fail);
 		body.on("data", touch);
-		req.signal?.addEventListener("abort", () => fail(new InvalidUploadError("Request aborted")), { once: true });
+
+		onAbort = () => fail(new InvalidUploadError("Request aborted"));
+		req.signal?.addEventListener("abort", onAbort, { once: true });
 
 		parser.on("close", () =>
 		{
@@ -388,15 +512,7 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 				return;
 			}
 
-			Promise.all(pending).then(() =>
-			{
-				clearTimeout(idleTimer);
-
-				if (!failure)
-				{
-					resolve();
-				}
-			});
+			Promise.all(pending).then(succeed);
 		});
 
 		touch();
@@ -405,19 +521,35 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 
 	try
 	{
-		await outcome;
-
-		if (mismatched.length > 0)
+		try
 		{
-			throw new ChecksumMismatchError(mismatched);
+			await outcome;
+		}
+		finally
+		{
+			clearTimeout(idleTimer);
+			req.signal?.removeEventListener("abort", onAbort);
+		}
+
+		const mismatchedNames = mismatched.filter((name) => name !== undefined);
+
+		if (mismatchedNames.length > 0)
+		{
+			throw new ChecksumMismatchError(mismatchedNames);
 		}
 	}
 	catch (err)
 	{
-		clearTimeout(idleTimer);
-		await deleteOrderFiles(s3, uploaded.map((file) => file.fileID)).catch((cleanupErr) =>
-		{
-			log.error("Could not remove files of a failed upload", cleanupErr);
+		// An aborted upload's done() settles at once, but lib-storage keeps running
+		// in the background: an in-flight request can still create the object, and
+		// AbortMultipartUpload only goes out once its part uploaders have returned
+		// (`concurrentUploaders` never reject). Wait for all of it before deleting.
+		await Promise.allSettled(pending);
+		await Promise.allSettled(started.flatMap(({ upload }) => upload.concurrentUploaders ?? []));
+		await tracked.settled();
+		await cleanUpOrderFiles(s3, started.map(({ key }) => key), {
+			log,
+			context: "a failed upload",
 		});
 
 		throw err;
@@ -425,6 +557,6 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 
 	return {
 		fields: fieldsApi,
-		files: uploaded,
+		files: uploaded.filter(Boolean),
 	};
 }

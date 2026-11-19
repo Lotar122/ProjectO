@@ -1,7 +1,7 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
 import {
-	deleteOrderFiles,
+	cleanUpOrderFiles,
 	ensureOrderFilesBucket,
 } from "@/app/server-functions/orders/orderFiles";
 import {
@@ -102,9 +102,9 @@ async function handlePost(req)
 		// The upload cleaned up after itself; files stored for an order whose insert failed would be orphans.
 		if (s3 && uploadedFileIds.length > 0)
 		{
-			await deleteOrderFiles(s3, uploadedFileIds).catch((cleanupErr) =>
-			{
-				log.error("Could not remove files of a failed order", cleanupErr);
+			await cleanUpOrderFiles(s3, uploadedFileIds, {
+				log,
+				context: "a failed order",
 			});
 		}
 

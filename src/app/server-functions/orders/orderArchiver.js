@@ -412,20 +412,51 @@ export async function archiveOrderFile({
 	compress = compressBest,
 })
 {
-	const head = await headOrderFile(s3, fileId);
-
-	if (head.Metadata?.[ARCHIVE_META.method])
-	{
-		return alreadyArchivedResult(head.Metadata, head.ContentLength);
-	}
-
 	const originalPath = createTempFilePath();
 	let candidate = null;
 	let keepOriginal = false;
 
 	try
 	{
-		const file = await getFile(s3, ORDER_FILES_BUCKET, fileId);
+		let head;
+
+		try
+		{
+			head = await headOrderFile(s3, fileId);
+		}
+		catch (err)
+		{
+			// Deleted after its candidate was selected: nothing to archive.
+			if (isNotFound(err))
+			{
+				log.info(`File ${fileId} was deleted before archiving; skipped`);
+				return changedResult(0);
+			}
+
+			throw err;
+		}
+
+		if (head.Metadata?.[ARCHIVE_META.method])
+		{
+			return alreadyArchivedResult(head.Metadata, head.ContentLength);
+		}
+
+		let file;
+
+		try
+		{
+			file = await getFile(s3, ORDER_FILES_BUCKET, fileId);
+		}
+		catch (err)
+		{
+			if (isNotFound(err))
+			{
+				log.info(`File ${fileId} was deleted before archiving; skipped`);
+				return changedResult(0);
+			}
+
+			throw err;
+		}
 
 		if (file.metadata?.[ARCHIVE_META.method])
 		{

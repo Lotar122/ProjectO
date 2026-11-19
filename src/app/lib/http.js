@@ -16,6 +16,82 @@ export const TRANSFER_TIMEOUT_MS = 30 * 60 * 1000;
 export const isAbortError = (err) =>
 	err?.name === "AbortError" || err?.name === "TimeoutError";
 
+// Signals built by the fallbacks below hold a timer or listeners on
+// longer-lived signals. Their cleanup is kept here; native signals have none.
+const disposers = new WeakMap();
+
+/**
+ * Releases what a signal from combineSignals / timeoutSignal still holds
+ * (fallback listeners on the input signals, the fallback timeout timer).
+ * Safe to call more than once, and on any signal.
+ *
+ * @param {AbortSignal} signal
+ */
+export function disposeSignal(signal)
+{
+	disposers.get(signal)?.();
+	disposers.delete(signal);
+}
+
+// AbortSignal.any is missing in Safari < 17.4 and older Chromium/Firefox.
+export function combineSignals(signals)
+{
+	if (typeof AbortSignal.any === "function")
+	{
+		return AbortSignal.any(signals);
+	}
+
+	const controller = new AbortController();
+	const aborted = signals.find((signal) => signal.aborted);
+
+	if (aborted)
+	{
+		controller.abort(aborted.reason);
+		return controller.signal;
+	}
+
+	const detach = () =>
+	{
+		for (const signal of signals)
+		{
+			signal.removeEventListener("abort", onAbort);
+		}
+	};
+	const onAbort = (event) =>
+	{
+		detach();
+		controller.abort(event.target.reason);
+	};
+
+	for (const signal of signals)
+	{
+		signal.addEventListener("abort", onAbort);
+	}
+
+	disposers.set(controller.signal, detach);
+
+	return controller.signal;
+}
+
+// AbortSignal.timeout is missing in Safari < 16.
+export function timeoutSignal(ms)
+{
+	if (typeof AbortSignal.timeout === "function")
+	{
+		return AbortSignal.timeout(ms);
+	}
+
+	const controller = new AbortController();
+	const timer = setTimeout(() =>
+	{
+		controller.abort(new DOMException("Timeout", "TimeoutError"));
+	}, ms);
+
+	disposers.set(controller.signal, () => clearTimeout(timer));
+
+	return controller.signal;
+}
+
 export class HttpError extends Error
 {
 	constructor(response)
@@ -77,32 +153,43 @@ async function request(method, url, body, config = {})
 		headers["Content-Type"] ??= "application/json";
 	}
 
-	const signal = AbortSignal.any([
-		AbortSignal.timeout(config.timeout ?? DEFAULT_TIMEOUT_MS),
+	const timeout = timeoutSignal(config.timeout ?? DEFAULT_TIMEOUT_MS);
+	const signal = combineSignals([
+		timeout,
 		...(config.signal ? [config.signal] : []),
 	]);
 
-	const response = await fetch(url, {
-		method,
-		headers,
-		body: payload,
-		credentials: config.withCredentials ? "include" : "same-origin",
-		signal,
-	});
-
-	const result = {
-		status: response.status,
-		statusText: response.statusText,
-		headers: Object.fromEntries(response.headers.entries()),
-		data: await parseBody(response, config.responseType),
-	};
-
-	if (!response.ok)
+	try
 	{
-		throw new HttpError(result);
-	}
+		const response = await fetch(url, {
+			method,
+			headers,
+			body: payload,
+			credentials: config.withCredentials ? "include" : "same-origin",
+			signal,
+		});
 
-	return result;
+		const result = {
+			status: response.status,
+			statusText: response.statusText,
+			headers: Object.fromEntries(response.headers.entries()),
+			data: await parseBody(response, config.responseType),
+		};
+
+		if (!response.ok)
+		{
+			throw new HttpError(result);
+		}
+
+		return result;
+	}
+	finally
+	{
+		// The body is fully read by now; without this the fallbacks would keep
+		// listeners on config.signal (and a live timer) until the deadline.
+		disposeSignal(signal);
+		disposeSignal(timeout);
+	}
 }
 
 const http = {

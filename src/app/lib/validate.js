@@ -7,6 +7,10 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export const ORDER_STATUSES = ["pending", "in-progress", "shipped", "completed"];
 
+// Statuses in which the owner may still edit or delete an order. From "shipped"
+// on only an admin can change it; unknown and NULL statuses are locked too.
+export const OWNER_EDITABLE_STATUSES = ["pending", "in-progress"];
+
 export const MAX_PATIENT_LENGTH = 200;
 export const MAX_DETAILS_LENGTH = 5000;
 export const MAX_SEARCH_LENGTH = 100;
@@ -27,6 +31,18 @@ export function normalizeStatus(value)
 export function isOrderStatus(value)
 {
 	return ORDER_STATUSES.includes(value);
+}
+
+/**
+ * True when the owner of an order in this status may still edit or delete it.
+ * Fails closed: unknown values, NULL and differently cased values are locked.
+ *
+ * @param {unknown} status Raw `orders.status` value.
+ * @returns {boolean}
+ */
+export function isOwnerEditableStatus(status)
+{
+	return OWNER_EDITABLE_STATUSES.includes(status);
 }
 
 // Accepts "YYYY-MM-DD" (what <input type="date"> sends) or a full ISO string.

@@ -114,10 +114,54 @@ export const getChecksumMismatchError = async (err) =>
 	return data?.code === CHECKSUM_MISMATCH ? data : null;
 };
 
-export const INITIAL_ORDER = {
-	patient: "",
-	details: "",
-	dueDate: new Date().toISOString().split("T")[0],
+/**
+ * Empty create-form state with today's local date (YYYY-MM-DD) as the due date.
+ * Computed on every call, so a tab left open past midnight does not reuse an old date.
+ * @returns {{ patient: string, details: string, dueDate: string }}
+ */
+export const createInitialOrder = () =>
+{
+	const now = new Date();
+	const month = String(now.getMonth() + 1).padStart(2, "0");
+	const day = String(now.getDate()).padStart(2, "0");
+
+	return {
+		patient: "",
+		details: "",
+		dueDate: `${now.getFullYear()}-${month}-${day}`,
+	};
+};
+
+const getFileIdentity = (file) => `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+
+/**
+ * Drops files that are already in `existing`, or repeat inside `incoming`,
+ * comparing name + size + lastModified.
+ * @param {readonly File[]} existing Files already listed.
+ * @param {readonly File[]} incoming Files being added.
+ * @returns {File[]} The files from `incoming` that are new, in order.
+ */
+export const dedupeNewFiles = (existing, incoming) =>
+{
+	if (!Array.isArray(existing) || !Array.isArray(incoming))
+	{
+		throw new TypeError("dedupeNewFiles expects two arrays of files");
+	}
+
+	const seen = new Set(existing.map(getFileIdentity));
+
+	return incoming.filter((file) =>
+	{
+		const identity = getFileIdentity(file);
+
+		if (seen.has(identity))
+		{
+			return false;
+		}
+
+		seen.add(identity);
+		return true;
+	});
 };
 
 export const INITIAL_EDIT_DRAFT = {
@@ -267,7 +311,7 @@ export const getStatusTheme = (status) =>
 
 export const ARCHIVED_LABEL = "ZARCHIWIZOWANE";
 export const ARCHIVED_BADGE_CLASS = "border border-line-control bg-surface-raised text-muted";
-export const ARCHIVED_FILE_META_TEXT = "Zarchiwizowany — pobieranie może potrwać dłużej";
+export const ARCHIVED_FILE_META_TEXT = "Zarchiwizowany, pobieranie może potrwać dłużej";
 
 export const isOrderArchived = (order) => Boolean(order?.archived_at);
 

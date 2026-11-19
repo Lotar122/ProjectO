@@ -39,6 +39,11 @@ export default function UsersPage()
 		navigateTo(ADMIN_HOME_PATH);
 	}, []);
 
+	const clearCreatedNotice = useCallback(() =>
+	{
+		setCreatedNotice("");
+	}, []);
+
 	const handleCreated = useCallback(() =>
 	{
 		setRefreshToken((value) => value + 1);
@@ -77,11 +82,17 @@ export default function UsersPage()
 
 			<div aria-live="polite">
 				{createdNotice && (
-					<Alert tone="success" announce={false} className="mb-5">{createdNotice}</Alert>
+					<Alert
+						tone="success"
+						announce={false}
+						className="mb-5"
+						onDismiss={clearCreatedNotice}>
+						{createdNotice}
+					</Alert>
 				)}
 			</div>
 
-			<ManageUsers refreshToken={refreshToken} />
+			<ManageUsers refreshToken={refreshToken} onUserAction={clearCreatedNotice} />
 		</>
 	);
 }
