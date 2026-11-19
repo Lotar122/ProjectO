@@ -4,17 +4,20 @@ import {
 	AbortMultipartUploadCommand,
 	DeleteObjectCommand,
 	HeadObjectCommand,
+	ListMultipartUploadsCommand,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readdir, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-import { DB } from "@/app/lib/db";
+import { createDbClient } from "@/app/lib/db";
 import { createLogger } from "@/app/lib/logger";
+import { isUuid } from "@/app/lib/validate";
 import {
 	ChecksumMismatchError,
 	assertChecksum,
@@ -25,11 +28,24 @@ import { getFile } from "@/app/server-functions/MinIO/getFile";
 import {
 	ARCHIVE_META,
 	COMPRESSION_METHODS,
-	compressBest,
 	createDecompressStream,
 	createTempFilePath,
 	removeTempFile,
 } from "@/app/server-functions/orders/fileCompression";
+import {
+	ARCHIVE_AFTER_DAYS,
+	countArchiveCandidates,
+	selectArchiveCandidates,
+} from "@/app/server-functions/orders/archiveCandidates";
+import {
+	deletePendingVerify,
+	insertPendingVerify,
+	isFileOnAnyOrder,
+	listJournalOriginalPaths,
+	listPendingVerifications,
+	markPendingNeedsAttention,
+	markPendingUploaded,
+} from "@/app/server-functions/orders/archiveJournal";
 import {
 	ORDER_FILES_BUCKET,
 	isPreconditionFailed,
@@ -38,17 +54,30 @@ import {
 
 const log = createLogger("archiver");
 
-// Orders whose issue date is further back than this are archived.
-export const ARCHIVE_AFTER_DAYS = 30;
+export { ARCHIVE_AFTER_DAYS, countArchiveCandidates, selectArchiveCandidates };
 export const MIN_SAVINGS_RATIO = 0.02;
 
-// Session-level advisory lock that keeps two server instances from archiving
+// Optional metadata key with the encoder that wrote the archive (for example
+// "projecto-compress/1.0.0 zstd/1.5.7"), for later forensics. Nothing reads it.
+export const ENCODER_META_KEY = "encoder";
+// S3 metadata travels as HTTP headers: printable ASCII only, kept short.
+const ENCODER_PATTERN = /^[\x20-\x7e]{1,200}$/;
+
+// Session-level advisory lock that keeps two archiver workers from archiving
 // at the same time. Any constant works as long as nothing else uses it.
 const ARCHIVE_LOCK_KEY = "5067091845220771";
 const PART_SIZE_BYTES = 8 * 1024 * 1024;
 const SIZE_PATTERN = /^\d+$/;
 
-// Upper bound for the lock queries on the reserved connection (and the job's
+// Temp files the archiver leaves in os.tmpdir() (createTempFilePath): the
+// downloaded original has no extension, compressed candidates end in .zst/.br.
+const TEMP_FILE_PREFIX = "projecto-archive-";
+const TEMP_CANDIDATE_PATTERN = /\.(zst|br)$/;
+// Upper bound for ListMultipartUploads pages per key during recovery.
+const MAX_MULTIPART_LIST_PAGES = 100;
+const JOURNAL_METHODS = new Set([COMPRESSION_METHODS.zstd, COMPRESSION_METHODS.brotli]);
+
+// Upper bound for the lock queries on the lock connection (and the job's
 // other queries). A dropped connection can leave a postgres.js query pending
 // for a long time; without a bound the job would stay "running" and every
 // new start would be refused until a restart.
@@ -107,10 +136,19 @@ class DbTimeoutError extends Error
 	}
 }
 
-// Rejects with DbTimeoutError when promise has not settled within ms. A query
-// cannot be cancelled from here, so onLate (if given) is called with
-// (err, value) when it settles after the timeout, to clean up after it.
-function withTimeout(promise, label, ms, onLate)
+/**
+ * Rejects with a DbTimeoutError when promise has not settled within ms. A
+ * query cannot be cancelled from here, so onLate (if given) is called with
+ * (err, value) when it settles after the timeout, to clean up after it.
+ *
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {string} label Used in the error message.
+ * @param {number} ms
+ * @param {(err: unknown, value?: T) => void} [onLate]
+ * @returns {Promise<T>}
+ */
+export function withTimeout(promise, label, ms, onLate)
 {
 	let timer;
 	let timedOut = false;
@@ -195,8 +233,9 @@ async function hashStream(source, ...transforms)
 	return { sha256: hash.digest("hex"), size };
 }
 
-// Writes source to filePath, hashing the bytes on the way.
-async function saveToFile(source, filePath)
+// Writes source to filePath, hashing the bytes on the way. onBytes(size) is
+// called with the running total after every chunk.
+async function saveToFile(source, filePath, onBytes)
 {
 	const hash = createHash("sha256");
 	let size = 0;
@@ -208,6 +247,7 @@ async function saveToFile(source, filePath)
 			{
 				hash.update(chunk);
 				size += chunk.length;
+				onBytes?.(size);
 				callback(null, chunk);
 			},
 		}),
@@ -349,6 +389,45 @@ async function verifyStoredObject(s3, fileId, candidate, original)
 	assertChecksum(fileId, original, roundTrip, `stored ${candidate.method} archive read back`);
 }
 
+// Puts the verified original back over our archive, only while the object is
+// still the version ifMatch (never over a newer write). Resolves to "restored",
+// or to "gone" when the object was deleted meanwhile (an order deletion removes
+// its objects before the row), so there is nothing to restore. Throws for any
+// other failure, including 412. Used after a failed read-back and by crash
+// recovery.
+async function restoreOriginal(s3, fileId, { originalPath, contentType, metadata, ifMatch })
+{
+	try
+	{
+		await uploadOrderFile(s3, fileId, originalPath, { contentType, metadata, ifMatch });
+	}
+	catch (err)
+	{
+		if (isNotFound(err))
+		{
+			return "gone";
+		}
+
+		throw err;
+	}
+
+	return "restored";
+}
+
+// The metadata the original had, rebuilt from our archive's metadata: the
+// archive keys go, the original's sha256 stays.
+function originalMetadataFrom(archiveMetadata, sha256)
+{
+	const metadata = { ...archiveMetadata, [ARCHIVE_META.sha256]: sha256 };
+
+	delete metadata[ARCHIVE_META.method];
+	delete metadata[ARCHIVE_META.originalSize];
+	delete metadata[ARCHIVE_META.archivedAt];
+	delete metadata[ENCODER_META_KEY];
+
+	return metadata;
+}
+
 function failedResult(err)
 {
 	return {
@@ -402,19 +481,96 @@ function changedResult(originalSize)
 // anything is written, and the stored object again after the upload. Any
 // mismatch throws ChecksumMismatchError (expected/actual on the error; for the
 // read-back it is the cause of the ArchiveFileError), and the file counts as
-// failed. compress is for tests.
+// failed.
+//
+// compress(srcPath, { minSavingsRatio, onProgress }) has the nativeCompressBest
+// contract: { method, path, size, encoder? } or null. onProgress receives
+// { phase, bytesDone, bytesTotal } with phase download, compress-zstd,
+// compress-br, verify, upload or readback; it is advisory and never throws
+// into the archiving.
+//
+// Crash journal (phases-bugfix/phase4.md 9.2): an archive_pending_verify row is
+// opened before the replacing upload (no row, no upload) and closed once the
+// outcome is settled: read-back passed, our write was refused, the original
+// was restored, the orphan was deleted, or the object is gone. Any other upload
+// error keeps the row, because the outcome is unknown. When the restore fails
+// too and the original was saved to ARCHIVER_RECOVERY_DIR, the row becomes
+// 'needs_attention'. While a row is left the temp original is kept (crash
+// recovery restores from it); it is removed only once no row is left.
+/**
+ * @param {object} options
+ * @param {object} options.s3 S3 client.
+ * @param {string} options.fileId UUID of the order file (its S3 key).
+ * @param {{ sql: Function, jobId: string | number, timeoutMs: number }} options.journal
+ *   Pool client for the crash journal, the job writing it, and the bound for
+ *   each journal statement.
+ * @param {(srcPath: string, options: { minSavingsRatio: number, onProgress: Function }) => Promise<{ method: string, path: string, size: number, encoder?: string | null } | null>} options.compress
+ * @param {() => Promise<boolean>} [options.isStillAttached]
+ * @param {number} [options.minSavingsRatio]
+ * @param {() => Date} [options.now]
+ * @param {(progress: { phase: string, bytesDone: number, bytesTotal: number }) => void} [options.onProgress]
+ * @returns {Promise<{ outcome: string, method: string | null, originalSize: number | null, storedSize: number | null }>}
+ */
 export async function archiveOrderFile({
 	s3,
 	fileId,
+	journal,
+	compress,
 	isStillAttached = async () => true,
 	minSavingsRatio = MIN_SAVINGS_RATIO,
 	now = () => new Date(),
-	compress = compressBest,
+	onProgress,
 })
 {
+	if (!isUuid(fileId))
+	{
+		throw new TypeError("fileId must be a UUID");
+	}
+
+	assertJournal(journal);
+
+	if (typeof compress !== "function")
+	{
+		throw new TypeError("compress must be a function");
+	}
+
+	if (onProgress !== undefined && typeof onProgress !== "function")
+	{
+		throw new TypeError("onProgress must be a function");
+	}
+
+	const report = (phase, bytesDone, bytesTotal) =>
+	{
+		try
+		{
+			onProgress?.({ phase, bytesDone, bytesTotal: bytesTotal ?? 0 });
+		}
+		catch
+		{
+			// Progress is advisory; a failing listener must not fail the file.
+		}
+	};
 	const originalPath = createTempFilePath();
 	let candidate = null;
-	let keepOriginal = false;
+	// True while this file has a journal row: the temp original must stay.
+	let journalOpen = false;
+	const journalQuery = (query, label) => withTimeout(query, label, journal.timeoutMs);
+	// Deletes the row. Resolves to false (and logs) when that failed; the row
+	// and the temp original are then left for crash recovery and the sweep.
+	const closeJournal = async () =>
+	{
+		try
+		{
+			await journalQuery(deletePendingVerify(journal.sql, fileId), "Clearing the crash journal");
+			journalOpen = false;
+			return true;
+		}
+		catch (err)
+		{
+			log.warn(`Could not clear the crash journal row of file ${fileId}; recovery will handle it: ${err.message}`);
+			return false;
+		}
+	};
 
 	try
 	{
@@ -464,7 +620,12 @@ export async function archiveOrderFile({
 			return alreadyArchivedResult(file.metadata, file.contentLength);
 		}
 
-		const original = await saveToFile(file.body, originalPath);
+		report("download", 0, file.contentLength);
+
+		const original = await saveToFile(file.body, originalPath, (bytes) =>
+		{
+			report("download", bytes, file.contentLength);
+		});
 
 		if (file.contentLength !== undefined && original.size !== file.contentLength)
 		{
@@ -493,7 +654,16 @@ export async function archiveOrderFile({
 			[ARCHIVE_META.archivedAt]: archivedAt,
 		});
 
-		candidate = await compress(originalPath, { minSavingsRatio });
+		report("compress-zstd", 0, original.size);
+
+		candidate = await compress(originalPath, {
+			minSavingsRatio,
+			// The adapter reports its codec ("zstd" or "br") as the phase.
+			onProgress: ({ phase, bytesDone, bytesTotal }) =>
+			{
+				report(`compress-${phase}`, bytesDone, bytesTotal);
+			},
+		});
 
 		if (!candidate)
 		{
@@ -550,6 +720,8 @@ export async function archiveOrderFile({
 
 		// Never upload anything that does not decompress to the original bytes.
 		// A throw here (mismatch or a decoder error) leaves the object untouched.
+		report("verify", 0, original.size);
+
 		const verified = await hashStream(
 			createReadStream(candidate.path),
 			createDecompressStream(candidate.method),
@@ -599,7 +771,52 @@ export async function archiveOrderFile({
 			originalSize: original.size,
 			storedSize: candidate.size,
 		};
+		const storedMetadata = {
+			...latest.Metadata,
+			...archiveMetadata(candidate.method),
+		};
+
+		// Never carry over an encoder key that describes some other write.
+		delete storedMetadata[ENCODER_META_KEY];
+
+		if (typeof candidate.encoder === "string" && ENCODER_PATTERN.test(candidate.encoder))
+		{
+			storedMetadata[ENCODER_META_KEY] = candidate.encoder;
+		}
+
+		if (!latest.ETag)
+		{
+			// Without an ETag there is neither an If-Match nor a journal row.
+			throw new ArchiveFileError(`HEAD of ${fileId} returned no ETag; original left untouched`);
+		}
+
+		// 9.2 step 1: no journal row, no upload.
+		try
+		{
+			await journalQuery(insertPendingVerify(journal.sql, {
+				fileId,
+				jobId: journal.jobId,
+				method: candidate.method,
+				originalSha256: original.sha256,
+				originalSize: original.size,
+				storedSize: candidate.size,
+				preUploadEtag: latest.ETag,
+				originalPath,
+			}), "Writing the crash journal");
+		}
+		catch (err)
+		{
+			throw new ArchiveFileError(
+				`Could not write the crash journal row; original left untouched: ${err.message}`,
+				{ cause: err },
+			);
+		}
+
+		journalOpen = true;
+
 		let storedEtag;
+
+		report("upload", 0, candidate.size);
 
 		try
 		{
@@ -608,10 +825,7 @@ export async function archiveOrderFile({
 			// object as the other writer left it.
 			storedEtag = await uploadOrderFile(s3, fileId, candidate.path, {
 				contentType,
-				metadata: {
-					...latest.Metadata,
-					...archiveMetadata(candidate.method),
-				},
+				metadata: storedMetadata,
 				ifMatch: latest.ETag,
 			});
 		}
@@ -619,12 +833,27 @@ export async function archiveOrderFile({
 		{
 			if (isConcurrentChange(err))
 			{
+				// Nothing was written.
+				await closeJournal();
 				log.info(`File ${fileId} changed or was deleted before its archive was written; left for the next run`);
 				return changedResult(original.size);
 			}
 
+			// Unknown outcome: the row stays, and recovery decides from a HEAD.
 			throw err;
 		}
+
+		try
+		{
+			await journalQuery(markPendingUploaded(journal.sql, fileId, storedEtag), "Updating the crash journal");
+		}
+		catch (err)
+		{
+			// The row still says 'uploading'; recovery treats both states alike.
+			log.warn(`Could not mark the crash journal row of file ${fileId} uploaded: ${err.message}`);
+		}
+
+		report("readback", 0, candidate.size);
 
 		try
 		{
@@ -649,16 +878,20 @@ export async function archiveOrderFile({
 			{
 				await deleteOrderFileObject(s3, fileId);
 				log.info(`File ${fileId} was removed from its order during archiving; deleted the object`);
+				await closeJournal();
 
 				return orphanedResult;
 			}
 
 			log.error(`Archived file ${fileId} failed read-back verification, restoring the original`, verifyErr);
 
+			let restored;
+
 			try
 			{
 				// Only over our own archive, never over a newer write.
-				await uploadOrderFile(s3, fileId, originalPath, {
+				restored = await restoreOriginal(s3, fileId, {
+					originalPath,
 					contentType,
 					metadata: originalMetadata,
 					ifMatch: storedEtag,
@@ -666,15 +899,8 @@ export async function archiveOrderFile({
 			}
 			catch (restoreErr)
 			{
-				if (isNotFound(restoreErr))
-				{
-					// Deleted meanwhile (an order deletion removes its objects
-					// before the row), so there is nothing to restore.
-					log.info(`File ${fileId} was deleted during archiving; nothing to restore`);
-					return changedResult(original.size);
-				}
-
 				// The verified original on disk may now be the only good copy.
+				const reason = `Read-back: ${verifyErr.message}; restore: ${restoreErr.message}`;
 				let savedTo = null;
 
 				try
@@ -685,13 +911,19 @@ export async function archiveOrderFile({
 						contentType,
 						metadata: originalMetadata,
 						original,
-						reason: `Read-back: ${verifyErr.message}; restore: ${restoreErr.message}`,
+						reason,
 					});
 				}
 				catch (saveErr)
 				{
-					keepOriginal = true;
+					// The row stays as it is, so recovery tries again from the
+					// temp original, which is kept while the row exists.
 					log.error(`Could not save file ${fileId} to ${recoveryDir()}`, saveErr);
+				}
+
+				if (savedTo)
+				{
+					await flagNeedsAttention(journal, fileId, `Original saved to ${savedTo}. ${reason}`);
 				}
 
 				const location = savedTo ?? originalPath;
@@ -704,6 +936,14 @@ export async function archiveOrderFile({
 				);
 			}
 
+			await closeJournal();
+
+			if (restored === "gone")
+			{
+				log.info(`File ${fileId} was deleted during archiving; nothing to restore`);
+				return changedResult(original.size);
+			}
+
 			throw new ArchiveFileError(
 				`Read-back verification failed, original restored: ${verifyErr.message}`,
 				{ cause: verifyErr },
@@ -714,8 +954,17 @@ export async function archiveOrderFile({
 		{
 			await deleteOrderFileObject(s3, fileId);
 			log.info(`File ${fileId} was removed from its order during archiving; deleted the object`);
+			await closeJournal();
 
 			return orphanedResult;
+		}
+
+		// The order must not be marked while the file still has a row, so a
+		// row that could not be cleared fails the file; recovery clears it at
+		// the next job start.
+		if (!(await closeJournal()))
+		{
+			throw new ArchiveFileError("Archive verified, but its crash journal row could not be cleared");
 		}
 
 		return {
@@ -730,7 +979,11 @@ export async function archiveOrderFile({
 		await removeTempFile(candidate?.path).catch((err) =>
 			log.warn(`Could not remove temp file ${candidate?.path}: ${err.message}`));
 
-		if (!keepOriginal)
+		if (journalOpen)
+		{
+			log.info(`File ${fileId} still has a crash journal row; its original is kept at ${originalPath}`);
+		}
+		else
 		{
 			await removeTempFile(originalPath).catch((err) =>
 				log.warn(`Could not remove temp file ${originalPath}: ${err.message}`));
@@ -739,29 +992,6 @@ export async function archiveOrderFile({
 }
 
 // ---- Database access (all short statements; statement_timeout is 15 s) ----
-
-export async function selectArchiveCandidates(sql = DB)
-{
-	return sql`
-		SELECT order_id, files
-		FROM orders
-		WHERE issue_date < CURRENT_DATE - ${ARCHIVE_AFTER_DAYS}::int
-			AND archived_at IS NULL
-		ORDER BY issue_date, order_id
-	`;
-}
-
-export async function countArchiveCandidates(sql = DB)
-{
-	const [row] = await sql`
-		SELECT count(*)::int AS count
-		FROM orders
-		WHERE issue_date < CURRENT_DATE - ${ARCHIVE_AFTER_DAYS}::int
-			AND archived_at IS NULL
-	`;
-
-	return row?.count ?? 0;
-}
 
 export async function isFileOnOrder(sql, orderId, fileId)
 {
@@ -776,7 +1006,9 @@ export async function isFileOnOrder(sql, orderId, fileId)
 }
 
 // Only marks the order when its files are still the ones that were archived;
-// an order edited meanwhile is left for the next run.
+// an order edited meanwhile is left for the next run. An order with a file
+// that still has a crash journal row (one recovery could not settle, or a
+// 'needs_attention' row) is not marked either (phase4.md 9.1).
 export async function markOrderArchived(sql, orderId, files)
 {
 	const rows = await sql`
@@ -785,67 +1017,106 @@ export async function markOrderArchived(sql, orderId, files)
 		WHERE order_id = ${orderId}
 			AND files IS NOT DISTINCT FROM ${files}
 			AND archived_at IS NULL
+			AND NOT EXISTS (
+				SELECT 1
+				FROM archive_pending_verify
+				WHERE archive_pending_verify.file_id = ANY(orders.files)
+			)
 		RETURNING order_id
 	`;
 
 	return rows.length > 0;
 }
 
-// Resolves to the lock { reserved, pid } (a reserved connection holding the
-// lock and its backend pid), or null if another session holds it.
-async function acquireArchiveLock(sql, timeoutMs)
+// The lock lives on its own one-connection client, never on a connection of the
+// shared pool: a session lock must end with its session, and postgres.js 3.4.7
+// breaks the pool when a reserved connection whose socket already closed is
+// released into it. idle_timeout and max_lifetime are off, so the session
+// stays up through a long compression while the client sits idle.
+function openArchiveLockClient()
 {
-	// A connection that arrives after we gave up goes straight back.
-	const reserved = await withTimeout(
-		sql.reserve(),
-		"Reserving a database connection",
-		timeoutMs,
-		(err, late) => late?.release(),
-	);
-	let row;
+	return createDbClient({ max: 1, idle_timeout: 0, max_lifetime: 0 });
+}
 
+// Closes a lock client and with it its session (and the lock). After
+// timeoutMs, pending queries are dropped and the socket is destroyed. Never throws.
+async function endLockClient(client, timeoutMs)
+{
 	try
 	{
-		[row] = await withTimeout(
-			reserved`SELECT pg_backend_pid() AS pid, pg_try_advisory_lock(${ARCHIVE_LOCK_KEY}::bigint) AS locked`,
-			"Taking the archive lock",
-			timeoutMs,
-			// Settled after we gave up: drop whatever it took, then the connection.
-			() => releaseArchiveLock({ reserved }, timeoutMs),
+		await withTimeout(
+			client.end({ timeout: Math.max(1, Math.ceil(timeoutMs / 1000)) }),
+			"Closing the archive lock connection",
+			timeoutMs + 1000,
 		);
 	}
 	catch (err)
 	{
-		// After a timeout the late handler above releases the connection.
-		if (!(err instanceof DbTimeoutError))
-		{
-			reserved.release();
-		}
+		log.warn(`Could not close the archive lock connection: ${err.message}`);
+	}
+}
 
+/**
+ * Takes the archive advisory lock on a dedicated database connection. Session
+ * locks live as long as their session, so the lock is held until
+ * releaseArchiveLock closes that connection (or the process dies).
+ *
+ * @param {object} options
+ * @param {number} options.timeoutMs Bound for connecting and for the lock query.
+ * @param {() => Function & { end: Function }} [options.openClient] Creates the
+ *   one-connection postgres.js client; tests pass a fake.
+ * @returns {Promise<{ client: Function & { end: Function }, pid: number } | null>}
+ *   The client holding the lock and its backend pid, or null when another
+ *   session holds the lock.
+ */
+export async function acquireArchiveLock({ timeoutMs, openClient = openArchiveLockClient } = {})
+{
+	assertTimeout(timeoutMs);
+
+	if (typeof openClient !== "function")
+	{
+		throw new TypeError("openClient must be a function");
+	}
+
+	const client = openClient();
+	let row;
+
+	try
+	{
+		// On a timeout the client is closed below, which ends its session, so a
+		// lock taken by a query that lands late goes with it.
+		[row] = await withTimeout(
+			client`SELECT pg_backend_pid() AS pid, pg_try_advisory_lock(${ARCHIVE_LOCK_KEY}::bigint) AS locked`,
+			"Taking the archive lock",
+			timeoutMs,
+		);
+	}
+	catch (err)
+	{
+		await endLockClient(client, timeoutMs);
 		throw err;
 	}
 
 	if (row?.locked)
 	{
-		return { reserved, pid: row.pid };
+		return { client, pid: row.pid };
 	}
 
-	reserved.release();
+	await endLockClient(client, timeoutMs);
 
 	return null;
 }
 
-// A session lock lives as long as its connection. postgres.js does not keep a
-// dropped reserved connection reserved: the next query on it reconnects as a
-// new session (which no longer holds the lock, and which the pool may share),
-// or does not settle at all. So the backend pid must still be the one that
+// A session lock lives as long as its session. When the lock connection drops,
+// the client's next query opens a new session, which no longer holds the lock
+// (or does not settle at all). So the backend pid must still be the one that
 // took the lock, and the query is bounded by timeoutMs. Session locks are
 // re-entrant, so pg_try_advisory_lock succeeds while we hold the lock; it
 // also catches a recycled pid in a session that does not hold it.
 async function confirmArchiveLock(lock, timeoutMs)
 {
 	const [row] = await withTimeout(
-		lock.reserved`SELECT pg_backend_pid() AS pid, pg_try_advisory_lock(${ARCHIVE_LOCK_KEY}::bigint) AS locked`,
+		lock.client`SELECT pg_backend_pid() AS pid, pg_try_advisory_lock(${ARCHIVE_LOCK_KEY}::bigint) AS locked`,
 		"Confirming the archive lock",
 		timeoutMs,
 	);
@@ -861,37 +1132,98 @@ async function confirmArchiveLock(lock, timeoutMs)
 	}
 }
 
-// Never throws. pg_advisory_unlock_all also drops the re-entrant holds taken
-// by confirmArchiveLock.
-async function releaseArchiveLock(lock, timeoutMs)
+/**
+ * Releases the archive lock and closes its connection. Never throws. The
+ * explicit unlock (which also drops the re-entrant holds taken by
+ * confirmArchiveLock) is a courtesy: closing the session always releases the
+ * lock, also when the unlock fails or the session is already gone. Nothing is
+ * returned to the shared pool.
+ *
+ * @param {{ client: Function & { end: Function } }} lock From acquireArchiveLock.
+ * @param {number} timeoutMs
+ * @returns {Promise<void>}
+ */
+export async function releaseArchiveLock(lock, timeoutMs)
 {
 	try
 	{
 		await withTimeout(
-			lock.reserved`SELECT pg_advisory_unlock_all()`,
+			lock.client`SELECT pg_advisory_unlock_all()`,
 			"Releasing the archive lock",
 			timeoutMs,
 		);
 	}
 	catch (err)
 	{
-		// The lock goes with the session when postgres.js closes the connection.
-		log.warn(`Could not release the archive lock: ${err.message}`);
+		log.warn(`Could not release the archive lock: ${err.message}; closing its connection`);
 	}
 
-	try
-	{
-		lock.reserved.release();
-	}
-	catch (err)
-	{
-		log.warn(`Could not return the archive lock connection: ${err.message}`);
-	}
+	await endLockClient(lock.client, timeoutMs);
 }
 
 // ---- Job state ----
 
-function createStatus(overrides = {})
+function assertTimeout(timeoutMs)
+{
+	if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
+	{
+		throw new RangeError("timeoutMs must be a positive integer");
+	}
+}
+
+function assertJobId(jobId)
+{
+	if (jobId === null || jobId === undefined || jobId === "")
+	{
+		throw new TypeError("jobId must identify the archive job");
+	}
+}
+
+function assertJournal(journal)
+{
+	if (typeof journal?.sql !== "function")
+	{
+		throw new TypeError("journal.sql must be a postgres.js client");
+	}
+
+	assertJobId(journal.jobId);
+	assertTimeout(journal.timeoutMs);
+}
+
+// Journal notes end up in the status panel; keep them bounded.
+const MAX_NOTE_LENGTH = 2000;
+
+// Hands a journal row to an operator ('needs_attention'). Resolves to false
+// (and logs) when the update failed; the row then keeps its state and crash
+// recovery looks at it again.
+async function flagNeedsAttention(journal, fileId, note)
+{
+	try
+	{
+		await withTimeout(
+			markPendingNeedsAttention(journal.sql, fileId, note.slice(0, MAX_NOTE_LENGTH)),
+			"Flagging the crash journal row",
+			journal.timeoutMs,
+		);
+	}
+	catch (err)
+	{
+		log.warn(`Could not flag the crash journal row of file ${fileId} for attention: ${err.message}`);
+		return false;
+	}
+
+	log.error(`File ${fileId} needs attention: ${note}`);
+	return true;
+}
+
+/**
+ * The job's mutable counters. The worker writes this object (plus
+ * currentFile) to archive_jobs.progress.
+ *
+ * @param {object} [overrides]
+ * @returns {object}
+ */
+export function createStatus(overrides = {})
 {
 	return {
 		state: "idle",
@@ -922,23 +1254,6 @@ function createStatus(overrides = {})
 		lastError: null,
 		...overrides,
 	};
-}
-
-const globalForArchiver = globalThis;
-
-function getArchiver()
-{
-	globalForArchiver.__projectoArchiver ??= {
-		starting: false,
-		status: createStatus(),
-	};
-
-	return globalForArchiver.__projectoArchiver;
-}
-
-export function getArchiveJobStatus()
-{
-	return { ...getArchiver().status };
 }
 
 // fileId is only used in lastError for a failed result.
@@ -980,7 +1295,22 @@ export function recordFileResult(status, result, fileId = null)
 	}
 }
 
-async function archiveOrder({ sql, s3, order, status, timeoutMs })
+// Calls a caller-supplied listener; a throwing listener never fails the job.
+function notify(listener, event)
+{
+	try
+	{
+		listener?.(event);
+	}
+	catch (err)
+	{
+		log.warn(`Archive progress listener failed: ${err.message}`);
+	}
+}
+
+// Resolves to true when it stopped early because shouldStop() said so; the
+// order is then neither counted nor marked.
+async function archiveOrder({ sql, s3, order, status, timeoutMs, journal, compress, shouldStop, onFileResult })
 {
 	const orderId = order.order_id;
 	const files = Array.isArray(order.files) ? order.files : [];
@@ -989,16 +1319,41 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 
 	for (const fileId of files)
 	{
+		if (shouldStop())
+		{
+			return true;
+		}
+
+		let result;
+
+		// Ids from orders.files become S3 keys and recovery file names. A
+		// malformed one fails the file without reaching S3, and is not echoed.
+		if (!isUuid(fileId))
+		{
+			result = failedResult(new TypeError(`Order ${orderId} has a file id that is not a UUID`));
+			failedFiles++;
+			recordFileResult(status, result);
+			log.warn(`Order ${orderId} has a file id that is not a UUID; skipped`);
+			notify(onFileResult, { orderId, fileId: null, result });
+			continue;
+		}
+
 		try
 		{
-			const result = await archiveOrderFile({
+			result = await archiveOrderFile({
 				s3,
 				fileId,
+				journal,
+				compress,
 				isStillAttached: () => withTimeout(
 					isFileOnOrder(sql, orderId, fileId),
 					"Checking the order's files",
 					timeoutMs,
 				),
+				onProgress: (progress) =>
+				{
+					status.currentFile = progress;
+				},
 			});
 
 			recordFileResult(status, result);
@@ -1010,8 +1365,18 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 		}
 		catch (err)
 		{
+			// Shutdown aborted the compressor: nothing was written, and the file
+			// is simply not done. Not a failure, so no counter and no lastError.
+			if (err?.name === "AbortError" && shouldStop())
+			{
+				status.currentFile = null;
+				log.info(`File ${fileId} of order ${orderId} was stopped by shutdown; left for the next run`);
+				return true;
+			}
+
 			failedFiles++;
-			recordFileResult(status, failedResult(err), fileId);
+			result = failedResult(err);
+			recordFileResult(status, result, fileId);
 
 			if (err instanceof ChecksumMismatchError)
 			{
@@ -1022,12 +1387,15 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 				log.warn(`Could not archive file ${fileId} of order ${orderId}: ${err.message}`);
 			}
 		}
+
+		status.currentFile = null;
+		notify(onFileResult, { orderId, fileId, result });
 	}
 
 	if (failedFiles > 0)
 	{
 		status.ordersFailed++;
-		return;
+		return false;
 	}
 
 	if (changedFiles > 0)
@@ -1035,7 +1403,7 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 		status.ordersDone++;
 		status.ordersChanged++;
 		log.info(`Order ${orderId} had ${changedFiles} file(s) changed during archiving; left for the next run`);
-		return;
+		return false;
 	}
 
 	try
@@ -1055,7 +1423,7 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 		else
 		{
 			status.ordersChanged++;
-			log.info(`Order ${orderId} changed during archiving; left for the next run`);
+			log.info(`Order ${orderId} changed during archiving, or a file of it still has a crash journal row; left for the next run`);
 		}
 	}
 	catch (err)
@@ -1064,11 +1432,94 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs })
 		status.lastError = `Order ${orderId}: ${err.message}`;
 		log.warn(`Could not mark order ${orderId} as archived: ${err.message}`);
 	}
+
+	return false;
 }
 
-async function runArchiveJob({ sql, s3: injectedS3, lock, status, timeoutMs })
+/**
+ * Runs one archive job: every candidate order, one file at a time, while
+ * holding the archive lock (confirmed before every order). The caller owns the
+ * lock: it writes the job's final state and then releases it, so the job row
+ * never looks abandoned while the lock is still held.
+ *
+ * Never throws for a failing job: the outcome is the resolved state, also set
+ * on status.state together with status.finishedAt.
+ * - "done": every candidate was handled (individual files may have failed).
+ * - "failed": the job itself failed (candidate query, lock lost); see status.lastError.
+ * - "interrupted": shouldStop() cut the work short. The file in progress is
+ *   finished first, unless the caller's compress rejects with an AbortError,
+ *   which leaves that file uncounted. The current order is neither counted nor
+ *   marked, and no further file starts. A stop after the last order is "done".
+ *
+ * status.currentFile holds { phase, bytesDone, bytesTotal } of the file in
+ * progress (no id or name), and is null between files.
+ *
+ * Crash recovery (recoverPendingVerifications) must have run before this, so
+ * no order is marked while one of its files still has a journal row.
+ *
+ * @param {object} options
+ * @param {Function} options.sql postgres.js client.
+ * @param {object | null} [options.s3] S3 client; the shared one when null.
+ * @param {{ client: Function, pid: number }} options.lock From acquireArchiveLock.
+ * @param {string | number} options.jobId The archive_jobs row; written to the crash journal.
+ * @param {object} options.status From createStatus(); mutated in place.
+ * @param {number} options.timeoutMs Bound for each database query.
+ * @param {Function} options.compress See archiveOrderFile.
+ * @param {() => boolean} [options.shouldStop] Checked before every order and every file.
+ * @param {(event: { orderId: string | number, fileId: string | null, result: object }) => void} [options.onFileResult]
+ *   Called after each file, once its result is in status. fileId is null for
+ *   a malformed id.
+ * @returns {Promise<"done" | "failed" | "interrupted">}
+ */
+export async function runArchiveJob({
+	sql,
+	s3: injectedS3 = null,
+	lock,
+	jobId,
+	status,
+	timeoutMs,
+	compress,
+	shouldStop = () => false,
+	onFileResult,
+})
 {
+	if (typeof sql !== "function")
+	{
+		throw new TypeError("sql must be a postgres.js client");
+	}
+
+	if (typeof lock?.client !== "function")
+	{
+		throw new TypeError("lock must come from acquireArchiveLock");
+	}
+
+	assertJobId(jobId);
+
+	if (!status || typeof status !== "object")
+	{
+		throw new TypeError("status must come from createStatus");
+	}
+
+	assertTimeout(timeoutMs);
+
+	if (typeof compress !== "function")
+	{
+		throw new TypeError("compress must be a function");
+	}
+
+	if (typeof shouldStop !== "function")
+	{
+		throw new TypeError("shouldStop must be a function");
+	}
+
+	if (onFileResult !== undefined && typeof onFileResult !== "function")
+	{
+		throw new TypeError("onFileResult must be a function");
+	}
+
 	let finalState = "done";
+
+	status.currentFile = null;
 
 	try
 	{
@@ -1080,13 +1531,36 @@ async function runArchiveJob({ sql, s3: injectedS3, lock, status, timeoutMs })
 		);
 
 		status.ordersTotal = orders.length;
-		log.info(`Archive job started by ${status.triggeredBy ?? "unknown"}: ${orders.length} order(s)`);
 
 		for (const order of orders)
 		{
+			if (shouldStop())
+			{
+				finalState = "interrupted";
+				break;
+			}
+
 			await confirmArchiveLock(lock, timeoutMs);
-			await archiveOrder({ sql, s3, order, status, timeoutMs });
+
+			const stopped = await archiveOrder({
+				sql,
+				s3,
+				order,
+				status,
+				timeoutMs,
+				journal: { sql, jobId, timeoutMs },
+				compress,
+				shouldStop,
+				onFileResult,
+			});
+
+			if (stopped)
+			{
+				finalState = "interrupted";
+				break;
+			}
 		}
+
 	}
 	catch (err)
 	{
@@ -1094,80 +1568,485 @@ async function runArchiveJob({ sql, s3: injectedS3, lock, status, timeoutMs })
 		status.lastError = err.message;
 		log.error("Archive job failed", err);
 	}
-	finally
+
+	status.currentFile = null;
+	status.finishedAt = new Date().toISOString();
+	status.state = finalState;
+
+	return finalState;
+}
+
+// ---- Crash recovery (phases-bugfix/phase4.md 9.3 and 9.4) ----
+
+// The journal row as recovery uses it, or null when a column is not what
+// archiveOrderFile writes. bigint columns arrive as strings.
+function parseJournalRow(row)
+{
+	const originalSize = parseSize(String(row?.original_size ?? ""));
+	const storedSize = parseSize(String(row?.stored_size ?? ""));
+
+	if (
+		!isUuid(row?.file_id) ||
+		!JOURNAL_METHODS.has(row.method) ||
+		!isSha256Hex(row.original_sha256) ||
+		originalSize === null ||
+		storedSize === null ||
+		typeof row.pre_upload_etag !== "string" ||
+		typeof row.original_path !== "string"
+	)
 	{
-		// Released before the state flips, so a new start right after "done"
-		// is not refused by our own lock. Bounded by timeoutMs and never
-		// throws, but the state is set even if it did.
+		return null;
+	}
+
+	return {
+		fileId: row.file_id,
+		method: row.method,
+		originalSha256: row.original_sha256,
+		originalSize,
+		storedSize,
+		preUploadEtag: row.pre_upload_etag,
+		originalPath: row.original_path,
+	};
+}
+
+// A journal row's original_path is only ever read or removed when it is an
+// archiver original directly inside the temp directory.
+function isTempOriginal(filePath)
+{
+	if (typeof filePath !== "string" || !path.isAbsolute(filePath))
+	{
+		return false;
+	}
+
+	const resolved = path.resolve(filePath);
+	const name = path.basename(resolved);
+
+	return (
+		path.dirname(resolved) === path.resolve(os.tmpdir()) &&
+		name.startsWith(TEMP_FILE_PREFIX) &&
+		!TEMP_CANDIDATE_PATTERN.test(name)
+	);
+}
+
+async function removeJournalOriginal(filePath, fileId)
+{
+	if (!isTempOriginal(filePath))
+	{
+		log.warn(`Crash journal row of file ${fileId} does not point at an archiver temp file; nothing removed`);
+		return;
+	}
+
+	await removeTempFile(filePath).catch((err) =>
+		log.warn(`Could not remove temp file ${filePath}: ${err.message}`));
+}
+
+// Re-hashes the kept original the way saveToFile hashed it on download and
+// throws unless it is still the verified original.
+async function assertKeptOriginal(entry)
+{
+	if (!isTempOriginal(entry.originalPath))
+	{
+		throw new ArchiveFileError("the journal path is not an archiver temp file");
+	}
+
+	const stats = await lstat(entry.originalPath);
+
+	if (!stats.isFile())
+	{
+		throw new ArchiveFileError("the journal path is not a regular file");
+	}
+
+	const actual = await hashStream(createReadStream(entry.originalPath));
+
+	assertChecksum(
+		entry.fileId,
+		{ sha256: entry.originalSha256, size: entry.originalSize },
+		actual,
+		"kept original re-hashed before restore",
+	);
+}
+
+function isNoSuchUpload(err)
+{
+	return err?.name === "NoSuchUpload" || isNotFound(err);
+}
+
+// Aborts every multipart upload still open for exactly this key (the one a
+// crashed replacing upload left behind). Resolves to how many were aborted.
+async function abortMultipartUploads(s3, fileId)
+{
+	let keyMarker;
+	let uploadIdMarker;
+	let aborted = 0;
+
+	for (let page = 0; page < MAX_MULTIPART_LIST_PAGES; page++)
+	{
+		const listing = await s3.send(
+			new ListMultipartUploadsCommand({
+				Bucket: ORDER_FILES_BUCKET,
+				Prefix: fileId,
+				...(keyMarker ? { KeyMarker: keyMarker } : {}),
+				...(uploadIdMarker ? { UploadIdMarker: uploadIdMarker } : {}),
+			}),
+		);
+
+		for (const upload of listing.Uploads ?? [])
+		{
+			if (upload.Key !== fileId || !upload.UploadId)
+			{
+				continue;
+			}
+
+			try
+			{
+				await s3.send(
+					new AbortMultipartUploadCommand({
+						Bucket: ORDER_FILES_BUCKET,
+						Key: fileId,
+						UploadId: upload.UploadId,
+					}),
+				);
+				aborted++;
+			}
+			catch (err)
+			{
+				if (!isNoSuchUpload(err))
+				{
+					throw err;
+				}
+			}
+		}
+
+		if (!listing.IsTruncated || (!listing.NextKeyMarker && !listing.NextUploadIdMarker))
+		{
+			return aborted;
+		}
+
+		keyMarker = listing.NextKeyMarker;
+		uploadIdMarker = listing.NextUploadIdMarker;
+	}
+
+	throw new ArchiveFileError(`More than ${MAX_MULTIPART_LIST_PAGES} pages of multipart uploads for file ${fileId}`);
+}
+
+// Our archive (or an identical one) is in place, but its read-back never
+// finished: read it back now, and restore the kept original when that fails.
+async function recoverStoredArchive({ sql, s3, entry, head, timeoutMs, discard })
+{
+	const { fileId } = entry;
+
+	try
+	{
+		await verifyStoredObject(
+			s3,
+			fileId,
+			{ method: entry.method, size: entry.storedSize },
+			{ sha256: entry.originalSha256, size: entry.originalSize },
+		);
+	}
+	catch (verifyErr)
+	{
+		const attached = await withTimeout(isFileOnAnyOrder(sql, fileId), "Checking the orders' files", timeoutMs);
+
+		if (!attached)
+		{
+			await deleteOrderFileObject(s3, fileId);
+			await discard("failed the read-back and is on no order; deleted the object");
+			return "cleared";
+		}
+
+		const journal = { sql, timeoutMs };
+
 		try
 		{
-			await releaseArchiveLock(lock, timeoutMs);
+			await assertKeptOriginal(entry);
 		}
-		finally
+		catch (err)
 		{
-			status.finishedAt = new Date().toISOString();
-			status.state = finalState;
+			const note = `No valid original at ${entry.originalPath} (${err.message}). Read-back: ${verifyErr.message}`;
+
+			return (await flagNeedsAttention(journal, fileId, note)) ? "needsAttention" : "kept";
+		}
+
+		const metadata = originalMetadataFrom(head.Metadata, entry.originalSha256);
+		let restored;
+
+		try
+		{
+			restored = await restoreOriginal(s3, fileId, {
+				originalPath: entry.originalPath,
+				contentType: head.ContentType,
+				metadata,
+				// Only over the archive just checked, never over a newer write.
+				ifMatch: head.ETag,
+			});
+		}
+		catch (restoreErr)
+		{
+			const reason = `Read-back: ${verifyErr.message}; restore: ${restoreErr.message}`;
+			let savedTo = null;
+
+			try
+			{
+				savedTo = await saveForRecovery({
+					fileId,
+					originalPath: entry.originalPath,
+					contentType: head.ContentType,
+					metadata,
+					original: { sha256: entry.originalSha256, size: entry.originalSize },
+					reason,
+				});
+			}
+			catch (saveErr)
+			{
+				log.error(`Could not save file ${fileId} to ${recoveryDir()}`, saveErr);
+			}
+
+			if (!savedTo)
+			{
+				// The temp original stays the only copy; the row stays as it is.
+				log.error(`Recovery could not restore file ${fileId}; original kept at ${entry.originalPath}`, restoreErr);
+				return "kept";
+			}
+
+			const note = `Original saved to ${savedTo}. ${reason}`;
+
+			return (await flagNeedsAttention(journal, fileId, note)) ? "needsAttention" : "kept";
+		}
+
+		if (restored === "gone")
+		{
+			await discard("was deleted before its original could be restored");
+			return "cleared";
+		}
+
+		await discard(`failed the read-back (${verifyErr.message}); original restored`);
+		return "restored";
+	}
+
+	await discard("passed the read-back");
+	return "cleared";
+}
+
+// Classifies one journal row by a HEAD of its object (the table in 9.3) and
+// settles it. Resolves to "cleared", "restored", "needsAttention" or "kept".
+async function recoverJournalRow({ sql, s3, entry, timeoutMs })
+{
+	const { fileId } = entry;
+	const discard = async (what) =>
+	{
+		await withTimeout(deletePendingVerify(sql, fileId), "Clearing the crash journal", timeoutMs);
+		await removeJournalOriginal(entry.originalPath, fileId);
+		log.info(`Recovery: file ${fileId} ${what}; journal row cleared`);
+	};
+	let head;
+
+	try
+	{
+		head = await headOrderFile(s3, fileId);
+	}
+	catch (err)
+	{
+		if (!isNotFound(err))
+		{
+			throw err;
+		}
+
+		// The order (and with it the object) was deleted.
+		await discard("was deleted");
+		return "cleared";
+	}
+
+	const marker = head.Metadata?.[ARCHIVE_META.method];
+
+	if (!marker || head.ETag === entry.preUploadEtag)
+	{
+		const aborted = await abortMultipartUploads(s3, fileId);
+
+		await discard(`was never replaced (${aborted} multipart upload(s) aborted)`);
+		return "cleared";
+	}
+
+	if (
+		marker === entry.method &&
+		head.Metadata?.[ARCHIVE_META.sha256] === entry.originalSha256 &&
+		head.ContentLength === entry.storedSize
+	)
+	{
+		return recoverStoredArchive({ sql, s3, entry, head, timeoutMs, discard });
+	}
+
+	await discard("was replaced by a newer write");
+	return "cleared";
+}
+
+/**
+ * Crash recovery for the journal (phases-bugfix/phase4.md 9.3). Settles every
+ * 'uploading' / 'uploaded' row by a HEAD of its object: deleted, never
+ * replaced (any multipart upload left for the key is aborted), our archive
+ * (read back; restored from the re-hashed kept original if that fails), or
+ * replaced by someone else. 'needs_attention' rows are never touched. A row
+ * that cannot be settled now (an S3 or database error) is kept for the next
+ * run; the others are still handled. Call it under the archive lock, before
+ * the candidate loop.
+ *
+ * @param {Function} sql postgres.js pool (not the lock client).
+ * @param {object} s3 S3 client.
+ * @param {object} [options]
+ * @param {number} [options.timeoutMs] Bound for each journal statement.
+ * @param {() => boolean} [options.shouldStop] Checked before every row.
+ * @returns {Promise<{ checked: number, cleared: number, restored: number, needsAttention: number, kept: number }>}
+ */
+export async function recoverPendingVerifications(sql, s3, { timeoutMs = DB_TIMEOUT_MS, shouldStop = () => false } = {})
+{
+	if (typeof sql !== "function")
+	{
+		throw new TypeError("sql must be a postgres.js client");
+	}
+
+	if (typeof s3?.send !== "function")
+	{
+		throw new TypeError("s3 must be an S3 client");
+	}
+
+	assertTimeout(timeoutMs);
+
+	if (typeof shouldStop !== "function")
+	{
+		throw new TypeError("shouldStop must be a function");
+	}
+
+	const rows = await withTimeout(listPendingVerifications(sql), "Reading the crash journal", timeoutMs);
+	const summary = { checked: 0, cleared: 0, restored: 0, needsAttention: 0, kept: 0 };
+
+	for (const row of rows)
+	{
+		if (shouldStop())
+		{
+			break;
+		}
+
+		summary.checked++;
+
+		const entry = parseJournalRow(row);
+		let outcome;
+
+		if (!entry)
+		{
+			// Not written by archiveOrderFile: never acted on, and the id is not echoed.
+			try
+			{
+				await withTimeout(
+					markPendingNeedsAttention(sql, String(row?.file_id ?? ""), "Malformed crash journal row; left untouched"),
+					"Flagging the crash journal row",
+					timeoutMs,
+				);
+				summary.needsAttention++;
+				log.error("A malformed crash journal row was flagged for attention");
+			}
+			catch (err)
+			{
+				summary.kept++;
+				log.warn(`Could not flag a malformed crash journal row for attention: ${err.message}`);
+			}
+
+			continue;
+		}
+
+		try
+		{
+			outcome = await recoverJournalRow({ sql, s3, entry, timeoutMs });
+		}
+		catch (err)
+		{
+			outcome = "kept";
+			log.warn(`Recovery of file ${entry.fileId} failed; journal row kept for the next run: ${err.message}`);
+		}
+
+		summary[outcome]++;
+	}
+
+	if (summary.checked > 0)
+	{
+		log.info(
+			`Crash recovery: ${summary.checked} journal row(s) checked; ${summary.cleared} cleared, ` +
+			`${summary.restored} restored, ${summary.needsAttention} need attention, ${summary.kept} kept`,
+		);
+	}
+
+	return summary;
+}
+
+/**
+ * Temp sweep at worker startup, after recovery (phases-bugfix/phase4.md 9.4):
+ * deletes every compressed candidate (projecto-archive-*.zst / *.br) and every
+ * downloaded original (projecto-archive-*) that no journal row references.
+ * Only regular files directly in `dir` are touched. Logs counts only. Call it
+ * under the archive lock, while no job runs.
+ *
+ * @param {object} options
+ * @param {Function} options.sql postgres.js pool.
+ * @param {number} [options.timeoutMs] Bound for the journal query.
+ * @param {string} [options.dir] The archiver's temp directory (os.tmpdir()).
+ * @returns {Promise<{ candidatesRemoved: number, originalsRemoved: number, originalsKept: number, failed: number }>}
+ */
+export async function sweepTempDir({ sql, timeoutMs = DB_TIMEOUT_MS, dir = os.tmpdir() } = {})
+{
+	if (typeof sql !== "function")
+	{
+		throw new TypeError("sql must be a postgres.js client");
+	}
+
+	assertTimeout(timeoutMs);
+
+	if (typeof dir !== "string" || dir === "")
+	{
+		throw new TypeError("dir must be a non-empty string");
+	}
+
+	// Read first: without the journal no original may be removed.
+	const rows = await withTimeout(listJournalOriginalPaths(sql), "Reading the crash journal", timeoutMs);
+	const referenced = new Set(
+		rows
+			.map((row) => row.original_path)
+			.filter((value) => typeof value === "string" && value !== "")
+			.map((value) => path.resolve(value)),
+	);
+	const counts = { candidatesRemoved: 0, originalsRemoved: 0, originalsKept: 0, failed: 0 };
+	const entries = await readdir(dir, { withFileTypes: true });
+
+	for (const entry of entries)
+	{
+		if (!entry.isFile() || !entry.name.startsWith(TEMP_FILE_PREFIX))
+		{
+			continue;
+		}
+
+		const filePath = path.join(dir, entry.name);
+		const isCandidate = TEMP_CANDIDATE_PATTERN.test(entry.name);
+
+		if (!isCandidate && referenced.has(path.resolve(filePath)))
+		{
+			counts.originalsKept++;
+			continue;
+		}
+
+		try
+		{
+			await removeTempFile(filePath);
+			counts[isCandidate ? "candidatesRemoved" : "originalsRemoved"]++;
+		}
+		catch
+		{
+			counts.failed++;
 		}
 	}
 
 	log.info(
-		`Archive job ${finalState}: orders ${status.ordersDone}/${status.ordersTotal} done, ` +
-		`${status.ordersFailed} failed; files ${status.filesCompressed} compressed, ` +
-		`${status.filesSkipped} skipped, ${status.filesChanged} changed, ${status.filesFailed} failed; ` +
-		`${status.bytesBefore} -> ${status.bytesAfter} bytes`,
+		`Temp sweep: removed ${counts.candidatesRemoved} compressed candidate(s) and ${counts.originalsRemoved} ` +
+		`unreferenced original(s); kept ${counts.originalsKept} original(s) the crash journal references` +
+		(counts.failed > 0 ? `; ${counts.failed} could not be removed` : ""),
 	);
-}
 
-// Starts the job in the background and returns at once. Refused with
-// reason "already-running" when a job runs in this process or another
-// instance holds the lock. sql, s3 and dbTimeoutMs are for tests.
-export async function startArchiveJob({
-	triggeredBy,
-	sql = DB,
-	s3 = null,
-	dbTimeoutMs = DB_TIMEOUT_MS,
-} = {})
-{
-	const archiver = getArchiver();
-
-	if (archiver.starting || archiver.status.state === "running")
-	{
-		return { started: false, status: getArchiveJobStatus(), reason: "already-running" };
-	}
-
-	archiver.starting = true;
-
-	let lock;
-
-	try
-	{
-		lock = await acquireArchiveLock(sql, dbTimeoutMs);
-	}
-	finally
-	{
-		archiver.starting = false;
-	}
-
-	if (!lock)
-	{
-		return { started: false, status: getArchiveJobStatus(), reason: "already-running" };
-	}
-
-	const status = createStatus({
-		state: "running",
-		startedAt: new Date().toISOString(),
-		triggeredBy: triggeredBy ?? null,
-	});
-
-	archiver.status = status;
-
-	runArchiveJob({ sql, s3, lock, status, timeoutMs: dbTimeoutMs }).catch((err) =>
-	{
-		status.finishedAt ??= new Date().toISOString();
-		status.state = "failed";
-		status.lastError = err.message;
-		log.error("Archive job crashed", err);
-	});
-
-	return { started: true, status: getArchiveJobStatus() };
+	return counts;
 }

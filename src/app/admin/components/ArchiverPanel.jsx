@@ -8,54 +8,9 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Alert from "@/app/components/Alert";
 import useModalA11y from "@/app/components/useModalA11y";
 import { getArchiverErrorText } from "./archiverErrors";
-
-const POLL_INTERVAL_MS = 3000;
-
-const STATE_LABELS = {
-	idle: "Nie uruchamiano",
-	running: "W toku",
-	done: "Zakończono",
-	failed: "Błąd",
-};
-
-const STATE_CLASSES = {
-	idle: "bg-surface-raised text-muted",
-	running: "bg-accent-soft text-accent-text",
-	done: "bg-success-soft text-success-text",
-	failed: "bg-danger-soft text-danger-text",
-};
-
-const formatBytes = (value) =>
-{
-	const bytes = Number(value) || 0;
-	const units = ["B", "KB", "MB", "GB", "TB"];
-	let size = Math.abs(bytes);
-	let unit = 0;
-
-	while (size >= 1024 && unit < units.length - 1)
-	{
-		size /= 1024;
-		unit++;
-	}
-
-	const text = unit === 0
-		? String(Math.round(size))
-		: size.toLocaleString("pl-PL", { maximumFractionDigits: 1 });
-
-	return `${bytes < 0 ? "-" : ""}${text} ${units[unit]}`;
-};
-
-const formatTime = (value) =>
-{
-	if (!value)
-	{
-		return "brak";
-	}
-
-	const date = new Date(value);
-
-	return Number.isNaN(date.getTime()) ? "brak" : date.toLocaleString("pl-PL");
-};
+import { describeStartError, isActiveState } from "./archiverPanelCopy";
+import { createStatusPoller } from "./archiverPolling";
+import ArchiverStatusView from "./ArchiverStatusView";
 
 function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 {
@@ -117,160 +72,89 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 	);
 }
 
-function Stat({ label, value })
-{
-	return (
-		<div className="rounded-lg border border-line bg-background p-4">
-			<p className="text-xs uppercase tracking-[0.18em] text-muted">{label}</p>
-			<p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
-		</div>
-	);
-}
-
 export default function ArchiverPanel()
 {
 	const [status, setStatus] = useState(null);
 	const [candidates, setCandidates] = useState(null);
+	const [worker, setWorker] = useState(null);
+	const [needsAttention, setNeedsAttention] = useState(0);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isStarting, setIsStarting] = useState(false);
 	const [error, setError] = useState("");
 	const [info, setInfo] = useState("");
 	const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
-	const state = status?.state ?? "idle";
-	const isRunning = state === "running";
+	const isActive = isActiveState(status?.state);
+	const isWorkerOnline = worker?.online === true;
+	// The worker line only exists once a status has loaded, so the hint waits for it too.
+	const showWorkerHint = !isLoading && Boolean(status) && !isWorkerOnline && !isActive;
 
-	const runningRef = useRef(false);
-	const loopRef = useRef(null);
-	// Bumped around every start request; a status GET sent before that is stale and must not
-	// overwrite the state the start returned.
-	const epochRef = useRef(0);
+	// Mirrors isActive for the polling loop, which must not depend on render timing.
+	const activeRef = useRef(false);
+	const pollerRef = useRef(null);
+	const workerLineId = useId();
 
 	const applyStatus = useCallback((nextStatus) =>
 	{
-		runningRef.current = nextStatus?.state === "running";
+		activeRef.current = isActiveState(nextStatus?.state);
 		setStatus(nextStatus);
 	}, []);
 
-	const loadStatus = useCallback(async (signal) =>
-	{
-		const epoch = epochRef.current;
-
-		try
-		{
-			const response = await http.get("/api/admin/archiver", { withCredentials: true, signal });
-
-			if (signal.aborted || epoch !== epochRef.current)
-			{
-				return;
-			}
-
-			applyStatus(response.data.status ?? null);
-			setCandidates(response.data.candidates ?? null);
-			setError("");
-		}
-		catch (err)
-		{
-			if (signal.aborted)
-			{
-				return;
-			}
-
-			setError(getArchiverErrorText(err, "status"));
-		}
-		finally
-		{
-			if (!signal.aborted)
-			{
-				setIsLoading(false);
-			}
-		}
-	}, [applyStatus]);
-
-	// One loop for the whole mount: the first load runs here too, and the next poll is
-	// scheduled only after the previous request settles, so requests never overlap.
+	// One loop for the whole mount; its first request is the initial load. It polls every
+	// 3 s while a job is active and every 20 s otherwise, so a worker that comes back
+	// re-enables the start button.
 	useEffect(() =>
 	{
 		const controller = new AbortController();
-		const { signal } = controller;
-		let timer = null;
-		let inFlight = false;
 
-		const clearTimer = () =>
-		{
-			if (timer !== null)
+		pollerRef.current = createStatusPoller({
+			fetchStatus: async (signal) =>
 			{
-				clearTimeout(timer);
-				timer = null;
-			}
-		};
+				const response = await http.get("/api/admin/archiver", { withCredentials: true, signal });
 
-		const schedule = () =>
-		{
-			clearTimer();
-
-			if (signal.aborted || inFlight || !runningRef.current || document.visibilityState === "hidden")
+				return response.data;
+			},
+			onData: (data) =>
 			{
-				return;
-			}
-
-			timer = setTimeout(() =>
-			{
-				timer = null;
-
-				if (document.visibilityState !== "hidden")
+				applyStatus(data.status ?? null);
+				setCandidates(data.candidates ?? null);
+				setWorker(data.worker ?? null);
+				setNeedsAttention(Number(data.needsAttention) || 0);
+				setError("");
+			},
+			onError: (err) => setError(getArchiverErrorText(err, "status")),
+			onSettled: () => setIsLoading(false),
+			isActive: () => activeRef.current,
+			signal: controller.signal,
+			visibility: {
+				isHidden: () => document.visibilityState === "hidden",
+				subscribe: (listener) =>
 				{
-					run();
-				}
-			}, POLL_INTERVAL_MS);
-		};
+					document.addEventListener("visibilitychange", listener);
 
-		const run = async () =>
-		{
-			if (inFlight || signal.aborted)
-			{
-				return;
-			}
-
-			clearTimer();
-			inFlight = true;
-
-			try
-			{
-				await loadStatus(signal);
-			}
-			finally
-			{
-				inFlight = false;
-			}
-
-			schedule();
-		};
-
-		const onVisibilityChange = () =>
-		{
-			if (document.visibilityState === "visible" && runningRef.current)
-			{
-				run();
-			}
-		};
-
-		loopRef.current = { refresh: run, schedule };
-		document.addEventListener("visibilitychange", onVisibilityChange);
-		run();
+					return () => document.removeEventListener("visibilitychange", listener);
+				},
+			},
+			timers: {
+				set: (callback, ms) => setTimeout(callback, ms),
+				clear: (handle) => clearTimeout(handle),
+			},
+		});
 
 		return () =>
 		{
 			controller.abort();
-			clearTimer();
-			document.removeEventListener("visibilitychange", onVisibilityChange);
-			loopRef.current = null;
+			pollerRef.current = null;
 		};
-	}, [loadStatus]);
+	}, [applyStatus]);
 
 	const startArchiver = async () =>
 	{
-		epochRef.current++;
+		// The status the start returned can be missing (the read after enqueue failed),
+		// so the panel then asks for a fresh one.
+		let needsRefresh = false;
+
+		pollerRef.current?.beginMutation();
 		setIsConfirmOpen(false);
 		setIsStarting(true);
 		setError("");
@@ -280,40 +164,58 @@ export default function ArchiverPanel()
 		{
 			const response = await http.post("/api/admin/archiver", {}, { withCredentials: true });
 
-			applyStatus(response.data.status ?? null);
-			loopRef.current?.schedule();
-		}
-		catch (err)
-		{
-			const data = err.response?.data;
-
-			if (err.response?.status === 409 && data?.status)
+			if (response.data.status)
 			{
-				applyStatus(data.status);
-				loopRef.current?.schedule();
-				setInfo("Archiwizacja jest już w toku.");
+				applyStatus(response.data.status);
+				pollerRef.current?.schedule();
 			}
 			else
 			{
-				setError(getArchiverErrorText(err, "start"));
+				needsRefresh = true;
+			}
+		}
+		catch (err)
+		{
+			const { code, text } = describeStartError(err);
+
+			if (code === "ARCHIVER_BUSY")
+			{
+				const busyStatus = err.response?.data?.status;
+
+				if (busyStatus)
+				{
+					applyStatus(busyStatus);
+					pollerRef.current?.schedule();
+				}
+				else
+				{
+					needsRefresh = true;
+				}
+
+				setInfo(text);
+			}
+			else
+			{
+				// No refresh here: a successful GET would clear this message.
+				if (code === "ARCHIVER_WORKER_OFFLINE")
+				{
+					setWorker((current) => ({ ...current, online: false }));
+				}
+
+				setError(text);
 			}
 		}
 		finally
 		{
-			epochRef.current++;
+			pollerRef.current?.endMutation();
 			setIsStarting(false);
 		}
-	};
 
-	const total = status?.ordersTotal ?? 0;
-	const done = status?.ordersDone ?? 0;
-	// Failed orders are finished too, so they count towards progress.
-	const processed = done + (status?.ordersFailed ?? 0);
-	const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-	const bytesBefore = status?.bytesBefore ?? 0;
-	const saved = bytesBefore - (status?.bytesAfter ?? 0);
-	const savedPercent = bytesBefore > 0 ? Math.round((saved / bytesBefore) * 100) : 0;
-	const hasRun = state !== "idle";
+		if (needsRefresh)
+		{
+			pollerRef.current?.refresh();
+		}
+	};
 
 	return (
 		<section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
@@ -330,28 +232,35 @@ export default function ArchiverPanel()
 					</p>
 				</div>
 
-				<div className="flex shrink-0 gap-2">
-					<button
-						type="button"
-						onClick={() =>
-						{
-							setInfo("");
-							loopRef.current?.refresh();
-						}}
-						className="btn btn-secondary">
-						<RefreshCw className="h-4 w-4" aria-hidden="true" />
-						Odśwież
-					</button>
-					<button
-						type="button"
-						onClick={() => setIsConfirmOpen(true)}
-						disabled={isRunning || isLoading || isStarting}
-						className="btn btn-primary">
-						{isRunning || isStarting
-							? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-							: <Archive className="h-4 w-4" aria-hidden="true" />}
-						Uruchom archiwizację
-					</button>
+				<div className="flex shrink-0 flex-col gap-2 sm:items-end">
+					<div className="flex gap-2">
+						<button
+							type="button"
+							onClick={() =>
+							{
+								setInfo("");
+								pollerRef.current?.refresh();
+							}}
+							disabled={isStarting}
+							className="btn btn-secondary">
+							<RefreshCw className="h-4 w-4" aria-hidden="true" />
+							Odśwież
+						</button>
+						<button
+							type="button"
+							onClick={() => setIsConfirmOpen(true)}
+							disabled={isActive || isLoading || isStarting || !isWorkerOnline}
+							aria-describedby={showWorkerHint ? workerLineId : undefined}
+							className="btn btn-primary">
+							{isActive || isStarting
+								? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+								: <Archive className="h-4 w-4" aria-hidden="true" />}
+							Uruchom archiwizację
+						</button>
+					</div>
+					{showWorkerHint && (
+						<p className="text-sm text-warning-text">Proces archiwizacji jest niedostępny</p>
+					)}
 				</div>
 			</div>
 
@@ -361,72 +270,14 @@ export default function ArchiverPanel()
 			{isLoading ? (
 				<p className="mt-6 text-sm text-muted">Ładowanie...</p>
 			) : status && (
-				<div className="mt-6 space-y-4">
-					<div className="flex flex-wrap items-center gap-3">
-						<span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${STATE_CLASSES[state] ?? STATE_CLASSES.idle}`}>
-							{STATE_LABELS[state] ?? state}
-						</span>
-						<span className="text-sm text-muted">
-							Zlecenia do archiwizacji: <span className="font-semibold text-foreground">{candidates ?? "brak danych"}</span>
-						</span>
-					</div>
-
-					{isRunning && (
-						<div>
-							<div
-								className="h-2 w-full rounded-full bg-surface-raised"
-								role="progressbar"
-								aria-label="Postęp archiwizacji"
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-valuenow={percent}>
-								<div
-									className="h-2 rounded-full bg-accent-text transition-[width] duration-300"
-									style={{ width: `${percent}%` }}
-								/>
-							</div>
-							<p className="mt-1 text-sm text-muted">
-								{processed} / {total} zleceń ({percent}%)
-							</p>
-						</div>
-					)}
-
-					{hasRun && (
-						<>
-							<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-								<Stat
-									label="Zlecenia"
-									value={`${done} / ${status.ordersFailed ?? 0}`}
-								/>
-								<Stat label="Pliki skompresowane" value={status.filesCompressed ?? 0} />
-								<Stat label="Pliki pominięte" value={status.filesSkipped ?? 0} />
-								<Stat label="Pliki z błędem" value={status.filesFailed ?? 0} />
-							</div>
-							<p className="text-xs text-muted">
-								Zlecenia: przetworzone / z błędem.
-							</p>
-
-							<Stat
-								label="Zaoszczędzone miejsce"
-								value={`${formatBytes(saved)} (${savedPercent}%)`}
-							/>
-
-							<div className="grid gap-1 text-sm text-muted sm:grid-cols-2">
-								<p>Rozpoczęto: <span className="text-foreground">{formatTime(status.startedAt)}</span></p>
-								<p>Zakończono: <span className="text-foreground">{formatTime(status.finishedAt)}</span></p>
-							</div>
-						</>
-					)}
-
-					{status.lastError && (
-						<div className="text-sm">
-							<p className="text-danger-text">Ostatni przebieg zakończył się błędem.</p>
-							<details className="mt-1 text-xs text-muted">
-								<summary className="cursor-pointer">Szczegóły techniczne</summary>
-								<p className="mt-1 font-mono wrap-break-word">{status.lastError}</p>
-							</details>
-						</div>
-					)}
+				<div className="mt-6">
+					<ArchiverStatusView
+						status={status}
+						candidates={candidates}
+						worker={worker}
+						needsAttention={needsAttention}
+						workerLineId={workerLineId}
+					/>
 				</div>
 			)}
 
