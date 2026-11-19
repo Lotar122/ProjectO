@@ -80,4 +80,21 @@ export async function registerNode()
 			process.exit(1);
 		}
 	}
+	const archiverMode = process.env.ARCHIVER_MODE || "off";
+
+	if (archiverMode === "embedded")
+	{
+		const { startArchiverSupervisor } = await import("./app/server-functions/orders/archiverSupervisor");
+
+		startArchiverSupervisor({ env: process.env, log: createLogger("archiver-supervisor") });
+	}
+	else if (archiverMode !== "off")
+	{
+		log.error(`Invalid ARCHIVER_MODE "${archiverMode}" (expected "embedded" or "off")`);
+
+		if (isProduction)
+		{
+			process.exit(1);
+		}
+	}
 }

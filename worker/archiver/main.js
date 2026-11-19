@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Archiver worker entry: bun --conditions react-server worker/archiver/main.js
-// (package.json "worker:archiver"). Reads and checks its configuration, wires
+// (package.json "worker:archiver"; also spawned by the web server when
+// ARCHIVER_MODE=embedded, see archiverSupervisor.js). Reads and checks its configuration, wires
 // the worker to Postgres, MinIO and projecto-compress, and stops gracefully on
 // SIGTERM / SIGINT (phases-bugfix/phase4.md 9.6): the running compressor is
 // aborted, the job ends as "interrupted", the lock is released, exit code 0.
@@ -8,6 +9,7 @@
 import os from "node:os";
 
 import { createLogger } from "@/app/lib/logger";
+import { stopOnParentGone } from "./parentWatch.js";
 
 const log = createLogger("archiver-worker");
 
@@ -89,6 +91,14 @@ async function main()
 
 	process.on("SIGTERM", onSignal);
 	process.on("SIGINT", onSignal);
+
+	// Started by the web server (ARCHIVER_MODE=embedded): the stdin pipe closes
+	// when the web process is gone, so stop like on SIGTERM and never linger as
+	// an orphan holding the lock.
+	if (process.env.ARCHIVER_SUPERVISED === "1")
+	{
+		stopOnParentGone(process.stdin, () => onSignal("parent exit (stdin closed)"));
+	}
 
 	log.info(`Archiver worker ${workerId} starting (${version}; budget ${memoryBudgetMib} MiB, timeout ${timeoutMs} ms)`);
 
