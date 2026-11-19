@@ -37,6 +37,9 @@ Adresy Kratosa i bazy pochodzą ze środowiska. Domyślne wartości (`http://kra
 | `KRATOS_ADMIN_URL` | tak | Admin API Kratosa widziane z serwera (np. `http://kratos:4434`). Dev: `http://kratos:4434`. |
 | `NEXT_PUBLIC_KRATOS_PUBLIC_URL` | tak (w buildzie) | Publiczny adres Kratosa dla przeglądarki (np. `https://orto.lotar122.dev/kratos`). Wartość jest wkompilowana w bundle, więc **musi być ustawiona podczas `bun run build`** (build arg w Dockerze); ustawienie jej tylko przy starcie nie wystarczy. Start serwera w produkcji sprawdza wartość wkompilowaną w build, więc przekazanie jej wyłącznie jako build arg jest poprawne. Brak wartości w buildzie daje tylko ostrzeżenie (build się nie przerywa), ale serwer w produkcji odmówi startu. Wpływa też na CSP (`connect-src`, `form-action`) w `next.config.mjs`. Lokalnie ustaw ją w `.env.local`. |
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | tak | Dostęp do MinIO. |
+| `ARCHIVER_MODE` | nie | `off` (domyślnie) albo `embedded`. `embedded` uruchamia worker archiwizacji jako nadzorowany proces potomny serwera web (sekcja "Worker archiwizacji"). Inna wartość kończy start serwera błędem w produkcji. |
+| `ARCHIVER_BUN_BIN` | nie | Polecenie Buna dla trybu `embedded`, gdy serwer web działa na Node.js, domyślnie `bun` z `PATH`. Gdy web działa na Bunie, używany jest ten sam plik wykonywalny. |
+| `ARCHIVER_STOP_GRACE_MS` | nie | Tryb `embedded`: ile ms czekać po `SIGTERM` na zakończenie workera, zanim dostanie `SIGKILL`. Domyślnie `100000`. |
 
 # Rola administratora (jednorazowa migracja)
 
@@ -197,6 +200,19 @@ networks:
 ```
 
 `mem_limit` to pułap, a nie rezerwacja: między zadaniami worker zajmuje dobrze poniżej 100 MiB. Szczyt rzędu 2,5 GiB występuje tylko podczas kompresji pliku większego niż 128 MiB. Budżet 6144 MiB, proces Bun (ok. 350 do 600 MiB) i zapas jądra mieszczą się w 8 GiB; nie zmniejszaj `mem_limit` bez obniżenia budżetu. Limit `pids_limit: 64` jest przyjęty z planu, a W27 musi potwierdzić, że wystarcza (Bun i kolejne uruchomienia `projecto-compress`). Wartość `DOWNLOAD_DECODE_BUDGET_MIB` w kontenerze web sprawdź względem limitu pamięci tego kontenera.
+
+## Tryb wbudowany (`ARCHIVER_MODE=embedded`)
+
+Zamiast osobnego kontenera serwer web może sam uruchomić worker: przy starcie (`src/instrumentation-node.js`) tworzy nadzorowany proces potomny Buna z `worker/archiver/main.js` (`src/app/server-functions/orders/archiverSupervisor.js`). To zwykły proces potomny, a nie Bun FFI: awaria lub OOM kompresora zabija tylko worker, a przerwanie zadania nadal działa (`SIGTERM`, potem `SIGKILL`). Domyślnie `ARCHIVER_MODE=off`, więc dotychczasowy kontener `archiver-worker` (`docker/archiver-worker.Dockerfile`) działa bez zmian.
+
+- Ustaw `ARCHIVER_MODE=embedded` w kontenerze web. Worker potrzebuje tych samych zmiennych co w tabeli powyżej (`DB_URL`, `MINIO_*` web już ma; `COMPRESSOR_MEMORY_BUDGET_MIB`, `COMPRESSOR_TIMEOUT_MS`, `ARCHIVER_WORKER_ID` dziedziczy ze środowiska web).
+- Obraz web musi zawierać program `projecto-compress` pod ścieżką `PROJECTO_COMPRESSOR_BIN` oraz katalog `worker/` (a także `src/`, z którego worker importuje kod). Skopiuj binarkę z etapu `native` z `docker/archiver-worker.Dockerfile` (`COPY --from=native ... /usr/local/bin/projecto-compress`) i ustaw `PROJECTO_COMPRESSOR_BIN=/usr/local/bin/projecto-compress`. Obraz web musi mieć też Buna (jeśli serwer działa na Node.js, wskaż go przez `ARCHIVER_BUN_BIN`).
+- `TMPDIR` i `ARCHIVER_RECOVERY_DIR` muszą wskazywać wolumeny na dysku, **nie tmpfs**, tak jak w tabeli "Wolumeny".
+- Podnieś `mem_limit` kontenera web o budżet kompresora (`COMPRESSOR_MEMORY_BUDGET_MIB`, domyślnie 6144 MiB) plus ok. 1 GiB zapasu na proces Bun workera.
+- Ustaw `init: true` (sprzątanie procesów potomnych) i `stop_grace_period: 2m`, żeby worker zdążył zakończyć zadanie jako `interrupted` i zwolnić blokadę.
+- Po zatrzymaniu serwera web worker kończy się także sam: gdy potok stdin od procesu web się zamknie, robi to samo co po `SIGTERM`. Zerwany serwer nie zostawia więc sieroty trzymającej blokadę.
+- Worker uruchamia się ponownie po każdym zakończeniu (opóźnienie 1 s, podwajane do 60 s, zerowane po 5 minutach pracy).
+- Przy przejściu na ten tryb usuń usługę `archiver-worker`. Uruchomienie obu naraz jest bezpieczne (blokada doradcza `ARCHIVE_LOCK_KEY` i indeks `archive_jobs_one_active_idx` dopuszczają jedno aktywne zadanie), ale bezcelowe. Tak samo kilka replik web z `embedded`.
 
 ## Kolejność wdrożenia
 
