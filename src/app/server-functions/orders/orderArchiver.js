@@ -1020,7 +1020,7 @@ export async function markOrderArchived(sql, orderId, files)
 			AND NOT EXISTS (
 				SELECT 1
 				FROM archive_pending_verify
-				WHERE archive_pending_verify.file_id = ANY(orders.files)
+				WHERE archive_pending_verify.file_id = ANY(orders.files::text[])
 			)
 		RETURNING order_id
 	`;
