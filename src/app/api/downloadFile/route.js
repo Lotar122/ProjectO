@@ -14,6 +14,12 @@ import {
 	isCompressed,
 } from "@/app/server-functions/orders/fileCompression";
 import {
+	DECODE_WAIT_MS,
+	createDecodeBudget,
+	decodeWeight,
+	parseDecodeBudgetMiB,
+} from "@/app/server-functions/orders/downloadDecodeBudget";
+import {
 	ORDER_FILES_BUCKET,
 	setOrderFileChecksum,
 } from "@/app/server-functions/orders/orderFiles";
@@ -21,11 +27,17 @@ import { cookies } from "next/headers";
 import { createHash } from "node:crypto";
 import { Readable, Transform, pipeline } from "node:stream";
 import { internalError, jsonError } from "@/app/lib/apiErrors";
+import { SemaphoreTimeoutError } from "@/app/lib/concurrency";
 import { isUuid } from "@/app/lib/validate";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
 const log = createLogger("files");
+
+// Bounds the memory of decodes running at the same time (one window per download).
+// A bad DOWNLOAD_DECODE_BUDGET_MIB throws when this module loads, so every download
+// then fails with a 500 until the value is fixed.
+const decodeBudget = createDecodeBudget(parseDecodeBudgetMiB(process.env.DOWNLOAD_DECODE_BUDGET_MIB));
 
 // Browsers show non-ASCII names through filename*; this is the fallback for clients that ignore it.
 const toAsciiFileName = (name) => name.replace(/[^\x20-\x7e]|["\\]/g, "_");
@@ -136,41 +148,84 @@ async function handleGet(req)
 			file.metadata[ARCHIVE_META.sha256] :
 			undefined;
 		const compressed = isCompressed(file.metadata);
-		const content = compressed ?
-			decompressWhileStreaming(file.metadata[ARCHIVE_META.method], file.body) :
-			file.body;
-		const contentLength = compressed ?
-			parseOriginalSize(file.metadata[ARCHIVE_META.originalSize]) :
-			file.contentLength;
-		// The archiver always stores a checksum, so compressed files are verified.
-		const body = storedChecksum ?
-			verifyWhileStreaming(fileKey, content, { sha256: storedChecksum, size: contentLength }) :
-			backfillChecksumWhileStreaming(s3, fileKey, content);
-		const fileName = decodeMetadataValue(file.metadata?.original_name) ?? "file";
+		const originalSize = parseOriginalSize(file.metadata?.[ARCHIVE_META.originalSize]);
+		// Holds this download's share of the decode budget; null when nothing is decoded.
+		let releaseDecode = null;
 
-		// The abort event only fires once; a client that already left would keep
-		// the S3 body open forever. 499: the client is gone, this just labels the access log.
-		if (req.signal.aborted)
+		try
 		{
-			body.destroy();
+			if (compressed)
+			{
+				releaseDecode = await decodeBudget.acquire(
+					decodeWeight(file.metadata[ARCHIVE_META.method], originalSize),
+					{ signal: req.signal, timeoutMs: DECODE_WAIT_MS },
+				);
+			}
 
-			return new Response(null, { status: 499 });
+			const content = compressed ?
+				decompressWhileStreaming(file.metadata[ARCHIVE_META.method], file.body) :
+				file.body;
+			const contentLength = compressed ? originalSize : file.contentLength;
+			// The archiver always stores a checksum, so compressed files are verified.
+			const body = storedChecksum ?
+				verifyWhileStreaming(fileKey, content, { sha256: storedChecksum, size: contentLength }) :
+				backfillChecksumWhileStreaming(s3, fileKey, content);
+			const fileName = decodeMetadataValue(file.metadata?.original_name) ?? "file";
+
+			if (releaseDecode)
+			{
+				// Whichever of these comes first gives the budget back; the release
+				// function ignores every later call, so it is freed exactly once.
+				content.once("close", releaseDecode);
+				body.once("close", releaseDecode);
+			}
+
+			// The abort event only fires once; a client that already left would keep
+			// the S3 body open forever. 499: the client is gone, this just labels the access log.
+			if (req.signal.aborted)
+			{
+				body.destroy();
+				releaseDecode?.();
+
+				return new Response(null, { status: 499 });
+			}
+
+			req.signal.addEventListener("abort", () =>
+			{
+				body.destroy();
+				releaseDecode?.();
+			}, { once: true });
+
+			return new Response(Readable.toWeb(body), {
+				status: 200,
+				headers: {
+					"Content-Type": file.contentType ?? "application/octet-stream",
+					...(contentLength === undefined ? {} : { "Content-Length": String(contentLength) }),
+					"Content-Disposition": `attachment; filename="${toAsciiFileName(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+					"Cache-Control": "private, no-store",
+					"X-Content-Type-Options": "nosniff",
+					...(storedChecksum ? { "X-Content-SHA256": storedChecksum } : {}),
+				},
+			});
 		}
+		catch (err)
+		{
+			// Nothing will read the S3 body any more, and the budget must not stay held.
+			releaseDecode?.();
+			file.body.destroy();
 
-		req.signal.addEventListener("abort", () => body.destroy(), { once: true });
+			if (err instanceof SemaphoreTimeoutError)
+			{
+				log.warn(`Download of ${fileKey} waited ${DECODE_WAIT_MS} ms for decode budget`);
 
-		return new Response(Readable.toWeb(body), {
-			status: 200,
-			headers: {
-				"Content-Type": file.contentType ?? "application/octet-stream",
-				...(contentLength === undefined ? {} : { "Content-Length": String(contentLength) }),
-				"Content-Disposition": `attachment; filename="${toAsciiFileName(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-				"Cache-Control": "private, no-store",
-				"X-Content-Type-Options": "nosniff",
-				...(storedChecksum ? { "X-Content-SHA256": storedChecksum } : {}),
-			},
-		});
+				return Response.json(
+					{ success: false, error: "Serwer jest chwilowo przeciążony. Spróbuj ponownie za kilka sekund." },
+					{ status: 503, headers: { "Retry-After": "5" } },
+				);
+			}
 
+			throw err;
+		}
 	}
 	catch (err)
 	{

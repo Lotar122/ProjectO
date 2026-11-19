@@ -1,6 +1,5 @@
 import nodeTest from "node:test";
 import assert from "node:assert/strict";
-import http from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,16 +7,15 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import zlib from "node:zlib";
-import { GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import {
 	ArchiveFileError,
 	ChecksumMismatchError,
 	FILE_OUTCOMES,
-	archiveOrderFile,
-	getArchiveJobStatus,
+	ENCODER_META_KEY,
+	archiveOrderFile as archiveOrderFileRaw,
 	recordFileResult,
-	startArchiveJob,
 } from "../src/app/server-functions/orders/orderArchiver.js";
 import {
 	createDecompressStream,
@@ -28,6 +26,9 @@ import {
 	setOrderFileChecksum,
 } from "../src/app/server-functions/orders/orderFiles.js";
 import { encodeMetadataValue } from "../src/app/server-functions/MinIO/metadataEncoding.js";
+import { createFakeJournal } from "./helpers/fakeJournal.mjs";
+import { withS3 } from "./helpers/s3Server.mjs";
+import { TEST_ENCODER, testCompressor } from "./helpers/testCompressor.mjs";
 
 // The archiver writes its temporary files to os.tmpdir(). Each test gets its
 // own temporary directory instead (TMPDIR on POSIX, TEMP/TMP on Windows), so
@@ -68,7 +69,29 @@ async function withIsolatedTempDir(fn)
 	}
 }
 
-const test = (name, fn) => nodeTest(name, () => withIsolatedTempDir(() => fn()));
+// Each test gets its own crash journal (archive_pending_verify).
+const JOB_ID = "41";
+let journal = null;
+
+const test = (name, fn) => nodeTest(name, () => withIsolatedTempDir(() =>
+{
+	journal = createFakeJournal();
+	return fn();
+}));
+
+const journalOptions = (timeoutMs = 1000) => ({ sql: journal.sql, jobId: JOB_ID, timeoutMs });
+
+// archiveOrderFile with the test's journal. A file that settled (resolved, any
+// outcome) never leaves its journal row behind.
+async function archiveOrderFile(options)
+{
+	const result = await archiveOrderFileRaw({ journal: journalOptions(), ...options });
+
+	assert.equal(journal.rows.has(options.fileId), false, `a ${result.outcome} file left its crash journal row`);
+
+	return result;
+}
+
 
 const BUCKET = "projecto";
 const FILE_ID = "01900000-0000-7000-8000-000000000001";
@@ -86,291 +109,6 @@ function compressibleData()
 	}
 
 	return Buffer.from(lines.join(""));
-}
-
-function metadataFromHeaders(headers)
-{
-	const metadata = {};
-
-	for (const [name, value] of Object.entries(headers))
-	{
-		if (name.startsWith("x-amz-meta-"))
-		{
-			metadata[name.slice("x-amz-meta-".length)] = value;
-		}
-	}
-
-	return metadata;
-}
-
-const md5Etag = (body) => `"${createHash("md5").update(body).digest("hex")}"`;
-
-// Like S3/MinIO: the ETag follows the content, so a metadata-only copy keeps it.
-const etagOf = (object) => object.etag ?? md5Etag(object.body);
-
-function objectHeaders(object)
-{
-	return {
-		"Content-Length": String(object.body.length),
-		"Content-Type": object.contentType ?? "application/octet-stream",
-		ETag: etagOf(object),
-		...Object.fromEntries(Object.entries(object.metadata).map(([name, value]) => [`x-amz-meta-${name}`, value])),
-	};
-}
-
-function sendNotFound(req, res)
-{
-	if (req.method === "HEAD")
-	{
-		res.writeHead(404).end();
-		return;
-	}
-
-	res.writeHead(404, { "Content-Type": "application/xml" }).end(
-		"<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>",
-	);
-}
-
-function sendError(res, status, code)
-{
-	res.writeHead(status, { "Content-Type": "application/xml" }).end(
-		`<Error><Code>${code}</Code><Message>${code}</Message></Error>`,
-	);
-}
-
-// Applies an If-Match header to a write of key: false (and the error sent)
-// when the current object does not match.
-function checkIfMatch(req, res, objects, key, ifMatch, counters)
-{
-	if (ifMatch === undefined)
-	{
-		return true;
-	}
-
-	const current = objects.get(key);
-
-	if (!current)
-	{
-		counters.rejected++;
-		sendNotFound(req, res);
-		return false;
-	}
-
-	if (etagOf(current) !== ifMatch)
-	{
-		counters.rejected++;
-		sendError(res, 412, "PreconditionFailed");
-		return false;
-	}
-
-	return true;
-}
-
-// S3 stand-in with Head/Get/Put/Copy (self-copy with REPLACE metadata)/Delete
-// and the multipart calls, built like withS3 in multipart-upload.test.mjs.
-// PutObject and CompleteMultipartUpload honour If-Match, CopyObject honours
-// x-amz-copy-source-if-match.
-// corruptPuts: number of following PutObject bodies to store with a flipped byte.
-// beforePut / beforeCopy({ objects, key, index }): called before the request
-//   is handled (index counts from 0); may change objects, or return an HTTP
-//   status to fail the request with.
-async function withS3(fn, { corruptPuts = 0, beforePut, beforeCopy } = {})
-{
-	const objects = new Map();
-	const multipart = new Map();
-	const counters = { put: 0, copy: 0, delete: 0, rejected: 0, putAttempts: 0, copyAttempts: 0 };
-	const requests = [];
-	let corruptRemaining = corruptPuts;
-
-	const server = http.createServer((req, res) =>
-	{
-		const chunks = [];
-
-		req.on("data", (chunk) => chunks.push(chunk));
-		req.on("end", () =>
-		{
-			const url = new URL(req.url, "http://localhost");
-			const key = decodeURIComponent(url.pathname.split("/").slice(2).join("/"));
-			const requestBody = Buffer.concat(chunks);
-
-			requests.push({ method: req.method, search: url.search, headers: req.headers });
-
-			if (req.method === "POST" && url.searchParams.has("uploads"))
-			{
-				multipart.set("u1", {
-					key,
-					contentType: req.headers["content-type"],
-					metadata: metadataFromHeaders(req.headers),
-					parts: new Map(),
-				});
-				res.writeHead(200, { "Content-Type": "application/xml" }).end(
-					"<InitiateMultipartUploadResult><UploadId>u1</UploadId></InitiateMultipartUploadResult>",
-				);
-				return;
-			}
-
-			if (req.method === "PUT" && url.searchParams.has("partNumber"))
-			{
-				multipart.get(url.searchParams.get("uploadId")).parts.set(
-					Number(url.searchParams.get("partNumber")),
-					requestBody,
-				);
-				res.writeHead(200, { ETag: `"part${url.searchParams.get("partNumber")}"` }).end();
-				return;
-			}
-
-			if (req.method === "POST" && url.searchParams.has("uploadId"))
-			{
-				const upload = multipart.get(url.searchParams.get("uploadId"));
-
-				if (!checkIfMatch(req, res, objects, upload.key, req.headers["if-match"], counters))
-				{
-					return;
-				}
-
-				const body = Buffer.concat([...upload.parts.entries()].sort((a, b) => a[0] - b[0]).map(([, part]) => part));
-				const etag = `"${createHash("md5").update(body).digest("hex")}-${upload.parts.size}"`;
-
-				counters.put++;
-				multipart.delete(url.searchParams.get("uploadId"));
-				objects.set(upload.key, { body, etag, contentType: upload.contentType, metadata: upload.metadata });
-				res.writeHead(200, { "Content-Type": "application/xml" }).end(
-					`<CompleteMultipartUploadResult><ETag>${etag.replaceAll("\"", "&quot;")}</ETag></CompleteMultipartUploadResult>`,
-				);
-				return;
-			}
-
-			if (req.method === "DELETE" && url.searchParams.has("uploadId"))
-			{
-				multipart.delete(url.searchParams.get("uploadId"));
-				res.writeHead(204).end();
-				return;
-			}
-
-			if (req.method === "PUT" && req.headers["x-amz-copy-source"])
-			{
-				const failStatus = beforeCopy?.({ objects, key, index: counters.copyAttempts++ });
-
-				if (failStatus)
-				{
-					sendError(res, failStatus, "InternalError");
-					return;
-				}
-
-				const sourceKey = decodeURIComponent(req.headers["x-amz-copy-source"].split("/").slice(1).join("/"));
-				const source = objects.get(sourceKey);
-
-				if (!source)
-				{
-					sendNotFound(req, res);
-					return;
-				}
-
-				const copyIfMatch = req.headers["x-amz-copy-source-if-match"];
-
-				if (copyIfMatch !== undefined && copyIfMatch !== etagOf(source))
-				{
-					counters.rejected++;
-					sendError(res, 412, "PreconditionFailed");
-					return;
-				}
-
-				const replace = req.headers["x-amz-metadata-directive"] === "REPLACE";
-				const etag = etagOf(source);
-
-				counters.copy++;
-				objects.set(key, {
-					body: source.body,
-					etag,
-					contentType: replace ? req.headers["content-type"] : source.contentType,
-					metadata: replace ? metadataFromHeaders(req.headers) : { ...source.metadata },
-				});
-				res.writeHead(200, { "Content-Type": "application/xml" }).end(
-					`<CopyObjectResult><ETag>${etag.replaceAll("\"", "&quot;")}</ETag></CopyObjectResult>`,
-				);
-				return;
-			}
-
-			if (req.method === "PUT")
-			{
-				const failStatus = beforePut?.({ objects, key, index: counters.putAttempts++ });
-
-				if (failStatus)
-				{
-					sendError(res, failStatus, "InternalError");
-					return;
-				}
-
-				if (!checkIfMatch(req, res, objects, key, req.headers["if-match"], counters))
-				{
-					return;
-				}
-
-				let body = requestBody;
-
-				if (corruptRemaining > 0)
-				{
-					corruptRemaining--;
-					body = Buffer.from(body);
-					body[body.length - 1] ^= 0xff;
-				}
-
-				counters.put++;
-				objects.set(key, {
-					body,
-					contentType: req.headers["content-type"],
-					metadata: metadataFromHeaders(req.headers),
-				});
-				res.writeHead(200, { ETag: md5Etag(body) }).end();
-				return;
-			}
-
-			if (req.method === "HEAD" || req.method === "GET")
-			{
-				const object = objects.get(key);
-
-				if (!object)
-				{
-					sendNotFound(req, res);
-					return;
-				}
-
-				res.writeHead(200, objectHeaders(object));
-				res.end(req.method === "GET" ? object.body : undefined);
-				return;
-			}
-
-			if (req.method === "DELETE")
-			{
-				counters.delete++;
-				objects.delete(key);
-				res.writeHead(204).end();
-				return;
-			}
-
-			res.writeHead(400).end();
-		});
-	});
-
-	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-
-	const s3 = new S3Client({
-		region: "us-east-1",
-		endpoint: `http://127.0.0.1:${server.address().port}`,
-		forcePathStyle: true,
-		credentials: { accessKeyId: "a", secretAccessKey: "b" },
-		maxAttempts: 1,
-	});
-
-	try
-	{
-		await fn(s3, { objects, counters, requests });
-	}
-	finally
-	{
-		s3.destroy();
-		server.close();
-	}
 }
 
 function seed(objects, body, metadata = {})
@@ -401,7 +139,7 @@ test("compresses a compressible file in place and keeps its metadata", async () 
 	{
 		seed(objects, data, { sha256: sha(data) });
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID, now: () => NOW });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor, now: () => NOW });
 		const stored = objects.get(FILE_ID);
 
 		assert.equal(result.outcome, FILE_OUTCOMES.compressed);
@@ -419,7 +157,7 @@ test("compresses a compressible file in place and keeps its metadata", async () 
 
 		// A second run leaves the archived object alone.
 		const putsBefore = counters.put;
-		const again = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const again = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(again.outcome, FILE_OUTCOMES.alreadyArchived);
 		assert.equal(again.originalSize, data.length);
@@ -438,7 +176,7 @@ test("stores the computed sha256 when the file had none", async () =>
 	{
 		seed(objects, data);
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.compressed);
 		assert.equal(objects.get(FILE_ID).metadata.sha256, sha(data));
@@ -453,7 +191,7 @@ test("an incompressible file keeps its bytes and gets identity metadata", async 
 	{
 		seed(objects, data);
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID, now: () => NOW });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor, now: () => NOW });
 		const stored = objects.get(FILE_ID);
 
 		assert.equal(result.outcome, FILE_OUTCOMES.incompressible);
@@ -467,7 +205,7 @@ test("an incompressible file keeps its bytes and gets identity metadata", async 
 		assert.equal(stored.metadata.sha256, sha(data));
 		assert.equal(stored.metadata.original_name, encodeMetadataValue("Skan górny.stl"));
 
-		const again = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const again = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(again.outcome, FILE_OUTCOMES.alreadyArchived);
 		assert.equal(counters.copy, 1);
@@ -485,7 +223,7 @@ test("a stored sha256 that does not match leaves the object untouched", async ()
 
 		const before = structuredClone(objects.get(FILE_ID));
 
-		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), (err) =>
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }), (err) =>
 		{
 			assert.ok(err instanceof ChecksumMismatchError);
 			assert.equal(err.expected, sha("something else"));
@@ -573,7 +311,7 @@ test("restores the original when the stored archive fails read-back", async () =
 		seed(objects, data, { sha256: sha(data) });
 
 		await assert.rejects(
-			archiveOrderFile({ s3, fileId: FILE_ID }),
+			archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }),
 			(err) => err instanceof ArchiveFileError && /original restored/.test(err.message) && err.cause !== undefined,
 		);
 
@@ -582,6 +320,10 @@ test("restores the original when the stored archive fails read-back", async () =
 		assert.equal(counters.put, 2);
 		assert.ok(stored.body.equals(data));
 		assert.equal(stored.metadata.compression, undefined);
+		// Restored: the journal row is closed and the original removed.
+		assert.equal(journal.rows.size, 0);
+		assert.deepEqual(journal.log, ["insert", "uploaded", "delete"]);
+		assert.deepEqual(await archiverTempFiles(), []);
 		assert.equal(stored.metadata.sha256, sha(data));
 		assert.equal(stored.contentType, "model/stl");
 	}, { corruptPuts: 1 });
@@ -591,7 +333,7 @@ test("a missing object is left for the next run instead of failing", async () =>
 {
 	await withS3(async (s3, { counters }) =>
 	{
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.changed);
 		assert.equal(result.originalSize, 0);
@@ -625,7 +367,7 @@ test("a HEAD that reports the file deleted is skipped, not failed, and leaves no
 		seed(objects, data, { sha256: sha(data) });
 		failCommand(s3, HeadObjectCommand, Object.assign(new Error("Not Found"), { name: "NotFound" }));
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.changed);
 		assert.equal(result.originalSize, 0);
@@ -645,7 +387,7 @@ test("a GET that reports NoSuchKey is skipped, not failed, and leaves no temp fi
 		seed(objects, data, { sha256: sha(data) });
 		failCommand(s3, GetObjectCommand, Object.assign(new Error("The specified key does not exist."), { name: "NoSuchKey" }));
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.changed);
 		assert.equal(result.originalSize, 0);
@@ -661,7 +403,7 @@ test("a HEAD failing with another error still fails the file", async () =>
 	{
 		failCommand(s3, HeadObjectCommand, Object.assign(new Error("Service unavailable"), { name: "ServiceUnavailable" }));
 
-		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), { name: "ServiceUnavailable" });
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }), { name: "ServiceUnavailable" });
 	});
 });
 
@@ -676,6 +418,7 @@ test("deletes the archived object when its order was removed meanwhile", async (
 		const result = await archiveOrderFile({
 			s3,
 			fileId: FILE_ID,
+			compress: testCompressor,
 			isStillAttached: async () => false,
 		});
 
@@ -827,7 +570,7 @@ test("an object replaced before the archive is written is left alone", async () 
 	{
 		seed(objects, data, { sha256: sha(data) });
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.changed);
 		assert.equal(counters.put, 0);
@@ -852,7 +595,7 @@ test("an object deleted before the archive is written is not recreated", async (
 	{
 		seed(objects, data, { sha256: sha(data) });
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.changed);
 		assert.equal(objects.has(FILE_ID), false);
@@ -880,6 +623,7 @@ test("a failed read-back after the order was deleted removes the object instead 
 		const result = await archiveOrderFile({
 			s3,
 			fileId: FILE_ID,
+			compress: testCompressor,
 			isStillAttached: async () => false,
 		});
 
@@ -898,7 +642,7 @@ test("a failed read-back of an object deleted meanwhile is not restored", async 
 	{
 		seed(objects, data, { sha256: sha(data) });
 
-		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
 
 		assert.equal(result.outcome, FILE_OUTCOMES.changed);
 		assert.equal(objects.has(FILE_ID), false);
@@ -952,11 +696,12 @@ test("the restore never overwrites a newer write and the original is kept for re
 		{
 			seed(objects, data, { sha256: sha(data) });
 
-			await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), ArchiveFileError);
+			await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }), ArchiveFileError);
 			assert.equal(objects.get(FILE_ID), other);
 			assert.equal(counters.put, 1);
 			assert.equal(counters.rejected, 1);
 			assert.ok((await readFile(path.join(dir, `${FILE_ID}.orig`))).equals(data));
+			assert.equal(journal.rows.get(FILE_ID).state, "needs_attention");
 		}, {
 			corruptPuts: 1,
 			beforePut: ({ objects, index }) =>
@@ -982,7 +727,7 @@ test("when read-back and restore both fail the original is saved to the recovery
 			seed(objects, data, { sha256: sha(data) });
 
 			await assert.rejects(
-				archiveOrderFile({ s3, fileId: FILE_ID }),
+				archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }),
 				(err) => err instanceof ArchiveFileError && err.message.includes(path.join(dir, `${FILE_ID}.orig`)),
 			);
 
@@ -996,13 +741,25 @@ test("when read-back and restore both fail the original is saved to the recovery
 			assert.equal(info.contentType, "model/stl");
 			assert.equal(info.metadata.original_name, encodeMetadataValue("Skan górny.stl"));
 			assert.equal(info.metadata.compression, undefined);
+
+			// 9.2 step 3: the row goes to an operator, with where the copy is.
+			const row = journal.rows.get(FILE_ID);
+
+			assert.equal(row.state, "needs_attention");
+			assert.ok(row.note.includes(path.join(dir, `${FILE_ID}.orig`)));
+			assert.ok(row.note.includes("restore:"));
 		}, {
 			corruptPuts: 1,
 			beforePut: ({ index }) => (index === 1 ? 500 : undefined),
 		});
 	});
 
-	assert.deepEqual(await archiverTempFiles(), tempBefore);
+	// 9.2 step 4: the temp original stays while the row exists.
+	const row = journal.rows.get(FILE_ID);
+	const left = (await archiverTempFiles()).filter((name) => !tempBefore.includes(name));
+
+	assert.deepEqual(left, [path.basename(row.original_path)]);
+	assert.ok((await readFile(row.original_path)).equals(data));
 });
 
 test("lib-storage passes IfMatch on to CompleteMultipartUpload", async () =>
@@ -1029,180 +786,309 @@ test("lib-storage passes IfMatch on to CompleteMultipartUpload", async () =>
 	});
 });
 
-// ---- Job and lock ----
-
-const hang = () => new Promise(() => undefined);
-
-// postgres.js stand-in: tagged-template queries matched by their text.
-// reservedHandler(text) answers queries on the reserved connection.
-function fakeSql({ reservedHandler, reserve, orders = [{ order_id: 7, files: [] }] } = {})
+test("compress is required and file ids must be UUIDs", async () =>
 {
-	const released = { count: 0 };
-	const reserved = (strings) => reservedHandler(strings.join("?"));
-
-	reserved.release = () =>
+	await withS3(async (s3, { objects, counters }) =>
 	{
-		released.count++;
-	};
+		seed(objects, compressibleData());
 
-	const sql = (strings) =>
-	{
-		const text = strings.join("?");
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), TypeError);
+		await assert.rejects(archiveOrderFileRaw({ s3, fileId: FILE_ID, compress: testCompressor }), TypeError);
+		await assert.rejects(archiveOrderFileRaw({ s3, fileId: FILE_ID, compress: testCompressor, journal: { ...journalOptions(), jobId: null } }), TypeError);
+		await assert.rejects(archiveOrderFileRaw({ s3, fileId: FILE_ID, compress: testCompressor, journal: { ...journalOptions(), timeoutMs: 0 } }), RangeError);
+		await assert.rejects(archiveOrderFile({ s3, fileId: "../etc/passwd", compress: testCompressor }), TypeError);
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID.toUpperCase().slice(1), compress: testCompressor }), TypeError);
+		assert.equal(counters.put, 0);
+		assert.equal(counters.copy, 0);
+	});
 
-		if (text.includes("SELECT order_id, files"))
-		{
-			return Promise.resolve(orders);
-		}
+	assert.deepEqual(await archiverTempFiles(), []);
+});
 
-		if (text.includes("UPDATE orders"))
-		{
-			return Promise.resolve([{ order_id: 7 }]);
-		}
-
-		return Promise.resolve([]);
-	};
-
-	sql.reserve = reserve ?? (async () => reserved);
-
-	return { sql, reserved, released };
-}
-
-function lockHandler({ confirm, unlock } = {})
+test("the encoder is stored as metadata, and a stale encoder key is never carried over", async () =>
 {
-	let lockCalls = 0;
+	const data = compressibleData();
 
-	return (text) =>
+	await withS3(async (s3, { objects }) =>
 	{
-		if (text.includes("pg_try_advisory_lock"))
-		{
-			lockCalls++;
+		seed(objects, data, { [ENCODER_META_KEY]: "old-encoder" });
 
-			if (lockCalls > 1 && confirm)
-			{
-				return confirm();
-			}
+		await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
+		assert.equal(objects.get(FILE_ID).metadata[ENCODER_META_KEY], TEST_ENCODER);
+	});
 
-			return Promise.resolve([{ pid: 42, locked: true }]);
-		}
-
-		if (text.includes("pg_advisory_unlock_all"))
-		{
-			return unlock ? unlock() : Promise.resolve([{}]);
-		}
-
-		return Promise.resolve([]);
-	};
-}
-
-async function waitForJob()
-{
-	for (let i = 0; i < 200 && getArchiveJobStatus().state === "running"; i++)
+	// A compressor that reports no (or an unusable) encoder: no key at all.
+	for (const encoder of [undefined, null, "bad\nvalue", "x".repeat(201)])
 	{
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await withS3(async (s3, { objects }) =>
+		{
+			seed(objects, data, { [ENCODER_META_KEY]: "old-encoder" });
+
+			const compress = async (srcPath, options) => ({ ...(await testCompressor(srcPath, options)), encoder });
+			const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress });
+
+			assert.equal(result.outcome, FILE_OUTCOMES.compressed);
+			assert.equal(objects.get(FILE_ID).metadata[ENCODER_META_KEY], undefined);
+		});
 	}
-
-	return getArchiveJobStatus();
-}
-
-test("a hung lock query fails the job instead of leaving it running", async () =>
-{
-	const { sql, released } = fakeSql({ reservedHandler: lockHandler({ confirm: hang, unlock: hang }) });
-	const start = await startArchiveJob({ triggeredBy: "test", sql, s3: {}, dbTimeoutMs: 50 });
-
-	assert.equal(start.started, true);
-
-	const status = await waitForJob();
-
-	assert.equal(status.state, "failed");
-	assert.match(status.lastError, /timed out/);
-	assert.ok(status.finishedAt);
-	assert.equal(released.count, 1);
-
-	// A new run can start right away.
-	const healthy = fakeSql({ reservedHandler: lockHandler() });
-	const again = await startArchiveJob({ triggeredBy: "test", sql: healthy.sql, s3: {}, dbTimeoutMs: 50 });
-
-	assert.equal(again.started, true);
-
-	const done = await waitForJob();
-
-	assert.equal(done.state, "done");
-	assert.equal(done.ordersArchived, 1);
-	assert.equal(healthy.released.count, 1);
 });
 
-test("a reconnected lock session fails the job", async () =>
+test("onProgress reports each phase without file ids, and a throwing listener is ignored", async () =>
 {
-	const { sql, released } = fakeSql({
-		reservedHandler: lockHandler({ confirm: async () => [{ pid: 43, locked: true }] }),
-	});
+	const data = compressibleData();
 
-	assert.equal((await startArchiveJob({ triggeredBy: "test", sql, s3: {}, dbTimeoutMs: 50 })).started, true);
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data);
 
-	const status = await waitForJob();
-
-	assert.equal(status.state, "failed");
-	assert.match(status.lastError, /Lost the database session/);
-	assert.equal(released.count, 1);
-});
-
-test("a connection that cannot be reserved in time does not block later starts", async () =>
-{
-	let lateReserved = null;
-	const slow = fakeSql({
-		reservedHandler: lockHandler(),
-		reserve: () => new Promise((resolve) =>
-		{
-			setTimeout(() =>
+		const events = [];
+		const result = await archiveOrderFile({
+			s3,
+			fileId: FILE_ID,
+			compress: testCompressor,
+			onProgress: (progress) =>
 			{
-				lateReserved = slow.reserved;
-				resolve(slow.reserved);
-			}, 100);
-		}),
+				events.push(progress);
+				throw new Error("listener failure");
+			},
+		});
+
+		assert.equal(result.outcome, FILE_OUTCOMES.compressed);
+
+		const phases = [...new Set(events.map((event) => event.phase))];
+
+		assert.deepEqual(phases, ["download", "compress-zstd", "verify", "upload", "readback"]);
+		assert.ok(events.every((event) => Object.keys(event).join() === "phase,bytesDone,bytesTotal"));
+		assert.equal(events.filter((event) => event.phase === "download").at(-1).bytesDone, data.length);
+		assert.deepEqual(events.find((event) => event.phase === "readback"), { phase: "readback", bytesDone: 0, bytesTotal: result.storedSize });
 	});
-
-	await assert.rejects(
-		startArchiveJob({ triggeredBy: "test", sql: slow.sql, s3: {}, dbTimeoutMs: 20 }),
-		/timed out/,
-	);
-
-	// The connection that arrives late is handed back.
-	await new Promise((resolve) => setTimeout(resolve, 150));
-	assert.ok(lateReserved);
-	assert.equal(slow.released.count, 1);
-
-	const healthy = fakeSql({ reservedHandler: lockHandler() });
-
-	assert.equal((await startArchiveJob({ triggeredBy: "test", sql: healthy.sql, s3: {}, dbTimeoutMs: 50 })).started, true);
-	assert.equal((await waitForJob()).state, "done");
 });
 
-test("a checksum mismatch fails the file and its order instead of archiving it", async () =>
+// ---- crash journal around the replacing upload (phase4.md 9.2) ----
+
+test("the journal row is written before the upload and cleared after a passing read-back", async () =>
+{
+	const data = compressibleData();
+	let rowDuringUpload = null;
+
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+
+		const preUploadEtag = `"${createHash("md5").update(data).digest("hex")}"`;
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.compressed);
+		assert.deepEqual(journal.log, ["insert", "uploaded", "delete"]);
+		assert.equal(rowDuringUpload.state, "uploading");
+		assert.equal(rowDuringUpload.job_id, JOB_ID);
+		assert.equal(rowDuringUpload.method, "zstd");
+		assert.equal(rowDuringUpload.original_sha256, sha(data));
+		assert.equal(rowDuringUpload.original_size, String(data.length));
+		assert.equal(rowDuringUpload.stored_size, String(result.storedSize));
+		assert.equal(rowDuringUpload.pre_upload_etag, preUploadEtag);
+		assert.equal(rowDuringUpload.stored_etag, null);
+		assert.ok(path.basename(rowDuringUpload.original_path).startsWith("projecto-archive-"));
+		assert.deepEqual(await archiverTempFiles(), []);
+	}, {
+		beforePut: ({ key }) =>
+		{
+			rowDuringUpload = { ...journal.rows.get(key) };
+		},
+	});
+});
+
+test("a journal insert that fails fails the file and nothing is uploaded", async () =>
 {
 	const data = compressibleData();
 
 	await withS3(async (s3, { objects, counters }) =>
 	{
-		seed(objects, data, { sha256: sha("something else") });
+		seed(objects, data, { sha256: sha(data) });
+		journal.failures.insert = 1;
 
-		const { sql, released } = fakeSql({
-			reservedHandler: lockHandler(),
-			orders: [{ order_id: 7, files: [FILE_ID] }],
+		await assert.rejects(
+			archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }),
+			(err) => err instanceof ArchiveFileError && /crash journal/.test(err.message),
+		);
+		assert.equal(counters.put, 0);
+		assert.ok(objects.get(FILE_ID).body.equals(data));
+		assert.equal(journal.rows.size, 0);
+		assert.deepEqual(await archiverTempFiles(), []);
+	});
+});
+
+test("a file that already has a journal row is never replaced again", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects, counters }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+		journal.seed({
+			file_id: FILE_ID,
+			state: "needs_attention",
+			original_sha256: sha(data),
+			original_size: data.length,
+			stored_size: 1,
+			pre_upload_etag: "\"x\"",
+			original_path: path.join(os.tmpdir(), "projecto-archive-kept"),
 		});
 
-		assert.equal((await startArchiveJob({ triggeredBy: "test", sql, s3, dbTimeoutMs: 1000 })).started, true);
-
-		const status = await waitForJob();
-
-		assert.equal(status.state, "done");
-		assert.equal(status.filesFailed, 1);
-		assert.equal(status.filesCompressed, 0);
-		assert.equal(status.ordersFailed, 1);
-		assert.equal(status.ordersArchived, 0);
-		assert.equal(status.ordersDone, 0);
-		assert.match(status.lastError, new RegExp(`^File ${FILE_ID}: Checksum mismatch`));
-		assert.ok(objects.get(FILE_ID).body.equals(data));
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }), ArchiveFileError);
 		assert.equal(counters.put, 0);
-		assert.equal(released.count, 1);
+		assert.equal(journal.rows.get(FILE_ID).state, "needs_attention");
+	});
+});
+
+test("journal statements are bounded: a hung insert fails the file before any upload", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects, counters }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+		journal.hangs.add("insert");
+
+		await assert.rejects(
+			archiveOrderFileRaw({ s3, fileId: FILE_ID, compress: testCompressor, journal: journalOptions(30) }),
+			/timed out after 30 ms/,
+		);
+		assert.equal(counters.put, 0);
+		assert.deepEqual(await archiverTempFiles(), []);
+	});
+});
+
+test("a refused upload (412) deletes the journal row", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.changed);
+		assert.deepEqual(journal.log, ["insert", "delete"]);
+		assert.deepEqual(await archiverTempFiles(), []);
+	}, {
+		beforePut: ({ objects }) =>
+		{
+			objects.set(FILE_ID, { body: Buffer.from("newer"), contentType: "model/stl", metadata: {} });
+		},
+	});
+});
+
+test("any other upload error keeps the journal row and the original on disk", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }), { name: "InternalError" });
+
+		const row = journal.rows.get(FILE_ID);
+
+		assert.equal(row.state, "uploading");
+		assert.deepEqual(journal.log, ["insert"]);
+		// The finally rule: the original stays while a row exists; the
+		// compressed candidate does not.
+		assert.deepEqual(await archiverTempFiles(), [path.basename(row.original_path)]);
+		assert.ok((await readFile(row.original_path)).equals(data));
+	}, {
+		beforePut: () => 500,
+	});
+});
+
+test("a failed read-back of an object deleted meanwhile clears the journal row", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.changed);
+		assert.deepEqual(journal.log, ["insert", "uploaded", "delete"]);
+		assert.deepEqual(await archiverTempFiles(), []);
+	}, {
+		corruptPuts: 1,
+		beforePut: ({ objects, index }) =>
+		{
+			if (index === 1)
+			{
+				objects.delete(FILE_ID);
+			}
+		},
+	});
+});
+
+test("an orphan deleted after the read-back clears the journal row", async () =>
+{
+	const data = compressibleData();
+
+	for (const corruptPuts of [0, 1])
+	{
+		journal = createFakeJournal();
+
+		await withS3(async (s3, { objects }) =>
+		{
+			seed(objects, data, { sha256: sha(data) });
+
+			const result = await archiveOrderFile({
+				s3,
+				fileId: FILE_ID,
+				compress: testCompressor,
+				isStillAttached: async () => false,
+			});
+
+			assert.equal(result.outcome, FILE_OUTCOMES.orphaned);
+			assert.equal(objects.has(FILE_ID), false);
+			assert.deepEqual(journal.log, ["insert", "uploaded", "delete"]);
+			assert.deepEqual(await archiverTempFiles(), []);
+		}, { corruptPuts });
+	}
+});
+
+test("a verified archive whose journal row cannot be cleared fails the file and keeps the original", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+		journal.failures.delete = 1;
+
+		await assert.rejects(
+			archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor }),
+			(err) => err instanceof ArchiveFileError && /journal row could not be cleared/.test(err.message),
+		);
+
+		const row = journal.rows.get(FILE_ID);
+
+		assert.equal(row.state, "uploaded");
+		assert.equal(row.stored_etag, `"${createHash("md5").update(objects.get(FILE_ID).body).digest("hex")}"`);
+		assert.deepEqual(await archiverTempFiles(), [path.basename(row.original_path)]);
+	});
+});
+
+test("a failing 'uploaded' update does not fail the file", async () =>
+{
+	const data = compressibleData();
+
+	await withS3(async (s3, { objects }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+		journal.failures.uploaded = 1;
+
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID, compress: testCompressor });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.compressed);
+		assert.deepEqual(await archiverTempFiles(), []);
 	});
 });

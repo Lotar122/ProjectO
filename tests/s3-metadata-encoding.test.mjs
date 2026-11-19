@@ -25,8 +25,16 @@ async function withServer(fn)
 		forcePathStyle: true,
 		credentials: { accessKeyId: "a", secretAccessKey: "b" },
 	});
-	try { await fn(s3); return received; }
-	finally { s3.destroy(); server.close(); }
+	try
+	{
+		await fn(s3);
+		return received;
+	}
+	finally
+	{
+		s3.destroy();
+		server.close();
+	}
 }
 
 const put = (s3, value) => s3.send(new PutObjectCommand({

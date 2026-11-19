@@ -19,15 +19,30 @@ if (
 	throw new Error("DB_URL is not set");
 }
 
+const DB_OPTIONS = {
+	prepare: true,
+	max: Number(process.env.DB_POOL_MAX) || 10,
+	idle_timeout: 30,
+	connect_timeout: 10,
+	connection: {
+		statement_timeout: 15000,
+	},
+	// ssl: "require",
+};
+
+/**
+ * A separate postgres.js client with the shared pool's settings, for callers
+ * that need their own session (the archiver's advisory lock). The caller owns
+ * it and must end() it.
+ *
+ * @param {object} [overrides] postgres.js options that replace the defaults.
+ * @returns {import("postgres").Sql}
+ */
+export function createDbClient(overrides = {})
+{
+	return postgres(process.env.DB_URL, { ...DB_OPTIONS, ...overrides });
+}
+
 export const DB =
 	globalForDb.__projectoDb ??
-	(globalForDb.__projectoDb = postgres(process.env.DB_URL, {
-		prepare: true,
-		max: Number(process.env.DB_POOL_MAX) || 10,
-		idle_timeout: 30,
-		connect_timeout: 10,
-		connection: {
-			statement_timeout: 15000,
-		},
-		// ssl: "require",
-	}));
+	(globalForDb.__projectoDb = createDbClient());

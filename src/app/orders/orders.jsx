@@ -1272,7 +1272,14 @@ export default function Orders({
 
 			const actionId = startBackgroundAction("Pobieranie pliku", baseFileName);
 
-			failBackgroundAction(actionId, "Nie udało się pobrać pliku", baseFileName);
+			// 503: the server has no room to decompress the file right now.
+			failBackgroundAction(
+				actionId,
+				err?.response?.status === 503 ?
+					"Serwer jest zajęty, spróbuj ponownie za chwilę." :
+					"Nie udało się pobrać pliku",
+				baseFileName,
+			);
 		}
 		finally
 		{

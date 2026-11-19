@@ -1,0 +1,3 @@
+# Keep Claude agent configuration out of the code graph
+.claude/
+CLAUDE.md

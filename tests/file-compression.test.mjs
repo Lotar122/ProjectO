@@ -1,16 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import zlib from "node:zlib";
 import {
 	ARCHIVE_META,
-	compressBest,
 	createDecompressStream,
 	isCompressed,
 	windowLogFor,
@@ -36,22 +31,6 @@ function compressibleData()
 	return Buffer.from(lines.join(""));
 }
 
-async function withTempFile(data, fn)
-{
-	const filePath = path.join(os.tmpdir(), `projecto-test-${randomUUID()}`);
-
-	await writeFile(filePath, data);
-
-	try
-	{
-		await fn(filePath);
-	}
-	finally
-	{
-		await rm(filePath, { force: true });
-	}
-}
-
 const decompress = (method, data) => buffer(Readable.from([data]).pipe(createDecompressStream(method)));
 
 test("isCompressed is true only for zstd and br", () =>
@@ -74,117 +53,153 @@ test("decompress streams round-trip both codecs", async () =>
 	assert.throws(() => createDecompressStream("gzip"));
 });
 
-test("compressBest picks the smallest candidate and it round-trips", async () =>
+// Frames the archiver worker writes: zstd with a 2^28 window and brotli in
+// large-window mode. Both decode to "solid fixture\n" x 64 (896 bytes).
+// zstd: `zstd --ultra -22 --long=28` reading stdin, so the content size is
+// unknown and the frame declares a 256 MiB window.
+// brotli: `brotli -q 11 --large_window=25`.
+const FIXTURE_PLAIN_SHA256 = "0b8dacae3ed6914ed65218cec368a3b47bf587a97b8b8eed834a8b11fb7ccb85";
+const FIXTURE_ZSTD_WINDOW_28 = Buffer.from("KLUv/QSQtQAAeHNvbGlkIGZpeHR1cmUKcwEAbqOadf//BmQ=", "base64");
+const FIXTURE_BROTLI_LARGE_WINDOW = Buffer.from("EVn8DeB3pE597sKVWVoqyOFlGV1dDdJbPeAbdrH0Dg==", "base64");
+
+const decodeWith = (decoder, data) => buffer(Readable.from([data]).pipe(decoder));
+
+test("createDecompressStream decodes a zstd frame with a 2^28 window that a plain decoder rejects", async () =>
+{
+	const decoded = await decompress("zstd", FIXTURE_ZSTD_WINDOW_28);
+
+	assert.equal(decoded.length, 896);
+	assert.equal(sha(decoded), FIXTURE_PLAIN_SHA256);
+	assert.ok(decoded.equals(Buffer.from("solid fixture\n".repeat(64))));
+
+	await assert.rejects(decodeWith(zlib.createZstdDecompress(), FIXTURE_ZSTD_WINDOW_28));
+});
+
+test("createDecompressStream decodes a large-window brotli stream that a plain decoder rejects", async () =>
+{
+	const decoded = await decompress("br", FIXTURE_BROTLI_LARGE_WINDOW);
+
+	assert.equal(decoded.length, 896);
+	assert.equal(sha(decoded), FIXTURE_PLAIN_SHA256);
+
+	await assert.rejects(decodeWith(zlib.createBrotliDecompress(), FIXTURE_BROTLI_LARGE_WINDOW));
+});
+
+// Same input, larger windows (`brotli -q 11 --large_window=N` and
+// `zstd --ultra -22 --long=29`, both reading stdin). The decoder must accept
+// brotli up to 2^28 and refuse the rest: the download budget assumes 2^28.
+const FIXTURE_BROTLI_WINDOW_28 = Buffer.from("EVz8DeB3pE597sKVWVoqyOFlGV1dDdJbPeAbdrH0Dg==", "base64");
+const FIXTURE_BROTLI_WINDOW_29 = Buffer.from("EV38DeB3pE597sKVWVoqyOFlGV1dDdJbPeAbdrH0Dg==", "base64");
+const FIXTURE_BROTLI_WINDOW_30 = Buffer.from("EV78DeB3pE597sKVWVoqyOFlGV1dDdJbPeAbdrH0Dg==", "base64");
+const FIXTURE_ZSTD_WINDOW_29 = Buffer.from("KLUv/QSYtQAAeHNvbGlkIGZpeHR1cmUKcwEAbqOadf//BmQ=", "base64");
+
+test("createDecompressStream accepts a brotli window of 28 bits and rejects 29 and 30", async () =>
+{
+	assert.equal(sha(await decompress("br", FIXTURE_BROTLI_WINDOW_28)), FIXTURE_PLAIN_SHA256);
+
+	for (const fixture of [FIXTURE_BROTLI_WINDOW_29, FIXTURE_BROTLI_WINDOW_30])
+	{
+		await assert.rejects(decompress("br", fixture), RangeError);
+	}
+});
+
+test("the brotli window check also works when the header arrives one byte at a time", async () =>
+{
+	const oneByteAtATime = (data) => Readable.from(Array.from(data, (byte) => Buffer.from([byte])));
+
+	assert.equal(
+		sha(await buffer(oneByteAtATime(FIXTURE_BROTLI_WINDOW_28).pipe(createDecompressStream("br")))),
+		FIXTURE_PLAIN_SHA256,
+	);
+	await assert.rejects(
+		buffer(oneByteAtATime(FIXTURE_BROTLI_WINDOW_29).pipe(createDecompressStream("br"))),
+		RangeError,
+	);
+});
+
+test("the brotli window check leaves standard windows alone and lets the decoder report a cut-off header", async () =>
 {
 	const data = compressibleData();
 
-	await withTempFile(data, async (filePath) =>
+	for (const lgwin of [10, 16, 18, 22, 24])
 	{
-		const result = await compressBest(filePath);
+		const compressed = zlib.brotliCompressSync(data, {
+			params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_LGWIN]: lgwin },
+		});
 
-		try
-		{
-			assert.ok(result);
-			assert.ok(["zstd", "br"].includes(result.method));
+		assert.ok((await decompress("br", compressed)).equals(data), `lgwin ${lgwin}`);
+	}
 
-			const compressed = await readFile(result.path);
-
-			assert.equal(compressed.length, result.size);
-			assert.ok(result.size < data.length / 5);
-
-			// The winner is (within streaming framing noise) the smaller codec.
-			const zstdSize = zlib.zstdCompressSync(data, {
-				params: {
-					[zlib.constants.ZSTD_c_compressionLevel]: 22,
-					[zlib.constants.ZSTD_c_windowLog]: 27,
-					[zlib.constants.ZSTD_c_enableLongDistanceMatching]: 1,
-					[zlib.constants.ZSTD_c_checksumFlag]: 1,
-				},
-			}).length;
-			const brotliSize = zlib.brotliCompressSync(data, {
-				params: {
-					[zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-					[zlib.constants.BROTLI_PARAM_LGWIN]: 24,
-					[zlib.constants.BROTLI_PARAM_SIZE_HINT]: data.length,
-				},
-			}).length;
-
-			assert.ok(result.size <= Math.min(zstdSize, brotliSize) * 1.02 + 32);
-
-			assert.equal(sha(await decompress(result.method, compressed)), sha(data));
-		}
-		finally
-		{
-			await rm(result?.path ?? "", { force: true });
-		}
-	});
+	// One byte of a large-window header, then the end of the stream.
+	await assert.rejects(decompress("br", FIXTURE_BROTLI_WINDOW_28.subarray(0, 1)));
 });
 
-test("compressBest returns null for random bytes and leaves no temp file", async () =>
+test("an empty brotli body fails like a stock decoder instead of decoding to nothing", async () =>
 {
-	await withTempFile(randomBytes(64 * 1024), async (filePath) =>
-	{
-		assert.equal(await compressBest(filePath), null);
-	});
+	await assert.rejects(decompress("br", Buffer.alloc(0)), /unexpected end of file/);
+	await assert.rejects(buffer(Readable.from([]).pipe(createDecompressStream("br"))), /unexpected end of file/);
 });
 
-test("compressBest honours minSavingsRatio", async () =>
+test("createDecompressStream rejects a zstd frame with a 2^29 window", async () =>
 {
-	await withTempFile(compressibleData(), async (filePath) =>
-	{
-		assert.equal(await compressBest(filePath, { minSavingsRatio: 0.9999 }), null);
+	await assert.rejects(decompress("zstd", FIXTURE_ZSTD_WINDOW_29));
+});
 
-		const result = await compressBest(filePath, { minSavingsRatio: 0 });
-
-		assert.ok(result);
-		assert.ok(existsSync(result.path));
-		await rm(result.path, { force: true });
+test("the decoder flags keep decoding old frames: zstd window <= 27 and standard brotli", async () =>
+{
+	const data = compressibleData();
+	const zstd27 = zlib.zstdCompressSync(data, {
+		params: {
+			[zlib.constants.ZSTD_c_compressionLevel]: 22,
+			[zlib.constants.ZSTD_c_windowLog]: 27,
+			[zlib.constants.ZSTD_c_enableLongDistanceMatching]: 1,
+		},
 	});
+	const brotli24 = zlib.brotliCompressSync(data, {
+		params: {
+			[zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+			[zlib.constants.BROTLI_PARAM_LGWIN]: 24,
+		},
+	});
+
+	assert.ok((await decompress("zstd", zstd27)).equals(data));
+	assert.ok((await decompress("br", brotli24)).equals(data));
+});
+
+// A zstd frame written by the in-process encoder that W25(b) removed
+// (zlib.createZstdCompress: level 22, windowLog = windowLogFor(size, 27) = 10,
+// long-distance matching, checksum on, pledgedSrcSize = 960, so the frame
+// header carries the content size). Objects archived before the native
+// compressor look like this, so they must keep decoding.
+const FIXTURE_OLD_ENCODER_PLAIN = Buffer.from("old encoder fixture\n".repeat(48));
+const FIXTURE_OLD_ENCODER_ZSTD = Buffer.from("KLUv/WTAAuUAAKhvbGQgZW5jb2RlciBmaXh0dXJlCm8BAFFfNZnQ5SZJ", "base64");
+
+test("createDecompressStream still decodes a zstd frame from the old in-process encoder", async () =>
+{
+	const decoded = await decompress("zstd", FIXTURE_OLD_ENCODER_ZSTD);
+
+	assert.equal(decoded.length, 960);
+	assert.ok(decoded.equals(FIXTURE_OLD_ENCODER_PLAIN));
+	assert.equal(sha(decoded), "c465a02ff3bdea1800378a4d5cfa4495e3d568a47541e70176db0dc4fd60c457");
 });
 
 test("windowLogFor sizes the window to the file within the codec limits", () =>
 {
-	assert.equal(windowLogFor(1, 27), 10);
-	assert.equal(windowLogFor(1000, 27), 10);
-	assert.equal(windowLogFor(1024, 27), 10);
-	assert.equal(windowLogFor(1025, 27), 11);
-	assert.equal(windowLogFor(300 * 1024, 27), 19);
-	assert.equal(windowLogFor(64 * 1024 * 1024, 27), 26);
-	assert.equal(windowLogFor(250 * 1024 * 1024, 27), 27);
-	assert.equal(windowLogFor(250 * 1024 * 1024, 24), 24);
-});
+	const MiB = 1024 * 1024;
 
-test("compressBest still compresses small files and they round-trip", async () =>
-{
-	for (const data of [
-		Buffer.from("solid scan\n".repeat(40)),
-		compressibleData().subarray(0, 5000),
-	])
-	{
-		await withTempFile(data, async (filePath) =>
-		{
-			const result = await compressBest(filePath);
-
-			try
-			{
-				assert.ok(result);
-				assert.ok(result.size < data.length);
-				assert.ok((await decompress(result.method, await readFile(result.path))).equals(data));
-			}
-			finally
-			{
-				await rm(result?.path ?? "", { force: true });
-			}
-		});
-	}
-});
-
-test("compressBest returns null for an empty file", async () =>
-{
-	await withTempFile(Buffer.alloc(0), async (filePath) =>
-	{
-		assert.equal(await compressBest(filePath), null);
-	});
+	assert.equal(windowLogFor(1, 28), 10);
+	assert.equal(windowLogFor(1000, 28), 10);
+	assert.equal(windowLogFor(1024, 28), 10);
+	assert.equal(windowLogFor(1025, 28), 11);
+	assert.equal(windowLogFor(300 * 1024, 28), 19);
+	assert.equal(windowLogFor(64 * MiB, 28), 26);
+	assert.equal(windowLogFor(64 * MiB + 1, 28), 27);
+	assert.equal(windowLogFor(128 * MiB, 28), 27);
+	assert.equal(windowLogFor(128 * MiB + 1, 28), 28);
+	assert.equal(windowLogFor(250 * MiB, 28), 28);
+	assert.equal(windowLogFor(1024 * MiB, 28), 28);
+	assert.equal(windowLogFor(250 * MiB, 27), 27);
+	assert.equal(windowLogFor(250 * MiB, 24), 24);
 });
 
 // ---- Checksum verification of decompressed bytes (download path) ----

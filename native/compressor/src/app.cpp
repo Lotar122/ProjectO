@@ -1,0 +1,105 @@
+#include "projecto/app.hpp"
+
+#include <chrono>
+#include <ostream>
+#include <string>
+#include <variant>
+
+#include "projecto/brotli_codec.hpp"
+#include "projecto/cli.hpp"
+#include "projecto/codec_common.hpp"
+#include "projecto/file_io.hpp"
+#include "projecto/paths.hpp"
+#include "projecto/protocol.hpp"
+#include "projecto/version.hpp"
+#include "projecto/zstd_codec.hpp"
+
+namespace projecto
+{
+	namespace
+	{
+		ExitCode fail(std::ostream& out, std::ostream& err, ExitCode code, const std::string& message)
+		{
+			// The exit code carries the failure even when stdout is gone.
+			static_cast<void>(writeLine(out, errorResult(code, message)));
+			err << "projecto-compress: " << message << '\n';
+			return code;
+		}
+
+		// "projecto-compress/1.0.0 zstd/1.5.7" or "projecto-compress/1.0.0 brotli/1.2.1"
+		std::string encoderName(Codec codec)
+		{
+			std::string name = "projecto-compress/" + projectVersion();
+			name += codec == Codec::zstd ? " zstd/" + zstdVersion() : " brotli/" + brotliVersion();
+			return name;
+		}
+
+		ExitCode compress(const Options& options, const ValidatedPaths& paths, std::ostream& out, std::ostream& err)
+		{
+			const auto started = std::chrono::steady_clock::now();
+			CompressRequest request;
+			request.input = paths.input;
+			request.output = paths.output;
+			request.inputSize = options.inputSize;
+			request.budgetBytes = options.memoryBudgetMib * kMiB;
+			request.maxWindowLog = options.maxWindowLog;
+			request.progressIntervalBytes = options.progressIntervalMib * kMiB;
+
+			// Each codec removes its own output on every failure path.
+			CompressOutcome outcome = options.codec == Codec::zstd ? compressZstd(request, out) : compressBrotli(request, out);
+			if (const CodecFailure* failure = std::get_if<CodecFailure>(&outcome))
+			{
+				return fail(out, err, failure->code, failure->message);
+			}
+
+			const CompressStats& stats = std::get<CompressStats>(outcome);
+			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
+			JsonLine result{"result"};
+			result.boolean("ok", true)
+				.text("codec", codecName(options.codec))
+				.number("inputSize", stats.inputSize)
+				.number("outputSize", stats.outputSize)
+				.number("peakBytes", stats.peakBytes)
+				.number("elapsedMs", static_cast<std::uint64_t>(elapsed.count()))
+				.text("encoder", encoderName(options.codec));
+			if (!writeLine(out, result))
+			{
+				// Without the result line the caller cannot use the output: do not leave it behind.
+				// The codec created this file itself, so removing it touches nothing foreign.
+				removeQuietly(paths.output);
+				return fail(out, err, ExitCode::io, "cannot write the result line to stdout");
+			}
+			return ExitCode::ok;
+		}
+	}
+
+	ExitCode runApp(std::span<const std::string_view> args, std::ostream& out, std::ostream& err)
+	{
+		const ParseResult parsed = parseOptions(args);
+		if (const UsageError* usage = std::get_if<UsageError>(&parsed))
+		{
+			return fail(out, err, ExitCode::usage, usage->message);
+		}
+		if (const std::optional<std::string> mismatch = checkLibraryVersions())
+		{
+			return fail(out, err, ExitCode::internal, *mismatch);
+		}
+		if (std::holds_alternative<VersionRequest>(parsed))
+		{
+			if (!writeLine(out, versionLine()))
+			{
+				err << "projecto-compress: cannot write to stdout\n";
+				return ExitCode::io;
+			}
+			return ExitCode::ok;
+		}
+
+		const Options& options = std::get<Options>(parsed);
+		const auto paths = validatePaths(options);
+		if (const PathError* error = std::get_if<PathError>(&paths))
+		{
+			return fail(out, err, error->code, error->message);
+		}
+		return compress(options, std::get<ValidatedPaths>(paths), out, err);
+	}
+}

@@ -1,11 +1,9 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { rm, stat } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 
 // Keys of the S3 user metadata that describe how an order file is stored.
@@ -28,14 +26,14 @@ export const COMPRESSION_METHODS = {
 	identity: "identity",
 };
 
-const MAX_BROTLI_SIZE_HINT = 0xffffffff;
-
 // Smallest window both codecs accept.
 const MIN_WINDOW_LOG = 10;
-// A 27-bit window is zstd's default decoder limit, so the download path needs
-// no special decoder parameter.
-const MAX_ZSTD_WINDOW_LOG = 27;
-const MAX_BROTLI_WINDOW_LOG = 24;
+// Largest window the decoders accept (and the archiver worker may write). Uploads
+// are capped at 250 MiB, below 2^28, so nothing larger is ever needed. If the
+// upload cap goes above 256 MiB, raise these together with the decode-budget
+// weights in downloadDecodeBudget.js. Brotli above 24 uses the large-window format.
+export const ZSTD_MAX_WINDOW_LOG = 28;
+export const BROTLI_MAX_WINDOW_LOG = 28;
 
 // A window larger than the file gains nothing and only costs memory, so it is
 // sized to the file (log2 of the size, rounded up, within the codec's limits).
@@ -46,40 +44,6 @@ export function windowLogFor(size, maxWindowLog)
 	return Math.min(Math.max(needed, MIN_WINDOW_LOG), maxWindowLog);
 }
 
-// Strongest settings of both built-in codecs. CPU time does not matter for the
-// archiver, so each file gets both and the smaller result wins.
-const CANDIDATES = [
-	{
-		method: COMPRESSION_METHODS.zstd,
-		extension: ".zst",
-		// pledgedSrcSize matters most for memory: without a known source size,
-		// level 22 allocates its full hash/chain tables (~0.7 GB) even for a
-		// small file; with it zstd shrinks them to the input. It also records
-		// the content size in the frame header. Bun 1.3's node:zlib supports it
-		// (ZSTD_c_srcSizeHint is not exposed there).
-		create: (size) => zlib.createZstdCompress({
-			pledgedSrcSize: size,
-			params: {
-				[zlib.constants.ZSTD_c_compressionLevel]: 22,
-				[zlib.constants.ZSTD_c_windowLog]: windowLogFor(size, MAX_ZSTD_WINDOW_LOG),
-				[zlib.constants.ZSTD_c_enableLongDistanceMatching]: 1,
-				[zlib.constants.ZSTD_c_checksumFlag]: 1,
-			},
-		}),
-	},
-	{
-		method: COMPRESSION_METHODS.brotli,
-		extension: ".br",
-		create: (size) => zlib.createBrotliCompress({
-			params: {
-				[zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-				[zlib.constants.BROTLI_PARAM_LGWIN]: windowLogFor(size, MAX_BROTLI_WINDOW_LOG),
-				[zlib.constants.BROTLI_PARAM_SIZE_HINT]: Math.min(size, MAX_BROTLI_SIZE_HINT),
-			},
-		}),
-	},
-];
-
 // True only for metadata of bytes that must be decompressed before use.
 export function isCompressed(metadata)
 {
@@ -88,16 +52,141 @@ export function isCompressed(metadata)
 	return method === COMPRESSION_METHODS.zstd || method === COMPRESSION_METHODS.brotli;
 }
 
+// Window bits a brotli stream declares in its header (RFC 7932 section 9.1,
+// plus the large-window extension), or undefined while `header` is too short
+// to tell. The window is 2^bits - 16 bytes.
+function brotliWindowBits(header)
+{
+	if (header.length === 0)
+	{
+		return undefined;
+	}
+
+	const first = header[0];
+
+	if ((first & 0x01) === 0)
+	{
+		return 16;
+	}
+
+	const standardBits = (first >> 1) & 0x07;
+
+	if (standardBits !== 0)
+	{
+		return 17 + standardBits;
+	}
+
+	const smallBits = (first >> 4) & 0x07;
+
+	if (smallBits !== 1)
+	{
+		return smallBits === 0 ? 17 : 8 + smallBits;
+	}
+
+	// Large-window marker: one reserved bit (the decoder rejects it when set),
+	// then the window bits in the next six.
+	if (header.length < 2)
+	{
+		return undefined;
+	}
+
+	return header[1] & 0x3f;
+}
+
+// Brotli decoder for stored files. Its large-window flag lets a stream declare a
+// window up to 2^30, but the download budget assumes at most 2^28, so a larger
+// declaration is rejected from the first two bytes, before any data reaches
+// the decoder. Standard streams (window <= 24) pass the check unchanged.
+class LimitedWindowBrotliDecompress extends zlib.BrotliDecompress
+{
+	// Header bytes held back until the window bits can be read; null once checked.
+	#header = Buffer.alloc(0);
+
+	constructor()
+	{
+		super({ params: { [zlib.constants.BROTLI_DECODER_PARAM_LARGE_WINDOW]: 1 } });
+	}
+
+	_transform(chunk, encoding, callback)
+	{
+		if (this.#header === null)
+		{
+			super._transform(chunk, encoding, callback);
+
+			return;
+		}
+
+		const header = Buffer.concat([this.#header, chunk]);
+		const windowBits = brotliWindowBits(header);
+
+		if (windowBits === undefined)
+		{
+			this.#header = header;
+			callback();
+
+			return;
+		}
+
+		this.#header = null;
+
+		if (windowBits > BROTLI_MAX_WINDOW_LOG)
+		{
+			callback(new RangeError(`Brotli window of ${windowBits} bits exceeds the limit of ${BROTLI_MAX_WINDOW_LOG}`));
+
+			return;
+		}
+
+		super._transform(header, encoding, callback);
+	}
+
+	_flush(callback)
+	{
+		// The input ended inside the header: let the decoder report the truncated stream.
+		if (this.#header !== null && this.#header.length > 0)
+		{
+			const header = this.#header;
+
+			this.#header = null;
+			super._transform(header, "buffer", (err) =>
+			{
+				if (err)
+				{
+					callback(err);
+
+					return;
+				}
+
+				super._flush(callback);
+			});
+
+			return;
+		}
+
+		// No byte ever arrived: pass through so the native decoder sees the end of
+		// the input and fails like a stock decoder does.
+		this.#header = null;
+		super._flush(callback);
+	}
+}
+
+// Decodes stored bytes. The limits are explicit so frames written by the
+// archiver worker (zstd window 28, large-window brotli) decode, while a zstd
+// frame asking for a larger window is still rejected, as is a brotli stream
+// declaring a window above 2^28. Old objects (zstd window
+// <= 27, standard brotli) decode unchanged.
 export function createDecompressStream(method)
 {
 	if (method === COMPRESSION_METHODS.zstd)
 	{
-		return zlib.createZstdDecompress();
+		return zlib.createZstdDecompress({
+			params: { [zlib.constants.ZSTD_d_windowLogMax]: ZSTD_MAX_WINDOW_LOG },
+		});
 	}
 
 	if (method === COMPRESSION_METHODS.brotli)
 	{
-		return zlib.createBrotliDecompress();
+		// Also decodes standard (RFC 7932) streams.
+		return new LimitedWindowBrotliDecompress();
 	}
 
 	throw new Error(`Unsupported compression method: ${method}`);
@@ -115,68 +204,4 @@ export async function removeTempFile(filePath)
 	{
 		await rm(filePath, { force: true });
 	}
-}
-
-// Compresses srcPath with every candidate codec (one after another, since
-// zstd at level 22 on a large file needs a lot of memory) and keeps the
-// smallest result. Resolves to { method, path, size } with the result in a
-// temp file the caller must remove, or null when the best result saves less
-// than minSavingsRatio of the original size (already compressed formats).
-export async function compressBest(srcPath, { minSavingsRatio = 0.02 } = {})
-{
-	const { size: originalSize } = await stat(srcPath);
-
-	if (originalSize === 0)
-	{
-		return null;
-	}
-
-	let best = null;
-
-	try
-	{
-		for (const candidate of CANDIDATES)
-		{
-			const candidatePath = createTempFilePath(candidate.extension);
-
-			try
-			{
-				await pipeline(
-					createReadStream(srcPath),
-					candidate.create(originalSize),
-					createWriteStream(candidatePath),
-				);
-			}
-			catch (err)
-			{
-				await removeTempFile(candidatePath);
-				throw err;
-			}
-
-			const { size } = await stat(candidatePath);
-
-			if (!best || size < best.size)
-			{
-				await removeTempFile(best?.path);
-				best = { method: candidate.method, path: candidatePath, size };
-			}
-			else
-			{
-				await removeTempFile(candidatePath);
-			}
-		}
-	}
-	catch (err)
-	{
-		await removeTempFile(best?.path);
-		throw err;
-	}
-
-	if ((originalSize - best.size) / originalSize < minSavingsRatio)
-	{
-		await removeTempFile(best.path);
-		return null;
-	}
-
-	return best;
 }

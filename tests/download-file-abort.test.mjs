@@ -23,7 +23,10 @@ beforeEach(() =>
 	harness.db.queue([{ file_id: FILE_ID }]);
 
 	// A stream that never ends stands in for the open S3 connection.
-	s3Body = new Readable({ read() {} });
+	s3Body = new Readable({
+		read()
+		{}
+	});
 	harness.s3.send = async () => ({
 		Body: s3Body,
 		ContentLength: 10,
