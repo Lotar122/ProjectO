@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
+import { KRATOS_ADMIN_URL } from "@/app/lib/kratosServer";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
@@ -11,7 +12,6 @@ const log = createLogger("admin");
 const IDENTITY_SCHEMA_ID =
 	process.env.KRATOS_IDENTITY_SCHEMA_ID ||
 	"default";
-const KRATOS_ADMIN_URL = process.env.KRATOS_ADMIN_URL || "http://kratos:4434";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_ROLES = new Set(["user", "admin"]);

@@ -21,7 +21,9 @@ export default function OrdersHeader({
 {
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const settingsRef = useRef(null);
-	const userLabel = isAdmin ? "Admin" : `Dr. ${userLastName || userName}`;
+	const triggerRef = useRef(null);
+	const displayName = userLastName || userName;
+	const userLabel = isAdmin ? "Admin" : displayName ? `Dr. ${displayName}` : "Moje konto";
 
 	useEffect(() =>
 	{
@@ -31,6 +33,8 @@ export default function OrdersHeader({
 			return;
 		}
 
+		settingsRef.current?.querySelector('[role="menuitem"]')?.focus();
+
 		const handlePointerDown = (event) =>
 		{
 			if (!settingsRef.current?.contains(event.target))
@@ -39,11 +43,22 @@ export default function OrdersHeader({
 			}
 		};
 
+		const handleKeyDown = (event) =>
+		{
+			if (event.key === "Escape")
+			{
+				setIsSettingsOpen(false);
+				triggerRef.current?.focus();
+			}
+		};
+
 		document.addEventListener("pointerdown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
 
 		return () =>
 		{
 			document.removeEventListener("pointerdown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
 		};
 	}, [isSettingsOpen]);
 
@@ -84,6 +99,7 @@ export default function OrdersHeader({
 							</div>
 							<div className="relative" ref={settingsRef}>
 								<button
+									ref={triggerRef}
 									type="button"
 									onClick={() => setIsSettingsOpen((current) => !current)}
 									className="btn btn-secondary w-11 px-0 aria-expanded:bg-surface-hover"
@@ -93,7 +109,10 @@ export default function OrdersHeader({
 									<Settings className="h-4 w-4" aria-hidden="true" />
 								</button>
 								{isSettingsOpen && (
-									<div className="absolute right-0 top-full z-20 mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-xl">
+									<div
+										role="menu"
+										aria-label="Ustawienia konta"
+										className="absolute right-0 top-full z-20 mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-xl">
 										<div className="flex items-center gap-3 border-b border-line px-4 py-3 text-sm text-muted xl:hidden">
 											<UserCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
 											<span className="min-w-0 wrap-break-word">{userLabel}</span>

@@ -1,4 +1,4 @@
-import test from "node:test";
+import nodeTest from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash, randomBytes } from "node:crypto";
@@ -8,7 +8,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import zlib from "node:zlib";
-import { S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import {
 	ArchiveFileError,
@@ -28,6 +28,47 @@ import {
 	setOrderFileChecksum,
 } from "../src/app/server-functions/orders/orderFiles.js";
 import { encodeMetadataValue } from "../src/app/server-functions/MinIO/metadataEncoding.js";
+
+// The archiver writes its temporary files to os.tmpdir(). Each test gets its
+// own temporary directory instead (TMPDIR on POSIX, TEMP/TMP on Windows), so
+// the leftover-file assertions only see this test's files and are not
+// disturbed by other processes using the shared directory.
+const TEMP_ENV_NAMES = ["TMPDIR", "TEMP", "TMP"];
+
+async function withIsolatedTempDir(fn)
+{
+	const dir = await mkdtemp(path.join(os.tmpdir(), "projecto-archiver-test-"));
+	const previous = TEMP_ENV_NAMES.map((name) => [name, process.env[name]]);
+
+	for (const name of TEMP_ENV_NAMES)
+	{
+		process.env[name] = dir;
+	}
+
+	try
+	{
+		assert.equal(path.resolve(os.tmpdir()), path.resolve(dir), "os.tmpdir() does not follow the environment");
+		await fn(dir);
+	}
+	finally
+	{
+		for (const [name, value] of previous)
+		{
+			if (value === undefined)
+			{
+				delete process.env[name];
+			}
+			else
+			{
+				process.env[name] = value;
+			}
+		}
+
+		await rm(dir, { recursive: true, force: true });
+	}
+}
+
+const test = (name, fn) => nodeTest(name, () => withIsolatedTempDir(() => fn()));
 
 const BUCKET = "projecto";
 const FILE_ID = "01900000-0000-7000-8000-000000000001";
@@ -546,11 +587,81 @@ test("restores the original when the stored archive fails read-back", async () =
 	}, { corruptPuts: 1 });
 });
 
-test("a missing object fails the file", async () =>
+test("a missing object is left for the next run instead of failing", async () =>
+{
+	await withS3(async (s3, { counters }) =>
+	{
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.changed);
+		assert.equal(result.originalSize, 0);
+		assert.equal(counters.put, 0);
+	});
+});
+
+// Makes every request of CommandClass fail with error (as the SDK would report it).
+function failCommand(s3, CommandClass, error)
+{
+	const send = s3.send.bind(s3);
+
+	s3.send = (command, options) =>
+	{
+		if (command instanceof CommandClass)
+		{
+			return Promise.reject(error);
+		}
+
+		return send(command, options);
+	};
+}
+
+test("a HEAD that reports the file deleted is skipped, not failed, and leaves no temp files", async () =>
+{
+	const data = compressibleData();
+	const tempBefore = await archiverTempFiles();
+
+	await withS3(async (s3, { objects, counters }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+		failCommand(s3, HeadObjectCommand, Object.assign(new Error("Not Found"), { name: "NotFound" }));
+
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.changed);
+		assert.equal(result.originalSize, 0);
+		assert.equal(objects.has(FILE_ID), true);
+		assert.equal(counters.put, 0);
+		assert.deepEqual(await archiverTempFiles(), tempBefore);
+	});
+});
+
+test("a GET that reports NoSuchKey is skipped, not failed, and leaves no temp files", async () =>
+{
+	const data = compressibleData();
+	const tempBefore = await archiverTempFiles();
+
+	await withS3(async (s3, { objects, counters }) =>
+	{
+		seed(objects, data, { sha256: sha(data) });
+		failCommand(s3, GetObjectCommand, Object.assign(new Error("The specified key does not exist."), { name: "NoSuchKey" }));
+
+		const result = await archiveOrderFile({ s3, fileId: FILE_ID });
+
+		assert.equal(result.outcome, FILE_OUTCOMES.changed);
+		assert.equal(result.originalSize, 0);
+		assert.equal(objects.has(FILE_ID), true);
+		assert.equal(counters.put, 0);
+		assert.deepEqual(await archiverTempFiles(), tempBefore);
+	});
+});
+
+test("a HEAD failing with another error still fails the file", async () =>
 {
 	await withS3(async (s3) =>
 	{
-		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }));
+		failCommand(s3, HeadObjectCommand, Object.assign(new Error("Service unavailable"), { name: "ServiceUnavailable" }));
+
+		await assert.rejects(archiveOrderFile({ s3, fileId: FILE_ID }), { name: "ServiceUnavailable" });
 	});
 });
 

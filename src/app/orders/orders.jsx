@@ -3,9 +3,10 @@
 import { m } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import http, { TRANSFER_TIMEOUT_MS } from "@/app/lib/http";
 
+import Alert from "@/app/components/Alert";
 import BackgroundActionsWidget from "./components/BackgroundActionsWidget";
 import OrderCard from "./components/OrderCard";
 import OrdersHeader from "./components/OrdersHeader";
@@ -20,7 +21,8 @@ import {
 import {
 	buildOrderFileName,
 	INITIAL_EDIT_DRAFT,
-	INITIAL_ORDER,
+	createInitialOrder,
+	dedupeNewFiles,
 	UPLOAD_LIMIT_MESSAGE,
 	appendUploadFiles,
 	computeSha256Hex,
@@ -28,13 +30,17 @@ import {
 	createLocalAttachments,
 	getChecksumMismatchError,
 	getDisplayDate,
+	getErrorResponseData,
 	getOrderFiles,
 	getUploadLimitError,
 	getUploadLimitResponseError,
 	normalizeOrderStatus,
 } from "./orderUtils";
+import { isOwnerEditableStatus } from "@/app/lib/validate";
+import { ORDER_LOCKED } from "@/app/lib/apiErrors";
 
-// Forms and dialogs are rarely open on first paint, so they load on demand.
+// Forms and dialogs are rarely open on first paint, so they stay out of the main bundle.
+// The dialogs are always rendered, so their chunks load after hydration and exit animations can run.
 const OrderForm = dynamic(() => import("./components/OrderForm"));
 const PasswordSettingsForm = dynamic(() => import("./components/PasswordSettingsForm"));
 const DeleteOrderModal = dynamic(() => import("./components/DeleteOrderModal"));
@@ -90,6 +96,28 @@ const sendWithChecksumRetry = async (send) =>
 
 		return send();
 	}
+};
+
+const ORDER_LOCKED_FALLBACK_MESSAGE =
+	"Tego zlecenia nie można już zmienić, ponieważ ma status Gotowe lub Zrealizowane.";
+
+// The server's explanation when an owner edit or delete hit an order that is already
+// shipped or completed (409 ORDER_LOCKED), or null for any other error, other 409s included.
+const getOrderLockedMessage = async (err) =>
+{
+	if (err?.response?.status !== 409)
+	{
+		return null;
+	}
+
+	const data = await getErrorResponseData(err);
+
+	if (data?.code !== ORDER_LOCKED)
+	{
+		return null;
+	}
+
+	return typeof data.error === "string" && data.error ? data.error : ORDER_LOCKED_FALLBACK_MESSAGE;
 };
 
 // Returns the verified blob, or null if it was corrupted in transit twice
@@ -149,10 +177,12 @@ export default function Orders({
 	const [isOrdersLoading, setIsOrdersLoading] = useState(
 		initialPage === "orders" && !initialOrdersPayload,
 	);
+	// True when the latest list request failed; the previous list (if any) stays on screen.
+	const [ordersError, setOrdersError] = useState(false);
 	// Committed search text; the text being typed lives in OrdersToolbar.
 	const [orderSearchValue, setOrderSearchValue] = useState("");
 	const [orderStatusValue, setOrderStatusValue] = useState(ALL_STATUSES_LABEL);
-	const [newOrder, setNewOrder] = useState(INITIAL_ORDER);
+	const [newOrder, setNewOrder] = useState(createInitialOrder);
 	const [files, setFiles] = useState([]);
 	const [deleteOrderId, setDeleteOrderId] = useState(null);
 	const [editedOrder, setEditedOrder] = useState(null);
@@ -194,17 +224,48 @@ export default function Orders({
 	const ordersAbortRef = useRef(null);
 	const fileNameRequestsRef = useRef(new Map());
 	const isLoggingOutRef = useRef(false);
+	// Set by the first "Usuń" click; the closing dialog stays on screen and could be confirmed again.
+	const isDeleteConfirmedRef = useRef(false);
+	// The card's menu button: the menu item that opened the delete dialog is gone when it closes.
+	const deleteReturnFocusRef = useRef(null);
+	// Set while a confirmed delete refreshes the list; checked once the new list is on screen.
+	const isFocusAfterDeletePendingRef = useRef(false);
+	const ordersHeadingRef = useRef(null);
 	// Always-current values for stable callbacks, so memoized cards keep their props.
 	const latestRef = useRef({});
 
 	useEffect(() =>
 	{
-		latestRef.current = {
+		Object.assign(latestRef.current, {
 			currentOrdersPage,
 			fileNamesById,
 			orders,
-		};
+			search: orderSearchValue,
+			status: orderStatusValue,
+		});
 	});
+
+	// Focus went back to the deleted card's menu button when the dialog closed. Once the
+	// card is gone, focus would drop to <body>, so it moves to the list heading instead.
+	useEffect(() =>
+	{
+		if (!isFocusAfterDeletePendingRef.current)
+		{
+			return;
+		}
+
+		isFocusAfterDeletePendingRef.current = false;
+
+		const trigger = deleteReturnFocusRef.current;
+		const active = document.activeElement;
+
+		deleteReturnFocusRef.current = null;
+
+		if (trigger && !trigger.isConnected && (!active || active === document.body))
+		{
+			ordersHeadingRef.current?.focus();
+		}
+	}, [orders]);
 
 	const updatePasswordForm = useCallback((field, value) =>
 	{
@@ -363,6 +424,7 @@ export default function Orders({
 				const cachedPayload = ordersCache.get(cacheKey);
 
 				setIsOrdersLoading(false);
+				setOrdersError(false);
 				applyOrdersPayload(cachedPayload);
 				return cachedPayload.orders || [];
 			}
@@ -423,6 +485,7 @@ export default function Orders({
 
 				if (requestId === latestOrdersRequestRef.current)
 				{
+					setOrdersError(false);
 					applyOrdersPayload(payload);
 				}
 
@@ -430,10 +493,16 @@ export default function Orders({
 			}
 			catch (err)
 			{
-				// Replaced by a newer request: that one reports the result.
+				// Replaced by a newer request (that one reports the result) or unmounted.
+				// A timeout does not abort this controller, so it falls through and shows the error.
 				if (controller.signal.aborted)
 				{
 					return [];
+				}
+
+				if (requestId === latestOrdersRequestRef.current)
+				{
+					setOrdersError(true);
 				}
 
 				throw err;
@@ -464,6 +533,14 @@ export default function Orders({
 		},
 		[clearOrdersCache, loadOrdersPage],
 	);
+
+	const retryOrdersLoad = useCallback(() =>
+	{
+		void refreshOrders({ page: latestRef.current.currentOrdersPage }).catch((err) =>
+		{
+			console.error("Nie udało się pobrać zleceń:", err);
+		});
+	}, [refreshOrders]);
 
 	// Resolves to every file name known after the call (existing plus newly fetched).
 	const loadFileNamesByIds = useCallback(async (fileIds, { force = false } = {}) =>
@@ -520,12 +597,6 @@ export default function Orders({
 			window.history.replaceState(null, "", window.location.pathname);
 		}
 	}, [initialPage]);
-
-	useEffect(() =>
-	{
-		latestRef.current.search = orderSearchValue;
-		latestRef.current.status = orderStatusValue;
-	}, [orderSearchValue, orderStatusValue]);
 
 	useEffect(() =>
 	{
@@ -684,7 +755,7 @@ export default function Orders({
 
 		setCurrentPage("orders");
 		setCurrentOrdersPage(1);
-		setNewOrder(INITIAL_ORDER);
+		setNewOrder(createInitialOrder());
 		setFiles([]);
 
 		void (async () =>
@@ -760,6 +831,17 @@ export default function Orders({
 		setOpenEditMenuId(null);
 	};
 
+	const openCreateOrder = () =>
+	{
+		// An untouched form gets today's date again; a draft the user left is kept as it was.
+		if (!newOrder.patient && !newOrder.details && files.length === 0)
+		{
+			setNewOrder(createInitialOrder());
+		}
+
+		setCurrentPage("create-order");
+	};
+
 	const showOrdersPage = () =>
 	{
 		setOpenEditMenuId(null);
@@ -810,10 +892,12 @@ export default function Orders({
 
 	const confirmDelete = () =>
 	{
-		if (!deleteOrderId)
+		if (!deleteOrderId || isDeleteConfirmedRef.current)
 		{
 			return;
 		}
+
+		isDeleteConfirmedRef.current = true;
 
 		const orderToDelete = orders.find(
 			(order) => order.order_id === deleteOrderId,
@@ -841,17 +925,29 @@ export default function Orders({
 			catch (err)
 			{
 				console.error("Nie udało się usunąć zlecenia:", err);
-				failBackgroundAction(actionId, "Nie udało się usunąć zlecenia", orderLabel);
+
+				const lockedMessage = await getOrderLockedMessage(err);
+
+				failBackgroundAction(actionId, "Nie udało się usunąć zlecenia", lockedMessage ?? orderLabel);
+
+				// The status changed since the list was loaded; reload so the card shows it.
+				if (lockedMessage)
+				{
+					retryOrdersLoad();
+				}
+
 				return;
 			}
 
 			try
 			{
+				isFocusAfterDeletePendingRef.current = true;
 				await refreshOrders({ page: currentOrdersPage });
 				completeBackgroundAction(actionId, "Usunięto zlecenie", orderLabel);
 			}
 			catch (err)
 			{
+				isFocusAfterDeletePendingRef.current = false;
 				console.error("Nie udało się odświeżyć listy zleceń:", err);
 				completeBackgroundAction(
 					actionId,
@@ -873,15 +969,36 @@ export default function Orders({
 		setOpenEditMenuId((current) => (current === orderId ? null : orderId));
 	}, []);
 
-	const requestDeleteOrder = useCallback((orderId) =>
+	// Owners may only change orders that are not shipped or completed yet; the server checks it again.
+	const canModifyOrder = useCallback(
+		(order) => adminMode || isOwnerEditableStatus(order?.status),
+		[adminMode],
+	);
+
+	const requestDeleteOrder = useCallback((orderId, returnFocusTarget = null) =>
 	{
 		setOpenEditMenuId(null);
+
+		const order = latestRef.current.orders?.find((current) => current.order_id === orderId);
+
+		if (!canModifyOrder(order))
+		{
+			return;
+		}
+
+		deleteReturnFocusRef.current = returnFocusTarget;
+		isDeleteConfirmedRef.current = false;
 		setDeleteOrderId(orderId);
-	}, []);
+	}, [canModifyOrder]);
 
 	const openEditOrder = useCallback(async (order) =>
 	{
 		setOpenEditMenuId(null);
+
+		if (!canModifyOrder(order))
+		{
+			return;
+		}
 
 		let names = latestRef.current.fileNamesById ?? {};
 
@@ -907,7 +1024,7 @@ export default function Orders({
 		});
 		setEditedOrder(order);
 		setCurrentPage("edit-order");
-	}, [loadFileNamesByIds]);
+	}, [canModifyOrder, loadFileNamesByIds]);
 
 	const handleEditOrderSave = (e) =>
 	{
@@ -923,6 +1040,9 @@ export default function Orders({
 		const details = editDraft.details;
 		const dueDate = editDraft.dueDate;
 		const attachments = [...editFiles];
+		// Files on the order when the form was opened. The server keeps files that another
+		// edit added meanwhile instead of treating them as removed by this one.
+		const knownFileIds = (editedOrder.files ?? []).filter((fileId) => typeof fileId === "string");
 		const localAttachments = attachments.filter(
 			(attachment) => attachment.isLocal && attachment.file instanceof File,
 		);
@@ -982,6 +1102,7 @@ export default function Orders({
 					}
 				});
 
+				formData.append("knownFileIds", JSON.stringify(knownFileIds));
 				appendUploadFiles(formData, localAttachments, checksums);
 
 				response = await sendWithChecksumRetry(() =>
@@ -998,6 +1119,17 @@ export default function Orders({
 			catch (err)
 			{
 				console.error("Nie udało się zaktualizować zlecenia:", err);
+
+				const lockedMessage = await getOrderLockedMessage(err);
+
+				if (lockedMessage)
+				{
+					failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", lockedMessage);
+					// An admin changed the status while the form was open; reload so the card shows it.
+					retryOrdersLoad();
+					return;
+				}
+
 				failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", patient);
 				await showUploadError(err, "Nie udało się zapisać zmian w zleceniu");
 				return;
@@ -1206,20 +1338,17 @@ export default function Orders({
 
 	return (
 		<div className={adminMode ? "text-foreground" : "min-h-dvh bg-transparent text-foreground"}>
-			{deleteOrderId && (
-				<DeleteOrderModal
-					isOpen
-					onCancel={() => setDeleteOrderId(null)}
-					onConfirm={confirmDelete}
-				/>
-			)}
+			<DeleteOrderModal
+				isOpen={Boolean(deleteOrderId)}
+				onCancel={() => setDeleteOrderId(null)}
+				onConfirm={confirmDelete}
+				returnFocusRef={deleteReturnFocusRef}
+			/>
 
-			{integrityError && (
-				<IntegrityErrorModal
-					error={integrityError}
-					onClose={() => setIntegrityError(null)}
-				/>
-			)}
+			<IntegrityErrorModal
+				error={integrityError}
+				onClose={() => setIntegrityError(null)}
+			/>
 
 			{!adminMode && (
 				<OrdersHeader
@@ -1227,7 +1356,7 @@ export default function Orders({
 					isAdmin={isAdmin}
 					onLogout={handleLogout}
 					onShowChangePassword={showChangePasswordPage}
-					onShowCreateOrder={() => setCurrentPage("create-order")}
+					onShowCreateOrder={openCreateOrder}
 					onShowOrders={showOrdersPage}
 					userLastName={userLastName}
 					userName={userName}
@@ -1242,7 +1371,10 @@ export default function Orders({
 						animate="animate">
 						<div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
 							<div className="min-w-0">
-								<HeadingTag className="text-2xl font-bold text-foreground sm:text-3xl">
+								<HeadingTag
+									ref={ordersHeadingRef}
+									tabIndex={-1}
+									className="focus-ring rounded-sm text-2xl font-bold text-foreground sm:text-3xl">
 									Zlecenia
 								</HeadingTag>
 								<p className={adminMode ? "mt-2 text-muted" : "text-muted"}>
@@ -1253,7 +1385,7 @@ export default function Orders({
 							</div>
 							{!adminMode && <button
 								type="button"
-								onClick={() => setCurrentPage("create-order")}
+								onClick={openCreateOrder}
 								className="btn btn-primary w-full px-6 sm:w-auto">
 								<Plus className="h-5 w-5" aria-hidden="true" />
 								Nowe zlecenie
@@ -1275,6 +1407,26 @@ export default function Orders({
 							{isOrdersLoading ? "Wczytywanie zleceń..." : ""}
 						</p>
 
+						{ordersError && (
+							<Alert
+								tone="danger"
+								className="mb-6"
+								action={
+									<button
+										type="button"
+										onClick={retryOrdersLoad}
+										className="btn btn-secondary">
+										<RefreshCw
+											className={`h-4 w-4 ${isOrdersLoading ? "animate-spin" : ""}`}
+											aria-hidden="true"
+										/>
+										Spróbuj ponownie
+									</button>
+								}>
+								Nie udało się pobrać zleceń. Sprawdź połączenie i spróbuj ponownie.
+							</Alert>
+						)}
+
 						<div
 							className={`grid gap-6 transition-opacity duration-200 ${
 								isOrdersLoading ? "opacity-60" : "opacity-100"
@@ -1282,6 +1434,7 @@ export default function Orders({
 							{orders.map((order) => (
 								<OrderCard
 									key={order.order_id}
+									canModify={canModifyOrder(order)}
 									downloadingFileIds={expandedOrderId === order.order_id ? downloadingFileIds : undefined}
 									fileNamesById={expandedOrderId === order.order_id ? fileNamesById : NO_FILE_NAMES}
 									isAdmin={adminMode}
@@ -1299,7 +1452,7 @@ export default function Orders({
 							))}
 						</div>
 
-						{!isOrdersLoading && orders.length === 0 && (
+						{!isOrdersLoading && !ordersError && orders.length === 0 && (
 							<div className="rounded-xl border border-dashed border-line-control bg-surface px-6 py-12 text-center text-muted">
 								Nie znaleziono zleceń dla tej strony lub filtra.
 							</div>
@@ -1342,7 +1495,10 @@ export default function Orders({
 								}))
 							}
 							onFilesSelected={(selectedFiles) =>
-								setFiles((previous) => [...previous, ...selectedFiles])
+								setFiles((previous) => [
+									...previous,
+									...dedupeNewFiles(previous, selectedFiles),
+								])
 							}
 							onPatientChange={(patient) =>
 								setNewOrder((current) => ({
@@ -1398,7 +1554,11 @@ export default function Orders({
 								setEditFiles((current) => [
 									...current,
 									...createLocalAttachments(
-										selectedFiles,
+										dedupeNewFiles(
+											current.flatMap((attachment) =>
+												(attachment.isLocal && attachment.file ? [attachment.file] : [])),
+											selectedFiles,
+										),
 										editDraft.patient || editedOrder.patient,
 									),
 								])

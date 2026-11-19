@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, m } from "framer-motion";
-import { memo } from "react";
+import { memo, useId, useRef } from "react";
 import {
 	Archive,
 	CheckCircle,
@@ -105,7 +105,12 @@ function OrderCardDetails({
 	);
 }
 
+const MENU_ITEM_CLASS =
+	"focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors";
+const LOCKED_MENU_ITEM_CLASS = `${MENU_ITEM_CLASS} cursor-not-allowed text-muted`;
+
 function OrderCard({
+	canModify = true,
 	downloadingFileIds,
 	fileNamesById,
 	isAdmin = false,
@@ -125,6 +130,10 @@ function OrderCard({
 	const orderId = order.order_id;
 	const statusLabel = STATUS_LABELS[order.status] ?? STATUS_LABELS.completed;
 	const archived = isOrderArchived(order);
+	const lockNoteId = useId();
+	// Focus goes back here when the delete dialog closes; the menu item that opened it is gone by then.
+	const menuTriggerRef = useRef(null);
+	const lockedItemProps = canModify ? {} : { "aria-disabled": "true", "aria-describedby": lockNoteId };
 
 	return (
 		<div
@@ -225,6 +234,7 @@ function OrderCard({
 
 						<div className="relative">
 							<button
+								ref={menuTriggerRef}
 								type="button"
 								onClick={() => onToggleMenu(orderId)}
 								className="btn btn-secondary w-11 px-0"
@@ -242,26 +252,37 @@ function OrderCard({
 										className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-line bg-surface-raised p-2 shadow-2xl">
 										<button
 											type="button"
-											onClick={(event) =>
+											{...lockedItemProps}
+											onClick={canModify ? (event) =>
 											{
 												event.stopPropagation();
 												onOpenEdit(order);
-											}}
-											className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-surface-hover active:bg-surface-active">
+											} : undefined}
+											className={canModify
+												? `${MENU_ITEM_CLASS} text-foreground hover:bg-surface-hover active:bg-surface-active`
+												: LOCKED_MENU_ITEM_CLASS}>
 											<PencilLine className="h-4 w-4" aria-hidden="true" />
 											Edytuj zlecenie
 										</button>
 										<button
 											type="button"
-											onClick={(event) =>
+											{...lockedItemProps}
+											onClick={canModify ? (event) =>
 											{
 												event.stopPropagation();
-												onRequestDelete(orderId);
-											}}
-											className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-danger-text transition-colors hover:bg-danger-soft active:bg-danger-line">
+												onRequestDelete(orderId, menuTriggerRef.current);
+											} : undefined}
+											className={canModify
+												? `${MENU_ITEM_CLASS} text-danger-text hover:bg-danger-soft active:bg-danger-line`
+												: LOCKED_MENU_ITEM_CLASS}>
 											<Trash2 className="h-4 w-4" aria-hidden="true" />
 											Usuń zlecenie
 										</button>
+										{!canModify && (
+											<p id={lockNoteId} className="px-3 pb-1 pt-2 text-xs leading-5 text-muted">
+												Edycja i usuwanie są niedostępne dla zleceń gotowych i zrealizowanych.
+											</p>
+										)}
 									</m.div>
 								)}
 							</AnimatePresence>

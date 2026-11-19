@@ -148,6 +148,15 @@ async function handleGet(req)
 			backfillChecksumWhileStreaming(s3, fileKey, content);
 		const fileName = decodeMetadataValue(file.metadata?.original_name) ?? "file";
 
+		// The abort event only fires once; a client that already left would keep
+		// the S3 body open forever. 499: the client is gone, this just labels the access log.
+		if (req.signal.aborted)
+		{
+			body.destroy();
+
+			return new Response(null, { status: 499 });
+		}
+
 		req.signal.addEventListener("abort", () => body.destroy(), { once: true });
 
 		return new Response(Readable.toWeb(body), {
@@ -163,8 +172,15 @@ async function handleGet(req)
 		});
 
 	}
-	catch (err) 
+	catch (err)
 	{
+		// The client left while S3 was still answering; getFile rejects with the
+		// abort. Nobody is waiting for a 500, and it is not a server error.
+		if (req.signal.aborted)
+		{
+			return new Response(null, { status: 499 });
+		}
+
 		log.error("Failed to download file", err);
 
 		return internalError();

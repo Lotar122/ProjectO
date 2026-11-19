@@ -1,7 +1,11 @@
 import { cookies } from "next/headers";
 
+import { DB } from "@/app/lib/db";
+import { describeDbError } from "@/app/lib/dbError";
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { getIdentityName } from "@/app/server-functions/getUserName";
 import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
+import { KRATOS_ADMIN_URL } from "@/app/lib/kratosServer";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { isUuid } from "@/app/lib/validate";
 import { sanitizeIdentity } from "../identityUtils";
@@ -11,7 +15,6 @@ import { createLogger } from "@/app/lib/logger";
 const log = createLogger("admin");
 
 const IDENTITY_SCHEMA_ID = process.env.KRATOS_IDENTITY_SCHEMA_ID || "default";
-const KRATOS_ADMIN_URL = process.env.KRATOS_ADMIN_URL || "http://kratos:4434";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_ROLES = new Set(["user", "admin"]);
 
@@ -64,7 +67,9 @@ async function handlePut(request)
 		if (!currentResponse.ok)
 		{
 			log.warn(`Kratos lookup for identity ${id} returned ${currentResponse.status}`);
-			return Response.json({ error: "Nie znaleziono użytkownika." }, { status: 404 });
+			// Unread bodies keep the connection busy until they are garbage collected.
+			await currentResponse.body?.cancel();
+			return Response.json({ error: currentResponse.status === 404 ? "Nie znaleziono użytkownika." : "Nie udało się połączyć z Ory Kratos." }, { status: currentResponse.status === 404 ? 404 : 502 });
 		}
 
 		if (id === session.data.identity.id && role !== "admin")
@@ -113,6 +118,28 @@ async function handlePut(request)
 			return Response.json({ error: errorData?.error?.reason || errorData?.error?.message || "Nie udało się zaktualizować użytkownika." }, { status: identityResponse.status >= 400 && identityResponse.status < 500 ? identityResponse.status : 502 });
 		}
 
+		const updatedIdentity = await identityResponse.json();
+
+		try
+		{
+			// Kratos is the source of truth; the admin orders list reads the users
+			// row, so keep it in step. A failure here is repaired by the next login sync.
+			const name = getIdentityName(updatedIdentity);
+
+			await DB`
+				UPDATE users
+				SET
+					email = ${updatedIdentity.traits?.email ?? email},
+					name = ${name.first},
+					last_name = ${name.last}
+				WHERE user_id = ${id}
+			`;
+		}
+		catch (dbError)
+		{
+			log.error(`Failed to sync users row for identity ${id} after update: ${describeDbError(dbError)}`);
+		}
+
 		if (password && id !== session.data.identity.id)
 		{
 			// A new password must also end the sessions opened with the old one.
@@ -129,7 +156,7 @@ async function handlePut(request)
 
 		log.info(`Identity ${id} updated by admin ${session.data.identity.id} (role ${role}${password ? ", password changed" : ""})`);
 
-		return Response.json({ identity: sanitizeIdentity(await identityResponse.json()) });
+		return Response.json({ identity: sanitizeIdentity(updatedIdentity) });
 	}
 	catch (error)
 	{

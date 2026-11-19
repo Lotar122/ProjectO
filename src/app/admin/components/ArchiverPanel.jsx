@@ -3,9 +3,11 @@
 import http from "@/app/lib/http";
 import { AnimatePresence, m } from "framer-motion";
 import { Archive, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import Alert from "@/app/components/Alert";
+import useModalA11y from "@/app/components/useModalA11y";
+import { getArchiverErrorText } from "./archiverErrors";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -47,30 +49,45 @@ const formatTime = (value) =>
 {
 	if (!value)
 	{
-		return "—";
+		return "brak";
 	}
 
 	const date = new Date(value);
 
-	return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("pl-PL");
+	return Number.isNaN(date.getTime()) ? "brak" : date.toLocaleString("pl-PL");
 };
 
 function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 {
 	const titleId = useId();
+	const cancelRef = useRef(null);
+	const dialogRef = useModalA11y({ isOpen, onClose: onCancel, initialFocusRef: cancelRef });
 
 	return (
 		<AnimatePresence>
 			{isOpen && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+				<m.div
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1, pointerEvents: "auto" }}
+					exit={{ opacity: 0, pointerEvents: "none" }}
+					onClick={(event) =>
+					{
+						if (event.target === event.currentTarget)
+						{
+							onCancel();
+						}
+					}}
+					className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
 					<m.div
+						ref={dialogRef}
 						initial={{ opacity: 0, scale: 0.94, y: 18 }}
-						animate={{ opacity: 1, scale: 1, y: 0 }}
-						exit={{ opacity: 0, scale: 0.96 }}
+						animate={{ opacity: 1, scale: 1, y: 0, pointerEvents: "auto" }}
+						exit={{ opacity: 0, scale: 0.96, pointerEvents: "none" }}
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby={titleId}
-						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6">
+						tabIndex={-1}
+						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6 outline-none">
 						<h2 id={titleId} className="mb-4 text-lg font-semibold text-foreground">
 							Uruchomić archiwizację?
 						</h2>
@@ -80,6 +97,7 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 						</p>
 						<div className="flex justify-end gap-3">
 							<button
+								ref={cancelRef}
 								type="button"
 								onClick={onCancel}
 								className="btn btn-secondary min-w-24">
@@ -93,7 +111,7 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 							</button>
 						</div>
 					</m.div>
-				</div>
+				</m.div>
 			)}
 		</AnimatePresence>
 	);
@@ -122,62 +140,137 @@ export default function ArchiverPanel()
 	const state = status?.state ?? "idle";
 	const isRunning = state === "running";
 
+	const runningRef = useRef(false);
+	const loopRef = useRef(null);
+	// Bumped around every start request; a status GET sent before that is stale and must not
+	// overwrite the state the start returned.
+	const epochRef = useRef(0);
+
+	const applyStatus = useCallback((nextStatus) =>
+	{
+		runningRef.current = nextStatus?.state === "running";
+		setStatus(nextStatus);
+	}, []);
+
 	const loadStatus = useCallback(async (signal) =>
 	{
+		const epoch = epochRef.current;
+
 		try
 		{
 			const response = await http.get("/api/admin/archiver", { withCredentials: true, signal });
 
-			setStatus(response.data.status ?? null);
+			if (signal.aborted || epoch !== epochRef.current)
+			{
+				return;
+			}
+
+			applyStatus(response.data.status ?? null);
 			setCandidates(response.data.candidates ?? null);
 			setError("");
 		}
 		catch (err)
 		{
-			if (signal?.aborted)
+			if (signal.aborted)
 			{
 				return;
 			}
 
-			setError(err.response?.data?.error || "Nie udało się pobrać statusu archiwizacji.");
+			setError(getArchiverErrorText(err, "status"));
 		}
 		finally
 		{
-			if (!signal?.aborted)
+			if (!signal.aborted)
 			{
 				setIsLoading(false);
 			}
 		}
-	}, []);
+	}, [applyStatus]);
 
+	// One loop for the whole mount: the first load runs here too, and the next poll is
+	// scheduled only after the previous request settles, so requests never overlap.
 	useEffect(() =>
 	{
 		const controller = new AbortController();
+		const { signal } = controller;
+		let timer = null;
+		let inFlight = false;
 
-		const loadInitialStatus = async () =>
+		const clearTimer = () =>
 		{
-			await loadStatus(controller.signal);
+			if (timer !== null)
+			{
+				clearTimeout(timer);
+				timer = null;
+			}
 		};
 
-		loadInitialStatus();
-
-		return () => controller.abort();
-	}, [loadStatus]);
-
-	useEffect(() =>
-	{
-		if (!isRunning)
+		const schedule = () =>
 		{
-			return undefined;
-		}
+			clearTimer();
 
-		const interval = setInterval(loadStatus, POLL_INTERVAL_MS);
+			if (signal.aborted || inFlight || !runningRef.current || document.visibilityState === "hidden")
+			{
+				return;
+			}
 
-		return () => clearInterval(interval);
-	}, [isRunning, loadStatus]);
+			timer = setTimeout(() =>
+			{
+				timer = null;
+
+				if (document.visibilityState !== "hidden")
+				{
+					run();
+				}
+			}, POLL_INTERVAL_MS);
+		};
+
+		const run = async () =>
+		{
+			if (inFlight || signal.aborted)
+			{
+				return;
+			}
+
+			clearTimer();
+			inFlight = true;
+
+			try
+			{
+				await loadStatus(signal);
+			}
+			finally
+			{
+				inFlight = false;
+			}
+
+			schedule();
+		};
+
+		const onVisibilityChange = () =>
+		{
+			if (document.visibilityState === "visible" && runningRef.current)
+			{
+				run();
+			}
+		};
+
+		loopRef.current = { refresh: run, schedule };
+		document.addEventListener("visibilitychange", onVisibilityChange);
+		run();
+
+		return () =>
+		{
+			controller.abort();
+			clearTimer();
+			document.removeEventListener("visibilitychange", onVisibilityChange);
+			loopRef.current = null;
+		};
+	}, [loadStatus]);
 
 	const startArchiver = async () =>
 	{
+		epochRef.current++;
 		setIsConfirmOpen(false);
 		setIsStarting(true);
 		setError("");
@@ -187,7 +280,8 @@ export default function ArchiverPanel()
 		{
 			const response = await http.post("/api/admin/archiver", {}, { withCredentials: true });
 
-			setStatus(response.data.status ?? null);
+			applyStatus(response.data.status ?? null);
+			loopRef.current?.schedule();
 		}
 		catch (err)
 		{
@@ -195,16 +289,18 @@ export default function ArchiverPanel()
 
 			if (err.response?.status === 409 && data?.status)
 			{
-				setStatus(data.status);
+				applyStatus(data.status);
+				loopRef.current?.schedule();
 				setInfo("Archiwizacja jest już w toku.");
 			}
 			else
 			{
-				setError(data?.error || "Nie udało się uruchomić archiwizacji.");
+				setError(getArchiverErrorText(err, "start"));
 			}
 		}
 		finally
 		{
+			epochRef.current++;
 			setIsStarting(false);
 		}
 	};
@@ -240,7 +336,7 @@ export default function ArchiverPanel()
 						onClick={() =>
 						{
 							setInfo("");
-							loadStatus();
+							loopRef.current?.refresh();
 						}}
 						className="btn btn-secondary">
 						<RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -271,7 +367,7 @@ export default function ArchiverPanel()
 							{STATE_LABELS[state] ?? state}
 						</span>
 						<span className="text-sm text-muted">
-							Zlecenia do archiwizacji: <span className="font-semibold text-foreground">{candidates ?? "—"}</span>
+							Zlecenia do archiwizacji: <span className="font-semibold text-foreground">{candidates ?? "brak danych"}</span>
 						</span>
 					</div>
 
@@ -323,9 +419,13 @@ export default function ArchiverPanel()
 					)}
 
 					{status.lastError && (
-						<p className="text-sm text-danger-text wrap-break-word">
-							Ostatni błąd: {status.lastError}
-						</p>
+						<div className="text-sm">
+							<p className="text-danger-text">Ostatni przebieg zakończył się błędem.</p>
+							<details className="mt-1 text-xs text-muted">
+								<summary className="cursor-pointer">Szczegóły techniczne</summary>
+								<p className="mt-1 font-mono wrap-break-word">{status.lastError}</p>
+							</details>
+						</div>
 					)}
 				</div>
 			)}

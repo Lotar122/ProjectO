@@ -1,9 +1,9 @@
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { createS3Client } from "@/app/server-functions/MinIO/createS3Client";
+import { applyOrderEdit, readKnownFileIds } from "@/app/server-functions/orders/applyOrderEdit";
 import {
-	deleteOrderFiles,
+	cleanUpOrderFiles,
 	ensureOrderFilesBucket,
-	renameRetainedFiles,
 } from "@/app/server-functions/orders/orderFiles";
 import {
 	InvalidUploadError,
@@ -11,11 +11,11 @@ import {
 	uploadErrorResponse,
 } from "@/app/server-functions/orders/multipartUpload";
 import { cookies } from "next/headers";
-import { DB } from "@/app/lib/db";
-import { internalError, jsonError } from "@/app/lib/apiErrors";
+import { internalError, jsonError, orderLockedError } from "@/app/lib/apiErrors";
 import {
 	MAX_DETAILS_LENGTH,
 	MAX_PATIENT_LENGTH,
+	isOwnerEditableStatus,
 	isUuid,
 	parseDateInput,
 	readText,
@@ -24,6 +24,9 @@ import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
 const log = createLogger("orders");
+
+const ORDER_LOCKED_MESSAGE =
+	"Tego zlecenia nie można już edytować, ponieważ ma status Gotowe lub Zrealizowane.";
 
 // Rejects the request before any file is read when the text fields are bad.
 function validateFields(fields)
@@ -52,9 +55,10 @@ function validateFields(fields)
 async function handlePut(req)
 {
 	let s3 = null;
+	// Uploads of this request that no saved order points at yet; deleted on any failure.
 	let uploadedFileIds = [];
 
-	try 
+	try
 	{
 		const cookieHeader = await cookies();
 		const userAuthSession = await getUserAuthSession(cookieHeader);
@@ -72,69 +76,55 @@ async function handlePut(req)
 		uploadedFileIds = files.map((file) => file.fileID);
 
 		const orderID = fields.get("orderID");
-		const patient = readText(fields.get("patient"), MAX_PATIENT_LENGTH);
-		const details = readText(fields.get("details") ?? "", MAX_DETAILS_LENGTH);
-		const due_date = parseDateInput(fields.get("dueDate"));
-		const existingFileIds = fields.getAll("existingFileIds").filter(Boolean);
 		const userID = userAuthSession.data.identity.id;
 
-		const [order] = await DB`
-			SELECT order_id, files
-			FROM orders
-			WHERE order_id = ${orderID}
-				AND user_id = ${userID}
-			LIMIT 1
-		`;
+		const edit = await applyOrderEdit({
+			s3,
+			orderID,
+			ownerId: userID,
+			patient: readText(fields.get("patient"), MAX_PATIENT_LENGTH),
+			details: readText(fields.get("details") ?? "", MAX_DETAILS_LENGTH),
+			dueDate: parseDateInput(fields.get("dueDate")),
+			existingFileIds: fields.getAll("existingFileIds").filter(Boolean),
+			knownFileIds: readKnownFileIds(fields.get("knownFileIds"), { log, orderID }),
+			uploadedFileIds,
+			fileNameUpdates: fields.getAll("fileNames").map(String),
+			assertEditable: (row) => isOwnerEditableStatus(row.status),
+			log,
+		});
 
-		if (!order)
+		if (edit.result !== "ok")
 		{
-			await deleteOrderFiles(s3, uploadedFileIds);
+			const pendingFileIds = uploadedFileIds;
+
+			uploadedFileIds = [];
+			await cleanUpOrderFiles(s3, pendingFileIds, {
+				log,
+				context: `a rejected update of order ${orderID}`,
+			});
+
+			if (edit.result === "locked")
+			{
+				log.warn(`Order ${orderID}: update by ${userID} rejected, order is locked`);
+
+				return orderLockedError(ORDER_LOCKED_MESSAGE);
+			}
 
 			return jsonError("Order not found", 404);
 		}
 
-		const currentFileIds = Array.isArray(order.files) ? order.files : [];
-		const retainedFileIds = currentFileIds.filter((fileId) => existingFileIds.includes(fileId));
-		const removedFileIds = currentFileIds.filter((fileId) => !retainedFileIds.includes(fileId));
+		// The order now points at the uploads; they must survive anything below.
+		uploadedFileIds = [];
 
-		await renameRetainedFiles(s3, patient, retainedFileIds, fields.getAll("fileNames"));
-
-		const nextFileIds = [...retainedFileIds, ...uploadedFileIds];
-
-		const [updatedOrder] = await DB`
-			UPDATE orders
-			SET patient = ${patient},
-				details = ${details},
-				due_date = ${due_date},
-				files = ${nextFileIds}
-				${uploadedFileIds.length > 0 ? DB`, archived_at = NULL` : DB``}
-			WHERE order_id = ${orderID}
-				AND user_id = ${userID}
-			RETURNING *
-		`;
-
-		// Removed files go last: if anything above failed, the order still points at files that exist.
-		const undeletedFileIds = await deleteOrderFiles(s3, removedFileIds).catch((err) =>
-		{
-			log.error(`Could not delete removed files of order ${orderID}`, err);
-
-			return removedFileIds;
-		});
-
-		if (undeletedFileIds.length > 0)
-		{
-			log.warn(`Order ${orderID}: ${undeletedFileIds.length} removed file(s) left in storage`);
-		}
-
-		log.info(`Order ${orderID} updated by ${userID} (+${files.length} / -${removedFileIds.length} files)`);
+		log.info(`Order ${orderID} updated by ${userID} (+${files.length} / -${edit.removedFileIds.length} files)`);
 
 		return Response.json({
 			success: true,
-			order: updatedOrder,
+			order: edit.order,
 			uploadedFiles: files,
 		});
 	}
-	catch (err) 
+	catch (err)
 	{
 		const uploadResponse = uploadErrorResponse(err);
 
@@ -148,9 +138,9 @@ async function handlePut(req)
 		// The upload cleaned up after itself; files stored for an update that failed would be orphans.
 		if (s3 && uploadedFileIds.length > 0)
 		{
-			await deleteOrderFiles(s3, uploadedFileIds).catch((cleanupErr) =>
-			{
-				log.error("Could not remove files of a failed update", cleanupErr);
+			await cleanUpOrderFiles(s3, uploadedFileIds, {
+				log,
+				context: "a failed update",
 			});
 		}
 

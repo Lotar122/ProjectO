@@ -51,6 +51,8 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 		setErrorMessage("");
 		setSuccessMessage("");
 
+		let created = false;
+
 		try
 		{
 			await http.post(
@@ -67,7 +69,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 
 			setForm(INITIAL_FORM);
 			setSuccessMessage("Tożsamość została utworzona. Użytkownik może się teraz zalogować.");
-			onCreated?.();
+			created = true;
 		}
 		catch (error)
 		{
@@ -79,6 +81,11 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 		finally
 		{
 			setIsSubmitting(false);
+		}
+
+		if (created)
+		{
+			onCreated?.();
 		}
 	};
 

@@ -3,14 +3,13 @@ import { DB } from "@/app/lib/db";
 
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
 import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
+import { KRATOS_ADMIN_URL } from "@/app/lib/kratosServer";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { isUuid } from "@/app/lib/validate";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
 const log = createLogger("admin");
-
-const KRATOS_ADMIN_URL = process.env.KRATOS_ADMIN_URL || "http://kratos:4434";
 
 async function handleDelete(request)
 {

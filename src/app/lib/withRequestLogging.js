@@ -19,7 +19,7 @@ const getAllowedOrigins = () =>
 // CSRF guard for cookie-authenticated, state-changing routes. Browsers always
 // send Sec-Fetch-Site (and Origin on cross-origin writes); non-browser clients
 // send neither and cannot be driven by a victim's cookies.
-function isCrossSiteWrite(req)
+export function isCrossSiteWrite(req)
 {
 	if (SAFE_METHODS.has(req.method))
 	{

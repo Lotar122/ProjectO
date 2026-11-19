@@ -106,6 +106,59 @@ export async function deleteOrderFiles(s3, fileIds)
 	return failedIds;
 }
 
+async function tryDeleteOrderFiles(s3, fileIds, log, context)
+{
+	try
+	{
+		return await deleteOrderFiles(s3, fileIds);
+	}
+	catch (err)
+	{
+		log.error(`Deleting ${fileIds.length} file(s) of ${context} failed`, err);
+
+		return [...fileIds];
+	}
+}
+
+/**
+ * Deletes files that no order points at (cleanup after a failed request).
+ * Never throws: ids that are still in storage after one retry are logged as
+ * an error and returned, so the caller can keep its original response.
+ *
+ * @param {object} s3 S3 client.
+ * @param {readonly string[]} fileIds Keys to delete.
+ * @param {object} options
+ * @param {{ error: (message: string, details?: unknown) => void }} options.log Logger of the caller.
+ * @param {string} options.context What the files belonged to, for the log line (e.g. "a failed order").
+ * @returns {Promise<string[]>} Ids that could not be deleted.
+ */
+export async function cleanUpOrderFiles(s3, fileIds, { log, context })
+{
+	if (!Array.isArray(fileIds))
+	{
+		throw new TypeError("cleanUpOrderFiles expects an array of file ids");
+	}
+
+	if (fileIds.length === 0)
+	{
+		return [];
+	}
+
+	let failedIds = await tryDeleteOrderFiles(s3, fileIds, log, context);
+
+	if (failedIds.length > 0)
+	{
+		failedIds = await tryDeleteOrderFiles(s3, failedIds, log, context);
+	}
+
+	if (failedIds.length > 0)
+	{
+		log.error(`${failedIds.length} file(s) of ${context} left in storage: ${failedIds.join(", ")}`);
+	}
+
+	return failedIds;
+}
+
 const METADATA_UPDATE_ATTEMPTS = 3;
 
 // True for a failed S3 precondition (If-Match / x-amz-copy-source-if-match).

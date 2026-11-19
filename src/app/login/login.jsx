@@ -178,14 +178,32 @@ const KratosLogin = () =>
 			);
 
 			setError(null);
-			const sessionResponse = await http.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
-				withCredentials: true,
-				signal,
-			});
+
+			// The session cookie is set at this point, so a failing whoami must not look like a failed login.
+			let destination = "/";
+
+			try
+			{
+				const sessionResponse = await http.get(`${KRATOS_PUBLIC}/sessions/whoami`, {
+					withCredentials: true,
+					signal,
+				});
+
+				destination = getPostLoginPath(sessionResponse.data);
+			}
+			catch (whoamiError)
+			{
+				if (isAbortError(whoamiError) && signal?.aborted)
+				{
+					return;
+				}
+
+				console.error("Nie udało się pobrać sesji po zalogowaniu:", whoamiError);
+			}
 
 			// Stays disabled while navigating; the flow is consumed anyway.
 			navigated = true;
-			router.push(getPostLoginPath(sessionResponse.data));
+			router.push(destination);
 		}
 		catch (err) 
 		{

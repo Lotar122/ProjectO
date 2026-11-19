@@ -161,7 +161,7 @@ const IdentityRow = memo(function IdentityRow({
 	);
 });
 
-export default function ManageUsers({ refreshToken })
+export default function ManageUsers({ refreshToken, onUserAction })
 {
 	// null until the first response; the spinner is only for that case.
 	const [identities, setIdentities] = useState(null);
@@ -217,16 +217,18 @@ export default function ManageUsers({ refreshToken })
 
 	const refreshIdentities = useCallback(() =>
 	{
+		onUserAction?.();
 		setIsLoading(true);
 		setErrorMessage("");
 		setReloadKey((value) => value + 1);
-	}, []);
+	}, [onUserAction]);
 
 	const clearMessages = useCallback(() =>
 	{
+		onUserAction?.();
 		setErrorMessage("");
 		setSuccessMessage("");
-	}, []);
+	}, [onUserAction]);
 
 	const startEditing = useCallback((identity) =>
 	{

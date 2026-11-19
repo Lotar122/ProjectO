@@ -26,6 +26,18 @@ Zacznij serwer deweloperski:
 bun run dev
 ```
 
+# Zmienne środowiskowe
+
+Adresy Kratosa i bazy pochodzą ze środowiska. Domyślne wartości (`http://kratos:4433`, `http://kratos:4434`) działają tylko poza produkcją; w produkcji brak zmiennej kończy start serwera błędem (`process.exit(1)`), a nie dopiero pierwszym zapytaniem. `next build` nie wymaga zmiennych serwerowych.
+
+| Zmienna | Wymagana w produkcji | Opis |
+| --- | --- | --- |
+| `DB_URL` | tak | Adres połączenia z Postgresem. |
+| `KRATOS_PUBLIC_INTERNAL_URL` | tak | Publiczne API Kratosa widziane z serwera Next.js (w Dockerze np. `http://kratos:4433`). Używane do `/sessions/whoami`. Dev: `http://kratos:4433`. |
+| `KRATOS_ADMIN_URL` | tak | Admin API Kratosa widziane z serwera (np. `http://kratos:4434`). Dev: `http://kratos:4434`. |
+| `NEXT_PUBLIC_KRATOS_PUBLIC_URL` | tak (w buildzie) | Publiczny adres Kratosa dla przeglądarki (np. `https://orto.lotar122.dev/kratos`). Wartość jest wkompilowana w bundle, więc **musi być ustawiona podczas `bun run build`** (build arg w Dockerze); ustawienie jej tylko przy starcie nie wystarczy. Start serwera w produkcji sprawdza wartość wkompilowaną w build, więc przekazanie jej wyłącznie jako build arg jest poprawne. Brak wartości w buildzie daje tylko ostrzeżenie (build się nie przerywa), ale serwer w produkcji odmówi startu. Wpływa też na CSP (`connect-src`, `form-action`) w `next.config.mjs`. Lokalnie ustaw ją w `.env.local`. |
+| `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | tak | Dostęp do MinIO. |
+
 # Rola administratora (jednorazowa migracja)
 
 Rola jest czytana z `metadata_public.role` w Ory Kratos (użytkownik nie może jej sam zmienić). Zanim wdrożysz nową wersję, przenieś istniejących administratorów z `traits.role`:

@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	OWNER_EDITABLE_STATUSES,
 	escapeLikePattern,
+	isOwnerEditableStatus,
 	isUuid,
 	normalizeStatus,
 	parseDateInput,
@@ -43,4 +45,24 @@ test("readText trims and enforces the length cap", () =>
 	assert.equal(readText("  Jan  ", 10), "Jan");
 	assert.equal(readText("x".repeat(11), 10), undefined);
 	assert.equal(readText(null, 10), "");
+});
+
+test("isOwnerEditableStatus allows pending and in-progress only", () =>
+{
+	assert.equal(isOwnerEditableStatus("pending"), true);
+	assert.equal(isOwnerEditableStatus("in-progress"), true);
+	assert.equal(isOwnerEditableStatus("shipped"), false);
+	assert.equal(isOwnerEditableStatus("completed"), false);
+	assert.deepEqual(OWNER_EDITABLE_STATUSES, ["pending", "in-progress"]);
+});
+
+test("isOwnerEditableStatus fails closed for unknown, empty and differently cased values", () =>
+{
+	assert.equal(isOwnerEditableStatus(""), false);
+	assert.equal(isOwnerEditableStatus(null), false);
+	assert.equal(isOwnerEditableStatus(undefined), false);
+	assert.equal(isOwnerEditableStatus("SHIPPED"), false);
+	assert.equal(isOwnerEditableStatus("PENDING"), false);
+	assert.equal(isOwnerEditableStatus(" pending"), false);
+	assert.equal(isOwnerEditableStatus("cancelled"), false);
 });
