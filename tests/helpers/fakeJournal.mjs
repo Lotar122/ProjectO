@@ -3,7 +3,8 @@
 // their whitespace-normalized text, values by position) the way Postgres
 // would: the primary key on file_id, the 'needs_attention' guard on UPDATE /
 // DELETE, and bigint columns returned as strings like postgres.js. Also
-// answers isFileOnAnyOrder and the needs_attention count of getArchiveStatus.
+// answers isFileOnAnyOrder, the needs_attention count of getArchiveStatus and
+// listJournaledFileIds (the rename check in orderFiles.js).
 
 const normalize = (strings) => strings.join("?").replace(/\s+/g, " ").trim();
 
@@ -17,6 +18,7 @@ const STATEMENTS = [
 	["listPaths", (text) => text === "SELECT original_path FROM archive_pending_verify"],
 	["count", (text) => text.startsWith("SELECT count(*)::int AS count FROM archive_pending_verify WHERE state = 'needs_attention'")],
 	["onAnyOrder", (text) => text === "SELECT 1 FROM orders WHERE ? = ANY(files) LIMIT 1"],
+	["journaled", (text) => text === "SELECT file_id FROM archive_pending_verify WHERE file_id = ANY(?::text[])"],
 ];
 
 /**
@@ -153,9 +155,21 @@ export function createFakeJournal({ orders = [] } = {})
 			}
 			case "delete":
 			{
-				const [fileId] = values;
+				const [fileId, originalPath] = values;
+				const row = journal.rows.get(fileId);
 
-				if (journal.rows.get(fileId)?.state !== "needs_attention")
+				// deletePendingVerifyAttempt: only that attempt's 'uploading' row.
+				if (values.length > 1)
+				{
+					if (row?.original_path === originalPath && row.state === "uploading")
+					{
+						journal.rows.delete(fileId);
+					}
+
+					return [];
+				}
+
+				if (row?.state !== "needs_attention")
 				{
 					journal.rows.delete(fileId);
 				}
@@ -177,6 +191,12 @@ export function createFakeJournal({ orders = [] } = {})
 				const list = typeof journal.orders === "function" ? journal.orders() : journal.orders;
 
 				return list.some((order) => order.files?.includes(fileId)) ? [{ "?column?": 1 }] : [];
+			}
+			case "journaled":
+			{
+				const [fileIds] = values;
+
+				return fileIds.filter((fileId) => journal.rows.has(fileId)).map((fileId) => ({ file_id: fileId }));
 			}
 			default:
 				throw new Error(`fake journal: unhandled ${kind}`);

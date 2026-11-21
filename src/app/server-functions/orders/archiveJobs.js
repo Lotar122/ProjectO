@@ -332,6 +332,53 @@ export async function writeJobProgress({ jobId, progress, sql = DB })
 }
 
 /**
+ * Worker: whether the job is still "running". Read-only, so it never races the
+ * worker's own progress writes. False once the job was ended elsewhere (for
+ * example marked interrupted by a worker that took over the lock).
+ *
+ * @param {object} options
+ * @param {string | number} options.jobId
+ * @param {Function} [options.sql]
+ * @returns {Promise<boolean>}
+ */
+export async function isJobRunning({ jobId, sql = DB })
+{
+	assertSql(sql);
+	assertJobId(jobId);
+
+	const rows = await sql`
+		SELECT 1 FROM archive_jobs WHERE id = ${jobId} AND state = 'running'
+	`;
+
+	return rows.length > 0;
+}
+
+/**
+ * Worker shutdown: removes the caller's registry row, so the web stops
+ * counting it as online at once instead of up to WORKER_ONLINE_SECONDS later
+ * and refuses new jobs while no worker is left. Only for a clean stop; a
+ * crashed worker still drops out after WORKER_ONLINE_SECONDS.
+ *
+ * @param {object} options
+ * @param {string} options.workerId
+ * @param {Function} [options.sql]
+ * @returns {Promise<boolean>} Whether a row was removed.
+ */
+export async function deregisterWorker({ workerId, sql = DB })
+{
+	assertSql(sql);
+	assertText(workerId, "workerId");
+
+	const rows = await sql`
+		DELETE FROM archive_workers
+		WHERE worker_id = ${workerId}
+		RETURNING worker_id
+	`;
+
+	return rows.length > 0;
+}
+
+/**
  * Worker: ends a running job.
  *
  * @param {object} options

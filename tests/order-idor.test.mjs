@@ -77,7 +77,8 @@ const callFileNames = (fileIds) =>
 
 const queriesMatching = (pattern) => harness.db.queries.filter((query) => pattern.test(query.text));
 
-const LOCK_QUERY = /^SELECT order_id, status, files FROM orders/;
+const LOCK_QUERY = /^SELECT order_id, status, files, deleting_at, .* AS deletion_active FROM orders/;
+const MARKER_QUERY = /^UPDATE orders SET deleting_at = now\(\) WHERE order_id = \? RETURNING deleting_at::text AS marker$/;
 
 function expectOwnerScoped(query, actorId)
 {
@@ -116,7 +117,7 @@ describe("PUT /api/modifyOrder", () =>
 		const [select] = queriesMatching(LOCK_QUERY);
 
 		expect(select.text).toContain("FOR UPDATE");
-		expect(select.values).toEqual([ORDER_B, USER_A]);
+		expect(select.values).toEqual(["900 seconds", ORDER_B, USER_A]);
 		expect(queriesMatching(/^UPDATE/)).toEqual([]);
 		expect(harness.s3.callsOf("DeleteObjects")).toEqual([]);
 		expect(harness.s3.objects.has(FILE_B)).toBe(true);
@@ -130,7 +131,7 @@ describe("PUT /api/modifyOrder", () =>
 		const res = await callModify(ownerModify, editForm({ userID: USER_B, user_id: USER_B, ownerId: USER_B }));
 
 		expect(res.status).toBe(404);
-		expect(queriesMatching(LOCK_QUERY)[0].values).toEqual([ORDER_B, USER_A]);
+		expect(queriesMatching(LOCK_QUERY)[0].values).toEqual(["900 seconds", ORDER_B, USER_A]);
 	});
 
 	test("owner B can modify the same order", async () =>
@@ -184,8 +185,10 @@ describe("DELETE /api/deleteOrder", () =>
 		const [select] = queriesMatching(LOCK_QUERY);
 
 		expect(select.text).toContain("FOR UPDATE");
-		expect(select.values).toEqual([ORDER_B, USER_A]);
+		expect(select.values).toEqual(["900 seconds", ORDER_B, USER_A]);
 		expect(queriesMatching(/^DELETE/)).toEqual([]);
+		// Not even the deletion marker is set on someone else's order.
+		expect(queriesMatching(/^UPDATE/)).toEqual([]);
 		expect(harness.s3.callsOf("DeleteObjects")).toEqual([]);
 		expect(harness.s3.objects.has(FILE_B)).toBe(true);
 	});
@@ -194,12 +197,18 @@ describe("DELETE /api/deleteOrder", () =>
 	{
 		logInAs(USER_B);
 		harness.s3.seed(FILE_B);
-		harness.db.queue([orderOfB()]);
+		// Lock + deletion marker, then the re-lock + row delete.
+		harness.db.queue([orderOfB()], [{ marker: "2026-11-21 10:00:00.5+00" }], [orderOfB()], [{ order_id: ORDER_B }]);
 
 		const res = await callDelete(ownerDelete);
 
 		expect(res.status).toBe(200);
-		expectOwnerScoped(queriesMatching(LOCK_QUERY)[0], USER_B);
+
+		// Both the first read and the re-lock before the row delete are owner scoped.
+		expect(queriesMatching(LOCK_QUERY)).toHaveLength(2);
+		queriesMatching(LOCK_QUERY).forEach((query) => expectOwnerScoped(query, USER_B));
+		// The marker is only set on the row the owner-scoped lock found.
+		expect(queriesMatching(MARKER_QUERY).map((query) => query.values)).toEqual([[ORDER_B]]);
 		expect(queriesMatching(/^DELETE FROM orders/)).toHaveLength(1);
 		expect(harness.s3.deleted).toEqual([FILE_B]);
 	});
@@ -207,13 +216,14 @@ describe("DELETE /api/deleteOrder", () =>
 	test("an admin can delete it without an owner filter", async () =>
 	{
 		logInAs(ADMIN, "admin");
-		harness.s3.seed(FILE_B);
-		harness.db.queue([orderOfB({ status: "completed" })]);
+		harness.db.queue([orderOfB({ status: "completed" })], [{ marker: "2026-11-21 10:00:00.5+00" }], [orderOfB({ status: "completed" })], [{ order_id: ORDER_B }]);
+		harness.db.queue([orderOfB({ status: "completed" })], [], [orderOfB({ status: "completed" })], []);
 
 		const res = await callDelete(adminDelete);
 
 		expect(res.status).toBe(200);
-		expectNotOwnerScoped(queriesMatching(LOCK_QUERY)[0]);
+		expect(queriesMatching(LOCK_QUERY)).toHaveLength(2);
+		queriesMatching(LOCK_QUERY).forEach((query) => expectNotOwnerScoped(query));
 		expect(queriesMatching(/^DELETE FROM orders/)).toHaveLength(1);
 		expect(harness.s3.deleted).toEqual([FILE_B]);
 	});

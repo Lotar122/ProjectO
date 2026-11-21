@@ -335,6 +335,30 @@ describe("worker-side queries", () =>
 		expect(busy.queries[1].values).toEqual(["7"]);
 		await expect(jobs.heartbeatWorker({ workerId: "w1", version: "", sql: idle })).rejects.toThrow(TypeError);
 	});
+
+	test("isJobRunning reads the job's state without writing", async () =>
+	{
+		const running = fakeSql(() => [{ "?column?": 1 }]);
+		const ended = fakeSql();
+
+		expect(await jobs.isJobRunning({ jobId: "7", sql: running })).toBe(true);
+		expect(await jobs.isJobRunning({ jobId: "7", sql: ended })).toBe(false);
+		expect(running.queries[0].text).toStartWith("SELECT 1 FROM archive_jobs");
+		expect(running.queries[0].text).toContain("state = 'running'");
+		expect(running.queries[0].values).toEqual(["7"]);
+		await expect(jobs.isJobRunning({ jobId: "", sql: ended })).rejects.toThrow(TypeError);
+	});
+
+	test("deregisterWorker removes only the caller's registry row", async () =>
+	{
+		const removed = fakeSql(() => [{ worker_id: "w1" }]);
+
+		expect(await jobs.deregisterWorker({ workerId: "w1", sql: removed })).toBe(true);
+		expect(await jobs.deregisterWorker({ workerId: "w1", sql: fakeSql() })).toBe(false);
+		expect(removed.queries[0].text).toContain("DELETE FROM archive_workers WHERE worker_id = ?");
+		expect(removed.queries[0].values).toEqual(["w1"]);
+		await expect(jobs.deregisterWorker({ workerId: "", sql: removed })).rejects.toThrow(TypeError);
+	});
 });
 
 describe("archiveCandidates", () =>
@@ -346,9 +370,18 @@ describe("archiveCandidates", () =>
 		const counting = fakeSql(() => [{ count: 3 }]);
 
 		expect(await candidates.selectArchiveCandidates(selecting)).toBe(rows);
-		expect(selecting.queries[0].values).toEqual([candidates.ARCHIVE_AFTER_DAYS]);
 		expect(selecting.queries[0].text).toContain("archived_at IS NULL");
+		// Files with a crash journal row come back separately, so the worker skips them.
+		expect(selecting.queries[0].text).toContain("FROM archive_pending_verify");
+		expect(selecting.queries[0].text).toContain("AS journaled_files");
+		// An order whose deletion is running is never archived (orders.deleting_at younger
+		// than the stale limit, database clock); an expired marker no longer blocks.
+		const notDeleting = "AND (orders.deleting_at IS NULL OR orders.deleting_at < now() - ?::interval)";
+
+		expect(selecting.queries[0].text).toContain(notDeleting);
+		expect(selecting.queries[0].values).toEqual([candidates.ARCHIVE_AFTER_DAYS, "900 seconds"]);
 		expect(await candidates.countArchiveCandidates(counting)).toBe(3);
+		expect(counting.queries[0].text).toContain(notDeleting);
 		expect(await candidates.countArchiveCandidates(fakeSql())).toBe(0);
 	});
 

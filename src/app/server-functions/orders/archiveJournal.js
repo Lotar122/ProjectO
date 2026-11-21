@@ -107,6 +107,27 @@ export function deletePendingVerify(sql, fileId)
 }
 
 /**
+ * Removes the row one archiving attempt opened, and only while nothing has
+ * happened to it since: still 'uploading' and still pointing at that attempt's
+ * temp original (each attempt gets a fresh path). Used when the insert landed
+ * after it had already timed out, so no upload was made for the row.
+ *
+ * @param {Function} sql
+ * @param {string} fileId
+ * @param {string} originalPath The attempt's temp original.
+ * @returns {Promise<unknown>}
+ */
+export function deletePendingVerifyAttempt(sql, fileId, originalPath)
+{
+	return sql`
+		DELETE FROM archive_pending_verify
+		WHERE file_id = ${fileId}
+			AND original_path = ${originalPath}
+			AND state = 'uploading'
+	`;
+}
+
+/**
  * The rows crash recovery handles: every row that is not 'needs_attention'.
  * bigint columns come back as strings (postgres.js default).
  *
@@ -136,6 +157,27 @@ export function listJournalOriginalPaths(sql)
 	return sql`
 		SELECT original_path
 		FROM archive_pending_verify
+	`;
+}
+
+/**
+ * The ids among `fileIds` that have a journal row in any state: the archiver
+ * is about to replace, is replacing, or has replaced the object and not yet
+ * verified it. A metadata-only change (a rename) must not run then, because
+ * the archiver's write would carry the metadata it read before the change.
+ * The row is inserted before the archiver's last HEAD and the upload, and
+ * removed only after the read-back (or once crash recovery settles it).
+ *
+ * @param {Function} sql
+ * @param {readonly string[]} fileIds
+ * @returns {Promise<{ file_id: string }[]>}
+ */
+export function listJournaledFileIds(sql, fileIds)
+{
+	return sql`
+		SELECT file_id
+		FROM archive_pending_verify
+		WHERE file_id = ANY(${fileIds}::text[])
 	`;
 }
 
