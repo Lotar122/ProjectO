@@ -4,15 +4,30 @@ import { spawn } from "node:child_process";
 import { lstat, realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createLogger } from "../../lib/logger.js";
 import { COMPRESSION_METHODS, createTempFilePath, removeTempFile } from "./fileCompression.js";
 
 // Adapter for the projecto-compress binary (phases-bugfix/phase4.md 7.4 and the
 // amendments A1/A5). It is the archiver worker's compressor:
 // zstd, then br, one after the other, smallest output wins.
+//
+// Lifetime: every compress run gets `--watch-stdin 1` and a stdin pipe this
+// process holds open and never writes to or ends while the run should go on.
+// With that flag the binary removes its partial output and exits 3 when it
+// reads EOF there, so it cannot outlive this process, even after a SIGKILL or
+// an OOM kill of the worker. A stop closes the pipe before signalling, and a
+// normal process exit SIGKILLs any child still running.
 
 export const MEMORY_BUDGET_MIB_MIN = 64;
 export const MEMORY_BUDGET_MIB_MAX = 7168;
 export const MEMORY_BUDGET_MIB_DEFAULT = 6144;
+// zstd threads (`--threads`, native/compressor/README.md): 0 and 1 compress on
+// one thread, 2 or more start that many zstd workers. The binary lowers the
+// count when the file is small or the memory budget cannot hold that many
+// workers. Brotli is single-threaded, so only the zstd run gets the flag.
+export const ZSTD_THREADS_MIN = 0;
+export const ZSTD_THREADS_MAX = 64;
+export const ZSTD_THREADS_DEFAULT = 4;
 export const TIMEOUT_MS_DEFAULT = 3 * 60 * 60 * 1000;
 // setTimeout clamps anything above 2^31 - 1 ms (about 24.8 days) to 1 ms, which
 // would kill the child at once, so larger timer values are refused.
@@ -29,9 +44,49 @@ const CANDIDATES = [
 	{ codec: COMPRESSION_METHODS.brotli, extension: ".br" },
 ];
 
-// Exit codes of the binary (7.3).
+// Exit codes of the binary (7.3, native/compressor/README.md). Only 4 is a
+// budget refusal. 3 is I/O (also: stdin reached EOF under --watch-stdin 1) and
+// 70 is internal (also: malloc failed within the budget); both are ordinary
+// run failures, like every other non-zero code.
 const EXIT_OK = 0;
 const EXIT_MEMORY_BUDGET = 4;
+
+const log = createLogger("native-compressor");
+
+// Children still running, killed when this process exits (see the top note).
+const liveChildren = new Set();
+let exitHookInstalled = false;
+
+function trackChild(child)
+{
+	if (!exitHookInstalled)
+	{
+		exitHookInstalled = true;
+		// "exit" handlers must be synchronous; kill() is.
+		process.once("exit", () =>
+		{
+			for (const running of liveChildren)
+			{
+				running.kill("SIGKILL");
+			}
+		});
+	}
+
+	liveChildren.add(child);
+}
+
+// Ends the stdin pipe, the binary's "stop now" signal. Never throws.
+function closeStdin(child)
+{
+	try
+	{
+		child.stdin?.end();
+	}
+	catch
+	{
+		// Already closed.
+	}
+}
 
 export class NativeCompressorError extends Error
 {
@@ -69,15 +124,16 @@ function parseIntegerEnv(env, name, fallback, min, max)
 }
 
 /**
- * Reads and validates COMPRESSOR_MEMORY_BUDGET_MIB (64 to 7168, default 6144)
- * and COMPRESSOR_TIMEOUT_MS (1 to 2147483647, default 3 h). The worker calls this at startup so
- * a bad value stops the process before any job runs.
+ * Reads and validates COMPRESSOR_MEMORY_BUDGET_MIB (64 to 7168, default 6144),
+ * COMPRESSOR_TIMEOUT_MS (1 to 2147483647, default 3 h) and PROJECTO_ZSTD_THREADS
+ * (0 to 64, default 4). The worker calls this at startup so a bad value stops
+ * the process before any job runs.
  * @param {Record<string, string | undefined>} [env]
- * @returns {{ memoryBudgetMib: number, timeoutMs: number }}
+ * @returns {{ memoryBudgetMib: number, timeoutMs: number, zstdThreads: number }}
  */
 export function readCompressorConfig(env = process.env)
 {
-	return { memoryBudgetMib: readMemoryBudgetMib(env), timeoutMs: readTimeoutMs(env) };
+	return { memoryBudgetMib: readMemoryBudgetMib(env), timeoutMs: readTimeoutMs(env), zstdThreads: readZstdThreads(env) };
 }
 
 function readMemoryBudgetMib(env)
@@ -94,6 +150,11 @@ function readMemoryBudgetMib(env)
 function readTimeoutMs(env)
 {
 	return parseIntegerEnv(env, "COMPRESSOR_TIMEOUT_MS", TIMEOUT_MS_DEFAULT, 1, TIMER_MS_MAX);
+}
+
+function readZstdThreads(env)
+{
+	return parseIntegerEnv(env, "PROJECTO_ZSTD_THREADS", ZSTD_THREADS_DEFAULT, ZSTD_THREADS_MIN, ZSTD_THREADS_MAX);
 }
 
 const isSafeCount = (value) => Number.isSafeInteger(value) && value >= 0;
@@ -127,9 +188,11 @@ function runProcess({ binPath, args, cwd, codec, inputSize, timeoutMs, killGrace
 
 		try
 		{
+			// stdin is a pipe kept open for the whole run (see the top note):
+			// with --watch-stdin 1, "ignore" (/dev/null) would end the run at once.
 			child = spawn(binPath, args, {
 				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
+				stdio: ["pipe", "pipe", "pipe"],
 				env: {},
 				cwd,
 				windowsHide: true,
@@ -141,6 +204,10 @@ function runProcess({ binPath, args, cwd, codec, inputSize, timeoutMs, killGrace
 			resolve(outcome);
 			return;
 		}
+
+		// EPIPE once the child has exited; nothing is ever written.
+		child.stdin?.on("error", () => undefined);
+		trackChild(child);
 
 		let killTimer = null;
 		let stdoutBytes = 0;
@@ -157,6 +224,7 @@ function runProcess({ binPath, args, cwd, codec, inputSize, timeoutMs, killGrace
 				return false;
 			}
 
+			closeStdin(child);
 			child.kill("SIGTERM");
 			killTimer = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
 
@@ -313,6 +381,8 @@ function runProcess({ binPath, args, cwd, codec, inputSize, timeoutMs, killGrace
 			clearTimeout(timeoutTimer);
 			clearTimeout(killTimer);
 			signal?.removeEventListener("abort", onAbort);
+			liveChildren.delete(child);
+			closeStdin(child);
 
 			if (pending.trim() !== "" && !outcome.protocolError)
 			{
@@ -370,6 +440,28 @@ function describeFailure(codec, outcome)
 	return `projecto-compress ${codec} exited with code ${outcome.exitCode}${detail}`;
 }
 
+// The error for a run that did not produce a result, or null when the child
+// exited 0. Protocol errors and aborts are handled by the caller first.
+function describeRunError(codec, outcome, timeoutMs, failure)
+{
+	if (outcome.spawnError)
+	{
+		return new NativeCompressorError(`projecto-compress could not start: ${outcome.spawnError.message}`, failure);
+	}
+
+	if (outcome.timedOut)
+	{
+		return new NativeCompressorError(`projecto-compress ${codec} timed out after ${timeoutMs} ms`, failure);
+	}
+
+	if (outcome.exitCode !== EXIT_OK)
+	{
+		return new NativeCompressorError(describeFailure(codec, outcome), failure);
+	}
+
+	return null;
+}
+
 async function readValidatedResult(codec, outcome, srcPath, outputPath, inputSize)
 {
 	const { result } = outcome;
@@ -393,7 +485,7 @@ async function readValidatedResult(codec, outcome, srcPath, outputPath, inputSiz
 		throw fail(`result codec ${JSON.stringify(result.codec)} does not match the request`);
 	}
 
-	for (const key of ["inputSize", "outputSize", "peakBytes", "elapsedMs"])
+	for (const key of ["inputSize", "outputSize", "peakBytes", "workers", "elapsedMs"])
 	{
 		if (result[key] !== undefined && !isSafeCount(result[key]))
 		{
@@ -463,6 +555,7 @@ function validateOptions(srcPath, options)
 	// Only the env values the options do not override are read (and validated).
 	const memoryBudgetMib = options.memoryBudgetMib ?? readMemoryBudgetMib(process.env);
 	const timeoutMs = options.timeoutMs ?? readTimeoutMs(process.env);
+	const zstdThreads = options.zstdThreads ?? readZstdThreads(process.env);
 
 	if (!Number.isSafeInteger(memoryBudgetMib) || memoryBudgetMib < MEMORY_BUDGET_MIB_MIN || memoryBudgetMib > MEMORY_BUDGET_MIB_MAX)
 	{
@@ -474,7 +567,12 @@ function validateOptions(srcPath, options)
 		throw new RangeError(`timeoutMs must be an integer from 1 to ${TIMER_MS_MAX}`);
 	}
 
-	return { minSavingsRatio, binPath, binArgs, killGraceMs, memoryBudgetMib, timeoutMs };
+	if (!Number.isSafeInteger(zstdThreads) || zstdThreads < ZSTD_THREADS_MIN || zstdThreads > ZSTD_THREADS_MAX)
+	{
+		throw new RangeError(`zstdThreads must be an integer from ${ZSTD_THREADS_MIN} to ${ZSTD_THREADS_MAX}`);
+	}
+
+	return { minSavingsRatio, binPath, binArgs, killGraceMs, memoryBudgetMib, timeoutMs, zstdThreads };
 }
 
 /**
@@ -486,9 +584,15 @@ function validateOptions(srcPath, options)
  * directory (the archiver worker downloads there, with TMPDIR=/work/tmp),
  * because the binary only reads and writes inside its --root.
  *
- * Exit 4 (memory budget) skips br and fails zstd. Every other failure throws
- * NativeCompressorError. An abort rejects with signal.reason. Outputs are
- * removed on every path except the one returned.
+ * Exit 4 (memory budget) skips br and fails zstd. Exit 70 (internal, including
+ * a malloc failure within the budget) is not a budget refusal: it is handled
+ * like any other failed run. When br fails to run (it
+ * cannot start, times out, is killed or exits non-zero) after zstd produced a
+ * valid result, the zstd result is kept and a warning is logged. Every other
+ * failure throws NativeCompressorError: any zstd failure, and a br protocol
+ * error or invalid br result (for example a source that changed size). An
+ * abort rejects with signal.reason. Outputs are removed on every path except
+ * the one returned.
  *
  * @param {string} srcPath absolute path of the original
  * @param {object} [options]
@@ -496,6 +600,7 @@ function validateOptions(srcPath, options)
  * @param {string} [options.binPath] absolute path of the binary, default PROJECTO_COMPRESSOR_BIN
  * @param {number} [options.memoryBudgetMib] 64 to 7168, default COMPRESSOR_MEMORY_BUDGET_MIB or 6144
  * @param {number} [options.timeoutMs] per codec run, 1 to 2147483647, default COMPRESSOR_TIMEOUT_MS or 3 h
+ * @param {number} [options.zstdThreads] zstd `--threads`, 0 to 64, default PROJECTO_ZSTD_THREADS or 4 (br ignores it)
  * @param {AbortSignal} [options.signal] SIGTERM, then SIGKILL after killGraceMs
  * @param {(progress: { phase: string, bytesDone: number, bytesTotal: number }) => void} [options.onProgress] phase is "zstd" or "br"
  * @param {readonly string[]} [options.binArgs] TEST ONLY: arguments placed before "compress", so tests can run a fake through process.execPath. Never fill it from config, env or user input: whatever it holds is passed to the binary as argv.
@@ -504,7 +609,7 @@ function validateOptions(srcPath, options)
  */
 export async function nativeCompressBest(srcPath, options = {})
 {
-	const { minSavingsRatio, binPath, binArgs, killGraceMs, memoryBudgetMib, timeoutMs } = validateOptions(srcPath, options);
+	const { minSavingsRatio, binPath, binArgs, killGraceMs, memoryBudgetMib, timeoutMs, zstdThreads } = validateOptions(srcPath, options);
 	const { signal, onProgress } = options;
 
 	signal?.throwIfAborted();
@@ -561,6 +666,9 @@ export async function nativeCompressBest(srcPath, options = {})
 					"--output", outputPath,
 					"--input-size", String(originalSize),
 					"--memory-budget-mib", String(memoryBudgetMib),
+					// The child gets an empty environment, so the thread count is an argument.
+					...(codec === COMPRESSION_METHODS.zstd ? ["--threads", String(zstdThreads)] : []),
+					"--watch-stdin", "1",
 				];
 				const outcome = await runProcess({
 					binPath,
@@ -575,25 +683,14 @@ export async function nativeCompressBest(srcPath, options = {})
 				});
 				const failure = { exitCode: outcome.exitCode, signal: outcome.signal, stderrTail: outcome.stderrTail };
 
+				// Never falls back: a stop must stop, and a binary that broke
+				// its protocol is not trusted for this file at all.
 				if (outcome.aborted)
 				{
 					throw abortReason(signal);
 				}
 
-				if (outcome.spawnError)
-				{
-					throw new NativeCompressorError(
-						`projecto-compress could not start: ${outcome.spawnError.message}`,
-						failure,
-					);
-				}
-
-				if (outcome.timedOut)
-				{
-					throw new NativeCompressorError(`projecto-compress ${codec} timed out after ${timeoutMs} ms`, failure);
-				}
-
-				if (outcome.protocolError)
+				if (outcome.protocolError && !outcome.spawnError && !outcome.timedOut)
 				{
 					throw new NativeCompressorError(`projecto-compress ${codec} protocol error: ${outcome.protocolError}`, failure);
 				}
@@ -603,11 +700,24 @@ export async function nativeCompressBest(srcPath, options = {})
 					continue;
 				}
 
-				if (outcome.exitCode !== EXIT_OK)
+				const runError = describeRunError(codec, outcome, timeoutMs, failure);
+
+				if (runError)
 				{
-					throw new NativeCompressorError(describeFailure(codec, outcome), failure);
+					// The run itself failed (no start, timeout, crash, error
+					// exit). An earlier codec's result was fully validated on
+					// its own and is kept.
+					if (!best)
+					{
+						throw runError;
+					}
+
+					log.warn(`${runError.message}; keeping the ${best.method} result`);
+					continue;
 				}
 
+				// A result that fails validation (including a source whose size
+				// changed) throws, and drops the earlier result too.
 				const { size, encoder } = await readValidatedResult(codec, outcome, srcPath, outputPath, originalSize);
 
 				if (!best || size < best.size)

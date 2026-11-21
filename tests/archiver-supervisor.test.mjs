@@ -10,7 +10,7 @@ import {
 	startArchiverSupervisor,
 	stop as stopGlobal,
 } from "../src/app/server-functions/orders/archiverSupervisor.js";
-import { stopOnParentGone } from "../worker/archiver/parentWatch.js";
+import { isPipe, stopOnParentGone } from "../worker/archiver/parentWatch.js";
 
 const FAKE_CHILD = path.join(import.meta.dir, "fixtures", "fake-archiver-child.mjs");
 
@@ -125,6 +125,7 @@ test("builds the default command and arguments", () =>
 	assert.deepEqual(call.args, ["--conditions", "react-server", "/srv/app/worker/archiver/main.js"]);
 	assert.deepEqual(call.options.stdio, ["pipe", "inherit", "inherit"]);
 	assert.equal(call.options.env.ARCHIVER_SUPERVISED, "1");
+	assert.equal(call.options.detached, process.platform !== "win32");
 });
 
 test("restarts with a doubling backoff after crashes", async () =>
@@ -360,4 +361,314 @@ test("a child with a stdin watcher exits when its parent closes the pipe", async
 	}
 
 	assert.deepEqual(result, { code: 0, signal: null });
+});
+
+// A fake child for the signal and error tests. No pid, unless given, so no
+// process group is ever signalled.
+function makeFakeChild({ pid, exitOnKill = true } = {})
+{
+	const child = new PassThrough();
+
+	child.pid = pid;
+	child.stdin = new PassThrough();
+	child.kills = [];
+	child.kill = (signal) =>
+	{
+		child.kills.push(signal);
+
+		if (exitOnKill)
+		{
+			queueMicrotask(() => child.emit("exit", null, signal));
+		}
+
+		return true;
+	};
+
+	return child;
+}
+
+// Runs fn, then removes the SIGTERM / SIGINT listeners it added.
+async function withSignalListeners(fn)
+{
+	const before = {
+		SIGTERM: new Set(process.listeners("SIGTERM")),
+		SIGINT: new Set(process.listeners("SIGINT")),
+	};
+
+	try
+	{
+		await fn();
+	}
+	finally
+	{
+		for (const [signal, existing] of Object.entries(before))
+		{
+			for (const listener of process.listeners(signal))
+			{
+				if (!existing.has(listener))
+				{
+					process.off(signal, listener);
+				}
+			}
+		}
+	}
+}
+
+test("with NEXT_MANUAL_SIG_HANDLE, a SIGTERM exits 143 only after the worker has stopped", async () =>
+{
+	await withSignalListeners(async () =>
+	{
+		const child = makeFakeChild({ exitOnKill: false });
+		const exits = [];
+		const supervisor = createArchiverSupervisor({
+			env: { NEXT_MANUAL_SIG_HANDLE: "1" },
+			log: silentLog,
+			spawnFn: () => child,
+			exitFn: (code) => exits.push(code),
+			processGroup: false,
+		});
+
+		supervisor.start();
+		process.emit("SIGTERM", "SIGTERM");
+		await sleep(30);
+
+		assert.deepEqual(child.kills, ["SIGTERM"]);
+		assert.deepEqual(exits, [], "no exit while the worker still runs");
+
+		// A second signal during the stop is absorbed, not the default action.
+		process.emit("SIGTERM", "SIGTERM");
+		await sleep(10);
+		assert.deepEqual(exits, []);
+
+		child.emit("exit", 0, null);
+		await waitFor(() => exits.length > 0);
+		await sleep(10);
+
+		assert.equal(exits[0], 143);
+		assert.equal(supervisor.running, false);
+	});
+});
+
+test("SIGINT exits 130 with exitOnSignal, and without it the supervisor never exits the process", async () =>
+{
+	await withSignalListeners(async () =>
+	{
+		const exits = [];
+		const supervisor = createArchiverSupervisor({
+			env: {},
+			log: silentLog,
+			spawnFn: () => makeFakeChild(),
+			exitFn: (code) => exits.push(code),
+			exitOnSignal: true,
+			processGroup: false,
+		});
+
+		supervisor.start();
+		process.emit("SIGINT", "SIGINT");
+		await waitFor(() => exits.length > 0);
+		assert.deepEqual(exits, [130]);
+	});
+
+	await withSignalListeners(async () =>
+	{
+		const exits = [];
+		const supervisor = createArchiverSupervisor({
+			env: {},
+			log: silentLog,
+			spawnFn: () => makeFakeChild(),
+			exitFn: (code) => exits.push(code),
+			processGroup: false,
+		});
+
+		const listenersBefore = process.listenerCount("SIGTERM");
+
+		supervisor.start();
+		assert.equal(process.listenerCount("SIGTERM"), listenersBefore + 1);
+		process.emit("SIGTERM", "SIGTERM");
+		await supervisor.stop();
+		await sleep(20);
+		assert.deepEqual(exits, []);
+		// Without exitOnSignal (Next exits by itself), stop() removes its listeners.
+		assert.equal(process.listenerCount("SIGTERM"), listenersBefore);
+	});
+});
+
+test("an error from a started worker (a failed kill) does not count as its exit", async () =>
+{
+	const children = [];
+	const supervisor = createArchiverSupervisor({
+		env: {},
+		log: silentLog,
+		handleSignals: false,
+		processGroup: false,
+		backoff: { initialMs: 5, maxMs: 5, resetAfterMs: 60_000 },
+		spawnFn: () =>
+		{
+			const child = makeFakeChild({ pid: 424242 });
+
+			children.push(child);
+			return child;
+		},
+	});
+
+	try
+	{
+		supervisor.start();
+		children[0].emit("error", Object.assign(new Error("kill EPERM"), { code: "EPERM" }));
+		// "error" may fire more than once; an unhandled one would throw.
+		children[0].emit("error", Object.assign(new Error("kill EPERM"), { code: "EPERM" }));
+		await sleep(40);
+
+		assert.equal(children.length, 1, "no second worker was started");
+		assert.equal(supervisor.running, true);
+	}
+	finally
+	{
+		await supervisor.stop();
+	}
+});
+
+test("an error from a worker that never started is treated as its exit and retried", async () =>
+{
+	const children = [];
+	const supervisor = createArchiverSupervisor({
+		env: {},
+		log: silentLog,
+		handleSignals: false,
+		processGroup: false,
+		backoff: { initialMs: 5, maxMs: 5, resetAfterMs: 60_000 },
+		spawnFn: () =>
+		{
+			const child = makeFakeChild();
+
+			children.push(child);
+			return child;
+		},
+	});
+
+	try
+	{
+		supervisor.start();
+		children[0].emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }));
+		await waitFor(() => children.length === 2);
+	}
+	finally
+	{
+		await supervisor.stop();
+	}
+});
+
+test("stop() resolves even when the worker never reports its exit after SIGKILL", async () =>
+{
+	const child = makeFakeChild({ exitOnKill: false });
+	const supervisor = createArchiverSupervisor({
+		env: {},
+		log: silentLog,
+		handleSignals: false,
+		processGroup: false,
+		stopGraceMs: 20,
+		spawnFn: () => child,
+	});
+	const realSetTimeout = globalThis.setTimeout;
+
+	// Shortens only the 5 s wait after SIGKILL.
+	globalThis.setTimeout = (fn, ms, ...rest) => realSetTimeout(fn, ms === 5000 ? 20 : ms, ...rest);
+
+	try
+	{
+		supervisor.start();
+		await supervisor.stop();
+		assert.deepEqual(child.kills, ["SIGTERM", "SIGKILL"]);
+	}
+	finally
+	{
+		globalThis.setTimeout = realSetTimeout;
+	}
+});
+
+// Real processes: the fake worker starts a grandchild in its own process
+// group, standing in for a projecto-compress run.
+async function withGrandchild(scenario, options, fn)
+{
+	const dir = await mkdtemp(path.join(os.tmpdir(), "archiver-supervisor-group-"));
+	const grandchildLog = path.join(dir, "grandchild.log");
+	const supervisor = createArchiverSupervisor({
+		env: { ...process.env, FAKE_SCENARIO: scenario, FAKE_GRANDCHILD_LOG: grandchildLog },
+		log: silentLog,
+		command: process.execPath,
+		args: [FAKE_CHILD],
+		handleSignals: false,
+		backoff: { initialMs: 60_000, maxMs: 60_000, resetAfterMs: 60_000 },
+		...options,
+	});
+	const grandchildPid = () => waitFor(async () =>
+	{
+		try
+		{
+			return Number((await readFile(grandchildLog, "utf8")).split("\n")[0]) || null;
+		}
+		catch
+		{
+			return null;
+		}
+	});
+	let pid = null;
+
+	try
+	{
+		supervisor.start();
+		pid = await grandchildPid();
+		await fn(supervisor, pid);
+	}
+	finally
+	{
+		await supervisor.stop();
+
+		if (pid && isAlive(pid))
+		{
+			process.kill(pid, "SIGKILL");
+		}
+
+		await rm(dir, { recursive: true, force: true });
+	}
+}
+
+test("a crashed worker's leftover grandchild is killed with its process group", { skip: process.platform === "win32" }, async () =>
+{
+	await withGrandchild("grandchild-crash", {}, async (supervisor, pid) =>
+	{
+		await waitFor(() => !isAlive(pid));
+	});
+});
+
+test("the SIGKILL after the grace period also reaches the worker's grandchild", { skip: process.platform === "win32" }, async () =>
+{
+	await withGrandchild("grandchild-ignore-term", { stopGraceMs: 300 }, async (supervisor, pid) =>
+	{
+		await sleep(200);
+		assert.equal(isAlive(pid), true);
+		await supervisor.stop();
+		await waitFor(() => !isAlive(pid));
+	});
+});
+
+test("isPipe tells a pipe from /dev/null", async () =>
+{
+	const script = "import { isPipe } from " + JSON.stringify(path.join(import.meta.dir, "..", "worker", "archiver", "parentWatch.js")) + "; process.stdout.write(String(isPipe(0)));";
+	const run = (stdin) => new Promise((resolve, reject) =>
+	{
+		const child = spawn(process.execPath, ["-e", script], { stdio: [stdin, "pipe", "inherit"] });
+		let output = "";
+
+		child.stdout.on("data", (chunk) =>
+		{
+			output += chunk;
+		});
+		child.once("error", reject);
+		child.once("exit", () => resolve(output));
+	});
+
+	assert.equal(await run("pipe"), "true");
+	assert.equal(await run("ignore"), "false");
+	assert.throws(() => isPipe(-1), RangeError);
 });

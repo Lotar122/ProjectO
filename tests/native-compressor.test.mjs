@@ -1,16 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { buffer } from "node:stream/consumers";
 import zlib from "node:zlib";
 import { createDecompressStream, createTempFilePath } from "../src/app/server-functions/orders/fileCompression.js";
 import {
 	NativeCompressorError,
+	ZSTD_THREADS_DEFAULT,
+	ZSTD_THREADS_MAX,
 	nativeCompressBest,
 	readCompressorConfig,
 } from "../src/app/server-functions/orders/nativeCompressor.js";
@@ -192,13 +195,90 @@ test("exit 4 for zstd throws and leaves nothing behind", async () =>
 	});
 });
 
-test("a br failure other than exit 4 throws and removes the finished zstd output", async () =>
+test("exit 70 (malloc failure) for zstd is a run failure, not a budget refusal", async () =>
 {
 	await withInput(compressibleData(), async (srcPath, leftovers) =>
 	{
-		const error = await assertRejectsNative(nativeCompressBest(srcPath, fakeOptions("zstd=ok,br=exit5")), /exited with code 5/);
+		const error = await assertRejectsNative(nativeCompressBest(srcPath, fakeOptions("exit70")), /exited with code 70: out of memory/);
 
-		assert.equal(error.exitCode, 5);
+		assert.equal(error.exitCode, 70);
+		assert.doesNotMatch(error.message, /memory_budget|budget/);
+		assert.deepEqual(await leftovers(), []);
+	});
+});
+
+test("a br run failure after a good zstd result keeps the zstd result and removes the br output", async () =>
+{
+	await withInput(compressibleData(), async (srcPath, leftovers) =>
+	{
+		for (const [scenario, extra] of [["zstd=ok,br=exit5", {}], ["zstd=ok,br=exit70", {}],["zstd=ok,br=sigkill", {}], ["zstd=ok,br=hang", { timeoutMs: 1000 }]])
+		{
+			const result = await nativeCompressBest(srcPath, fakeOptions(scenario, extra));
+
+			assert.ok(result, scenario);
+			assert.equal(result.method, "zstd", scenario);
+			assert.deepEqual(await leftovers(), [path.basename(result.path)], scenario);
+			await rm(result.path);
+		}
+	});
+});
+
+test("a br protocol error or invalid br result still throws and removes the zstd output", async () =>
+{
+	await withInput(compressibleData(), async (srcPath, leftovers) =>
+	{
+		await assertRejectsNative(nativeCompressBest(srcPath, fakeOptions("zstd=ok,br=malformed")), /br protocol error/);
+		assert.deepEqual(await leftovers(), []);
+
+		await assertRejectsNative(nativeCompressBest(srcPath, fakeOptions("zstd=ok,br=wronginput")), /inputSize/);
+		assert.deepEqual(await leftovers(), []);
+	});
+});
+
+test("an abort during br rejects instead of keeping the zstd result", async () =>
+{
+	await withInput(compressibleData(), async (srcPath, leftovers) =>
+	{
+		const controller = new AbortController();
+		const promise = nativeCompressBest(srcPath, fakeOptions("zstd=ok,br=hang", {
+			signal: controller.signal,
+			onProgress: ({ phase }) =>
+			{
+				if (phase === "br")
+				{
+					controller.abort();
+				}
+			},
+		}));
+
+		await assert.rejects(promise, (err) => err.name === "AbortError");
+		assert.deepEqual(await leftovers(), []);
+	});
+});
+
+test("the child's stdin is a pipe that stays open until it exits, and is closed on abort", async () =>
+{
+	await withInput(compressibleData(), async (srcPath, leftovers) =>
+	{
+		// Under --watch-stdin 1 the fake exits 3 as soon as stdin reaches EOF,
+		// so a valid result after "slow"'s 200 ms wait means stdin stayed open.
+		const result = await nativeCompressBest(srcPath, fakeOptions("slow"));
+
+		assert.ok(result);
+		await rm(result.path);
+
+		// "hang-ignore" ignores SIGTERM, so an abort that ends well before the
+		// long kill grace proves the pipe was closed and the stdin watch fired.
+		const controller = new AbortController();
+		const started = Date.now();
+		const promise = nativeCompressBest(srcPath, fakeOptions("hang-ignore", {
+			signal: controller.signal,
+			killGraceMs: 20_000,
+			onProgress: () => controller.abort(),
+		}));
+
+		await assert.rejects(promise, (err) => err.name === "AbortError");
+		assert.ok(Date.now() - started < 10_000, "the child exited on stdin EOF, not on SIGKILL");
 		assert.deepEqual(await leftovers(), []);
 	});
 });
@@ -224,6 +304,7 @@ const PROTOCOL_ERRORS = [
 	["a wrong codec", "wrongcodec", /codec/],
 	["a wrong inputSize", "wronginput", /inputSize/],
 	["an unsafe integer", "unsafeint", /not a safe integer/],
+	["a negative workers count", "badworkers", /result workers is not a safe integer/],
 	["a line after the result", "afterresult", /after the result/],
 	["ok:false with exit 0", "okfalse", /failed result line/],
 	["an unknown line type", "unknowntype", /unknown stdout line type/],
@@ -262,13 +343,14 @@ test("a hanging child is killed with SIGTERM when the timeout passes", async () 
 
 // The fixture prints its progress line only after the SIGTERM handler is
 // installed, so aborting from onProgress cannot race the child's startup.
-test("a child that ignores SIGTERM is killed with SIGKILL after the grace period", async () =>
+// "hang-deaf" also ignores the stdin EOF that the abort causes.
+test("a child that ignores SIGTERM and stdin EOF is killed with SIGKILL after the grace period", async () =>
 {
 	await withInput(compressibleData(), async (srcPath, leftovers) =>
 	{
 		const controller = new AbortController();
 		let abortedAt = 0;
-		const promise = nativeCompressBest(srcPath, fakeOptions("hang-ignore", {
+		const promise = nativeCompressBest(srcPath, fakeOptions("hang-deaf", {
 			signal: controller.signal,
 			killGraceMs: 400,
 			onProgress: () =>
@@ -451,6 +533,8 @@ test("the binary gets exactly the contract argv and an empty environment", async
 		assert.ok(flag("--output").endsWith(".zst"));
 		assert.equal(flag("--input-size"), String(compressibleData().length));
 		assert.equal(flag("--memory-budget-mib"), "7168");
+		assert.equal(flag("--threads"), String(ZSTD_THREADS_DEFAULT));
+		assert.equal(flag("--watch-stdin"), "1");
 		assert.ok(!argv.includes("--max-window-log"));
 
 		// Bun may add its own variables; nothing from this process may leak in.
@@ -460,13 +544,173 @@ test("the binary gets exactly the contract argv and an empty environment", async
 	});
 });
 
+test("both codec runs pass --watch-stdin 1 exactly once, after the contract flags", async () =>
+{
+	await withInput(compressibleData(), async (srcPath) =>
+	{
+		const argvFile = (codec) => path.join(path.dirname(srcPath), `argv-${codec}.json`);
+		const result = await nativeCompressBest(srcPath, fakeOptions(`zstd=argv=${argvFile("zstd")},br=argv=${argvFile("br")}`));
+
+		assert.ok(result);
+
+		for (const codec of ["zstd", "br"])
+		{
+			const argv = JSON.parse(await readFile(argvFile(codec), "utf8"));
+			const index = argv.indexOf("--watch-stdin");
+
+			assert.equal(argv[argv.indexOf("--codec") + 1], codec);
+			assert.ok(index > argv.indexOf("compress"), codec);
+			assert.equal(argv[index + 1], "1", codec);
+			assert.equal(argv.lastIndexOf("--watch-stdin"), index, codec);
+			assert.deepEqual(argv.slice(-2), ["--watch-stdin", "1"], codec);
+		}
+	});
+});
+
+test("--threads goes to the zstd run only: the option, else PROJECTO_ZSTD_THREADS, else 4", { timeout: 60_000 }, async () =>
+{
+	const previous = process.env.PROJECTO_ZSTD_THREADS;
+
+	try
+	{
+		await withInput(compressibleData(), async (srcPath) =>
+		{
+			const argvFile = (codec, label) => path.join(path.dirname(srcPath), `argv-${label}-${codec}.json`);
+			const runWith = async (label, extra) =>
+			{
+				const scenario = `zstd=argv=${argvFile("zstd", label)},br=argv=${argvFile("br", label)}`;
+				const result = await nativeCompressBest(srcPath, fakeOptions(scenario, extra));
+
+				assert.ok(result, label);
+				await rm(result.path, { force: true });
+
+				const read = async (codec) => JSON.parse(await readFile(argvFile(codec, label), "utf8"));
+
+				return { zstd: await read("zstd"), br: await read("br") };
+			};
+			const threadsOf = (argv) => argv.filter((arg) => arg === "--threads").length === 1
+				? argv[argv.indexOf("--threads") + 1]
+				: `count ${argv.filter((arg) => arg === "--threads").length}`;
+
+			delete process.env.PROJECTO_ZSTD_THREADS;
+
+			const byDefault = await runWith("default", {});
+
+			assert.equal(threadsOf(byDefault.zstd), "4");
+			assert.ok(!byDefault.br.includes("--threads"));
+			// --watch-stdin stays the last flag, after --threads.
+			assert.deepEqual(byDefault.zstd.slice(-4), ["--threads", "4", "--watch-stdin", "1"]);
+
+			process.env.PROJECTO_ZSTD_THREADS = "16";
+			assert.equal(threadsOf((await runWith("env", {})).zstd), "16");
+			assert.equal(threadsOf((await runWith("option", { zstdThreads: 1 })).zstd), "1");
+			assert.equal(threadsOf((await runWith("zero", { zstdThreads: 0 })).zstd), "0");
+			assert.equal(threadsOf((await runWith("max", { zstdThreads: ZSTD_THREADS_MAX })).zstd), "64");
+
+			// An option that overrides the env value means the env value is not parsed.
+			process.env.PROJECTO_ZSTD_THREADS = "abc";
+			assert.equal(threadsOf((await runWith("override", { zstdThreads: 2 })).zstd), "2");
+			await assert.rejects(nativeCompressBest(srcPath, fakeOptions("ok")), /PROJECTO_ZSTD_THREADS must be an integer from 0 to 64/);
+
+			for (const bad of [-1, 65, 1.5, "4", Number.NaN])
+			{
+				await assert.rejects(nativeCompressBest(srcPath, fakeOptions("ok", { zstdThreads: bad })), RangeError, String(bad));
+			}
+		});
+	}
+	finally
+	{
+		if (previous === undefined)
+		{
+			delete process.env.PROJECTO_ZSTD_THREADS;
+		}
+		else
+		{
+			process.env.PROJECTO_ZSTD_THREADS = previous;
+		}
+	}
+});
+
+test("the zstd result's workers count is accepted, and the fake checks --threads like the binary", async () =>
+{
+	await withInput(compressibleData(), async (srcPath, leftovers) =>
+	{
+		const result = await nativeCompressBest(srcPath, fakeOptions("zstd=ok,br=exit4", { zstdThreads: 8 }));
+
+		assert.equal(result?.method, "zstd");
+		await rm(result.path, { force: true });
+
+		const child = Bun.spawn([
+			process.execPath, FAKE_SCRIPT, "ok", "compress",
+			"--codec", "zstd",
+			"--input", srcPath,
+			"--output", createTempFilePath(".zst"),
+			"--input-size", String(compressibleData().length),
+			"--threads", "65",
+		], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+
+		assert.equal(await child.exited, 2);
+		assert.deepEqual(await leftovers(), []);
+	});
+});
+
+// The fixture must model the real binary: no stdin watch unless the flag asks.
+test("fake-compressor watches stdin only with --watch-stdin 1, like the real binary", async () =>
+{
+	await withInput(compressibleData(), async (srcPath, leftovers) =>
+	{
+		const run = (watch) =>
+		{
+			const outputPath = createTempFilePath(".zst");
+			const child = Bun.spawn([
+				process.execPath, FAKE_SCRIPT, "slow", "compress",
+				"--codec", "zstd",
+				"--input", srcPath,
+				"--output", outputPath,
+				"--input-size", String(compressibleData().length),
+				"--memory-budget-mib", "64",
+				...watch,
+			], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+
+			return child.exited.then((exitCode) => ({ exitCode, outputPath }));
+		};
+
+		const off = await run([]);
+
+		assert.equal(off.exitCode, 0);
+		assert.ok(existsSync(off.outputPath));
+		await rm(off.outputPath);
+
+		const explicitOff = await run(["--watch-stdin", "0"]);
+
+		assert.equal(explicitOff.exitCode, 0);
+		await rm(explicitOff.outputPath);
+
+		// stdin at /dev/null is EOF at once: exit 3, nothing left behind.
+		const on = await run(["--watch-stdin", "1"]);
+
+		assert.equal(on.exitCode, 3);
+		assert.deepEqual(await leftovers(), []);
+	});
+});
+
 test("readCompressorConfig validates the budget range and the timeout", () =>
 {
-	assert.deepEqual(readCompressorConfig({}), { memoryBudgetMib: 6144, timeoutMs: 10_800_000 });
+	assert.deepEqual(readCompressorConfig({}), { memoryBudgetMib: 6144, timeoutMs: 10_800_000, zstdThreads: 4 });
 	assert.deepEqual(
-		readCompressorConfig({ COMPRESSOR_MEMORY_BUDGET_MIB: "7168", COMPRESSOR_TIMEOUT_MS: "1000" }),
-		{ memoryBudgetMib: 7168, timeoutMs: 1000 },
+		readCompressorConfig({ COMPRESSOR_MEMORY_BUDGET_MIB: "7168", COMPRESSOR_TIMEOUT_MS: "1000", PROJECTO_ZSTD_THREADS: "8" }),
+		{ memoryBudgetMib: 7168, timeoutMs: 1000, zstdThreads: 8 },
 	);
+
+	for (const [value, expected] of [["0", 0], ["1", 1], ["64", 64], ["", 4]])
+	{
+		assert.equal(readCompressorConfig({ PROJECTO_ZSTD_THREADS: value }).zstdThreads, expected, value);
+	}
+
+	for (const bad of ["65", "-1", "abc", "4 ", "1.5", "0x4"])
+	{
+		assert.throws(() => readCompressorConfig({ PROJECTO_ZSTD_THREADS: bad }), RangeError, bad);
+	}
 	assert.equal(readCompressorConfig({ COMPRESSOR_MEMORY_BUDGET_MIB: "64" }).memoryBudgetMib, 64);
 
 	for (const bad of ["7169", "abc", "63", "-1", "1.5", "6144 ", "0x10"])
@@ -688,5 +932,85 @@ realTest("real binary: a 64 MiB budget refuses zstd for an input of about 8 MB w
 
 		assert.equal(error.exitCode, 4);
 		assert.deepEqual(await leftovers(), []);
+	});
+});
+
+// About 3 MiB of STL-like text with seeded noise: window 22, 6 zstd jobs of 512 KiB.
+function multiJobData()
+{
+	const lines = [];
+	let seed = 12345;
+
+	for (let i = 0; lines.length < 70_000; i++)
+	{
+		seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+		lines.push(`  facet normal ${(i % 17) / 17} ${(seed % 1000) / 1000} 0\n    vertex ${i} ${seed % 4096} ${i % 13}\n`);
+	}
+
+	return Buffer.from(lines.join(""));
+}
+
+// The archiver's verification: decode the file through createDecompressStream and hash it.
+async function decodedSha(method, filePath)
+{
+	const hash = createHash("sha256");
+
+	await pipeline(createReadStream(filePath), createDecompressStream(method), new Writable({
+		write(chunk, encoding, callback)
+		{
+			hash.update(chunk);
+			callback();
+		},
+	}));
+
+	return hash.digest("hex");
+}
+
+realTest("real binary: --threads 4 runs 4 zstd workers on a multi-MiB file, and the archiver's decode check passes", { timeout: 120_000 }, async () =>
+{
+	const data = multiJobData();
+
+	assert.ok(data.length > 3 * 1024 * 1024);
+
+	await withInput(data, async (srcPath, leftovers) =>
+	{
+		const root = await realpath(path.dirname(srcPath));
+		const lines = {};
+
+		for (const threads of ["1", "4"])
+		{
+			const outputPath = createTempFilePath(".zst");
+			const child = Bun.spawn([
+				REAL_BIN, "compress",
+				"--codec", "zstd",
+				"--root", root,
+				"--input", srcPath,
+				"--output", outputPath,
+				"--input-size", String(data.length),
+				"--threads", threads,
+			], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {} });
+			const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+
+			assert.equal(exitCode, 0, stdout);
+			lines[threads] = stdout.trim().split("\n").map((line) => JSON.parse(line));
+
+			const start = lines[threads].find((line) => line.type === "start");
+			const result = lines[threads].find((line) => line.type === "result");
+			const workers = threads === "4" ? 4 : 0;
+
+			assert.equal(start.threads, Number(threads));
+			assert.equal(start.workers, workers);
+			assert.equal(result.workers, workers);
+			assert.equal(sha(await decompress("zstd", await readFile(outputPath))), sha(data));
+			assert.equal(await decodedSha("zstd", outputPath), sha(data));
+			await rm(outputPath);
+		}
+
+		// Through the adapter, with the thread count it passes on.
+		const result = await nativeCompressBest(srcPath, { ...realOptions(), zstdThreads: 4 });
+
+		assert.ok(result);
+		assert.equal(await decodedSha(result.method, result.path), sha(data));
+		assert.deepEqual(await leftovers(), [path.basename(result.path)]);
 	});
 });
