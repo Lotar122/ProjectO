@@ -1,8 +1,11 @@
 #include "projecto/file_io.hpp"
 
 #include <cerrno>
+#include <string_view>
 #include <system_error>
 #include <utility>
+
+#include "projecto/platform.hpp"
 
 namespace projecto
 {
@@ -23,17 +26,16 @@ namespace projecto
 			return message;
 		}
 
-		// The C stdio API takes narrow paths. Paths handed to this binary are generated ASCII
-		// names (UUIDs in a temp directory), so no wide-character open is needed.
-		std::variant<std::FILE*, IoError> openWith(const fs::path& path, const char* mode, std::string_view what)
+		// Paths handed to this binary are generated ASCII names (UUIDs in a temp directory),
+		// so the narrow-path opens in platform.cpp are enough.
+		std::variant<std::FILE*, IoError> opened(std::variant<std::FILE*, platform::ErrorNumber> result, const fs::path& path,
+			std::string_view what)
 		{
-			errno = 0;
-			std::FILE* file = std::fopen(path.string().c_str(), mode);
-			if (file == nullptr)
+			if (const platform::ErrorNumber* error = std::get_if<platform::ErrorNumber>(&result))
 			{
-				return IoError{describe(what, path, errno)};
+				return IoError{describe(what, path, *error)};
 			}
-			return file;
+			return std::get<std::FILE*>(result);
 		}
 	}
 
@@ -54,24 +56,28 @@ namespace projecto
 	{
 	}
 
+	// The path is copied before the open: once the handle exists nothing may throw, or the
+	// FILE* would leak (and a created file stay behind).
 	std::variant<File, IoError> File::openRead(const fs::path& path)
 	{
-		auto opened = openWith(path, "rb", "cannot open for reading");
-		if (IoError* error = std::get_if<IoError>(&opened))
+		fs::path ownedPath = path;
+		auto result = opened(platform::openForReading(ownedPath), ownedPath, "cannot open for reading");
+		if (IoError* error = std::get_if<IoError>(&result))
 		{
 			return std::move(*error);
 		}
-		return File{std::get<std::FILE*>(opened), path, false};
+		return File{std::get<std::FILE*>(result), std::move(ownedPath), false};
 	}
 
 	std::variant<File, IoError> File::createExclusive(const fs::path& path)
 	{
-		auto opened = openWith(path, "wbx", "cannot create");
-		if (IoError* error = std::get_if<IoError>(&opened))
+		fs::path ownedPath = path;
+		auto result = opened(platform::createNew(ownedPath), ownedPath, "cannot create");
+		if (IoError* error = std::get_if<IoError>(&result))
 		{
 			return std::move(*error);
 		}
-		return File{std::get<std::FILE*>(opened), path, true};
+		return File{std::get<std::FILE*>(result), std::move(ownedPath), true};
 	}
 
 	std::variant<std::size_t, IoError> File::read(std::span<std::byte> buffer)
@@ -111,29 +117,41 @@ namespace projecto
 		return std::nullopt;
 	}
 
-	std::variant<std::uint64_t, IoError> File::size()
+	std::variant<FileFacts, IoError> File::inspect() const
 	{
 		if (!file_)
 		{
-			return IoError{describe("size of closed file", path_, 0)};
+			return IoError{describe("inspect closed file", path_, 0)};
 		}
-		errno = 0;
-		if (std::fseek(file_.get(), 0, SEEK_END) != 0)
+		auto facts = platform::inspect(file_.get());
+		if (const platform::ErrorNumber* error = std::get_if<platform::ErrorNumber>(&facts))
 		{
-			return IoError{describe("cannot seek to the end of", path_, errno)};
+			return IoError{describe("cannot inspect", path_, *error)};
 		}
-		errno = 0;
-		const long end = std::ftell(file_.get());
-		if (end < 0)
+		return std::get<FileFacts>(facts);
+	}
+
+	std::variant<std::uint64_t, IoError> File::size() const
+	{
+		auto facts = inspect();
+		if (IoError* error = std::get_if<IoError>(&facts))
 		{
-			return IoError{describe("cannot measure", path_, errno)};
+			return std::move(*error);
 		}
-		errno = 0;
-		if (std::fseek(file_.get(), 0, SEEK_SET) != 0)
+		return std::get<FileFacts>(facts).size;
+	}
+
+	std::optional<IoError> File::sync()
+	{
+		if (!file_)
 		{
-			return IoError{describe("cannot seek back to the start of", path_, errno)};
+			return IoError{describe("sync of closed file", path_, 0)};
 		}
-		return static_cast<std::uint64_t>(end);
+		if (const platform::ErrorNumber error = platform::syncToStorage(file_.get()); error != 0)
+		{
+			return IoError{describe("cannot sync", path_, error)};
+		}
+		return std::nullopt;
 	}
 
 	std::optional<IoError> File::close()

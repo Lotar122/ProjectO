@@ -31,8 +31,9 @@ namespace projecto
 	// Absolute, exists, is a directory and is not a symlink. Returns the canonical root.
 	std::variant<std::filesystem::path, PathError> validateRoot(const std::filesystem::path& root);
 
-	// Absolute, a regular file (no symlink), a direct child of canonicalRoot, file_size == expectedSize.
-	// Returns canonicalRoot / filename.
+	// Absolute, a regular file (no symlink) with a single hard link, a direct child of canonicalRoot,
+	// file_size == expectedSize. Returns canonicalRoot / filename. InputReader::open checks the
+	// type, link count and size again on the open handle.
 	std::variant<std::filesystem::path, PathError> validateInput(
 		const std::filesystem::path& canonicalRoot, const std::filesystem::path& input, std::uint64_t expectedSize);
 

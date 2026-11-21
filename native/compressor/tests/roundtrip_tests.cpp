@@ -1,12 +1,19 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <ctime>
+#include <thread>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <variant>
 #include <vector>
 
@@ -229,7 +236,7 @@ TEST_CASE("the allocator is a hard cap at run time: exit 4 and the output is rem
 	std::ostringstream out;
 	ProgressReporter zstdProgress{out, MiB};
 	BudgetAllocator zstdAllocator{request.budgetBytes};
-	const CompressOutcome zstdOutcome = encodeZstd(planZstd(data.size(), 28).params, request, zstdProgress, zstdAllocator);
+	const CompressOutcome zstdOutcome = encodeZstd(planZstd(data.size(), 28), 0, request, zstdProgress, zstdAllocator);
 	REQUIRE(std::holds_alternative<CodecFailure>(zstdOutcome));
 	CHECK(std::get<CodecFailure>(zstdOutcome).code == ExitCode::budget);
 	CHECK_FALSE(fs::exists(request.output));
@@ -254,7 +261,7 @@ TEST_CASE("an input whose size differs from --input-size is exit 3 and leaves no
 		std::ostringstream out;
 		ProgressReporter progress{out, MiB};
 		BudgetAllocator allocator{request.budgetBytes};
-		const CompressOutcome zstdOutcome = encodeZstd(planZstd(claimed, 28).params, request, progress, allocator);
+		const CompressOutcome zstdOutcome = encodeZstd(planZstd(claimed, 28), 4, request, progress, allocator);
 		REQUIRE(std::holds_alternative<CodecFailure>(zstdOutcome));
 		CHECK(std::get<CodecFailure>(zstdOutcome).code == ExitCode::io);
 		CHECK_FALSE(fs::exists(request.output));
@@ -286,6 +293,64 @@ TEST_CASE("InputReader stops at exactly the expected size and reports a longer o
 	const auto longer = InputReader::open(dir.path() / "in.bin", 3001);
 	REQUIRE(std::holds_alternative<CodecFailure>(longer));
 	CHECK(std::get<CodecFailure>(longer).code == ExitCode::io);
+}
+
+TEST_CASE("InputReader checks the open handle: a second hard link or a symlink is refused")
+{
+	const TempDir dir;
+	writeBytes(dir.path() / "in.bin", textLike(3000));
+	std::error_code ec;
+	fs::create_hard_link(dir.path() / "in.bin", dir.path() / "twin.bin", ec);
+	if (ec)
+	{
+		MESSAGE("hard links are not available here: " << ec.message());
+	}
+	else
+	{
+		// The link appeared after validation would have passed: the handle check still sees it.
+		const auto linked = InputReader::open(dir.path() / "in.bin", 3000);
+		REQUIRE(std::holds_alternative<CodecFailure>(linked));
+		CHECK(std::get<CodecFailure>(linked).code == ExitCode::io);
+		CHECK(std::get<CodecFailure>(linked).message.find("hard links") != std::string::npos);
+		fs::remove(dir.path() / "twin.bin");
+	}
+
+	fs::create_symlink(dir.path() / "in.bin", dir.path() / "link.bin", ec);
+	if (ec)
+	{
+		MESSAGE("symlinks are not available here: " << ec.message());
+		return;
+	}
+	const auto symlinked = InputReader::open(dir.path() / "link.bin", 3000);
+	REQUIRE(std::holds_alternative<CodecFailure>(symlinked));
+	CHECK(std::get<CodecFailure>(symlinked).code == ExitCode::io);
+}
+
+TEST_CASE("File::inspect measures the open handle: type, links and a 64-bit size")
+{
+	const TempDir dir;
+	writeBytes(dir.path() / "in.bin", textLike(4321));
+	auto opened = File::openRead(dir.path() / "in.bin");
+	REQUIRE(std::holds_alternative<File>(opened));
+	const auto facts = std::get<File>(opened).inspect();
+	REQUIRE(std::holds_alternative<FileFacts>(facts));
+	CHECK(std::get<FileFacts>(facts).regular);
+	CHECK(std::get<FileFacts>(facts).links == 1);
+	CHECK(std::get<FileFacts>(facts).size == 4321);
+}
+
+TEST_CASE("File::sync puts written bytes on storage, and on a closed file it is an error")
+{
+	const TempDir dir;
+	const fs::path path = dir.path() / "synced.bin";
+	auto created = File::createExclusive(path);
+	REQUIRE(std::holds_alternative<File>(created));
+	File& file = std::get<File>(created);
+	CHECK_FALSE(file.write(textLike(64)).has_value());
+	CHECK_FALSE(file.sync().has_value());
+	CHECK_FALSE(file.close().has_value());
+	CHECK(file.sync().has_value());
+	CHECK(fs::file_size(path) == 64);
 }
 
 TEST_CASE("OutputFile removes its file unless committed, and never touches a file it did not create")
@@ -321,9 +386,10 @@ TEST_CASE("OutputFile removes its file unless committed, and never touches a fil
 
 TEST_CASE("progress lines come every interval, in order, before the result line")
 {
+	// Single-threaded the input is read as it is compressed, so the lines fall exactly on the interval.
 	const TempDir dir;
 	const Bytes data = stlLike(3 * MiB + 100, 8);
-	const AppRun run = compressFile(dir, "zstd", data, {"--progress-interval-mib", "1"});
+	const AppRun run = compressFile(dir, "zstd", data, {"--progress-interval-mib", "1", "--threads", "1"});
 	REQUIRE(run.code == ExitCode::ok);
 	const std::vector<std::string> lines = splitLines(run.out);
 	REQUIRE(lines.size() == 5);
@@ -344,7 +410,39 @@ TEST_CASE("progress lines come every interval, in order, before the result line"
 	}));
 }
 
-TEST_CASE("64 MiB: peakBytes stays within the budget, the zstd estimate + 5%, and the brotli estimate")
+TEST_CASE("with workers, progress counts compressed input: increasing, one line per interval passed, before the result")
+{
+	const TempDir dir;
+	const Bytes data = stlLike(3 * MiB + 100, 8);
+	const AppRun run = compressFile(dir, "zstd", data, {"--progress-interval-mib", "1", "--threads", "4"});
+	REQUIRE(run.code == ExitCode::ok);
+	const std::vector<std::string> lines = splitLines(run.out);
+	REQUIRE(lines.size() >= 3);
+	CHECK(lines.front().find("\"workers\":4") != std::string::npos);
+	CHECK(lines.back().starts_with("{\"type\":\"result\",\"ok\":true"));
+	std::uint64_t previousRead = 0;
+	std::uint64_t previousWritten = 0;
+	for (std::size_t index = 1; index + 1 < lines.size(); ++index)
+	{
+		const std::string& line = lines[index];
+		CAPTURE(line);
+		REQUIRE(line.starts_with("{\"type\":\"progress\""));
+		const std::optional<std::uint64_t> read = numberField(line, "read");
+		const std::optional<std::uint64_t> written = numberField(line, "written");
+		REQUIRE(read.has_value());
+		REQUIRE(written.has_value());
+		// Each line passed a new multiple of the interval.
+		CHECK(*read / MiB > previousRead / MiB);
+		CHECK(*read <= data.size());
+		CHECK(*written >= previousWritten);
+		previousRead = *read;
+		previousWritten = *written;
+	}
+	// The last line reports the whole input compressed.
+	CHECK(previousRead == data.size());
+}
+
+TEST_CASE("64 MiB: peakBytes stays within the budget, the single-threaded zstd estimate + 5%, and the brotli estimate")
 {
 	const Bytes data = repeated64MiB();
 	for (const std::string codec : {"zstd", "br"})
@@ -362,7 +460,7 @@ TEST_CASE("64 MiB: peakBytes stays within the budget, the zstd estimate + 5%, an
 		{
 			const ZstdPlan plan = planZstd(data.size(), 28);
 			estimate = plan.estimatedBytes;
-			outcome = encodeZstd(plan.params, request, progress, allocator);
+			outcome = encodeZstd(plan, 0, request, progress, allocator);
 		}
 		else
 		{
@@ -455,11 +553,12 @@ TEST_CASE("an allocation refused after output bytes were written: brotli exits 4
 	CHECK(readWhenLowered < data.size() / 2);
 	REQUIRE(std::holds_alternative<CodecFailure>(outcome));
 	CHECK(std::get<CodecFailure>(outcome).code == ExitCode::budget);
-	CHECK(allocator.refused());
+	// Reporting the refusal took it, so it cannot be blamed for a later error as well.
+	CHECK(allocator.lastFailure() == AllocationFailure::none);
 	CHECK_FALSE(fs::exists(request.output));
 }
 
-TEST_CASE("zstd allocates its whole workspace before the first output byte, so it cannot be refused mid-stream")
+TEST_CASE("single-threaded zstd allocates its whole workspace before the first output byte, so it cannot be refused mid-stream")
 {
 	// The counterpart of the brotli case: with the budget dropped to what is live once output
 	// exists, zstd still finishes, because it makes no allocation after its first call.
@@ -478,13 +577,356 @@ TEST_CASE("zstd allocates its whole workspace before the first output byte, so i
 			allocator.setBudget(allocator.current());
 		}
 	}};
-	const CompressOutcome outcome = encodeZstd(planZstd(data.size(), 28).params, request, progress, allocator);
+	const CompressOutcome outcome = encodeZstd(planZstd(data.size(), 28), 0, request, progress, allocator);
 	CHECK(lowered);
 	REQUIRE(std::holds_alternative<CompressStats>(outcome));
 	CHECK_FALSE(allocator.refused());
 	const std::optional<Bytes> decoded = decodeZstd(readBytes(request.output), 28);
 	REQUIRE(decoded.has_value());
 	CHECK(*decoded == data);
+}
+
+namespace
+{
+	// 3 MiB of text, 4 MiB of STL-like data and 1 MiB of noise: 8 MiB in 8 jobs of 1 MiB.
+	Bytes mixed8MiB()
+	{
+		Bytes data = textLike(3 * MiB);
+		const Bytes stl = stlLike(4 * MiB, 21);
+		const Bytes noise = randomBytes(MiB, 22);
+		data.insert(data.end(), stl.begin(), stl.end());
+		data.insert(data.end(), noise.begin(), noise.end());
+		return data;
+	}
+
+	std::uint64_t ceilMiB(std::uint64_t bytes)
+	{
+		return (bytes + MiB - 1) / MiB;
+	}
+}
+
+TEST_CASE("zstd round-trips with --threads 1 and --threads 4, and multi-MiB inputs run on several workers")
+{
+	struct Case
+	{
+		std::string name;
+		Bytes data;
+		// Workers --threads 4 gets: min(4, jobs), or 0 for a single job.
+		std::uint64_t workersAtFour;
+	};
+	std::vector<Case> cases;
+	cases.push_back({"300 KiB text (one job)", textLike(300 * 1024), 0});
+	cases.push_back({"3 MiB + 100 B STL-like (7 jobs)", stlLike(3 * MiB + 100, 23), 4});
+	cases.push_back({"8 MiB mixed (8 jobs)", mixed8MiB(), 4});
+	for (const Case& entry : cases)
+	{
+		for (const std::uint64_t threads : {1U, 4U})
+		{
+			CAPTURE(entry.name);
+			CAPTURE(threads);
+			const TempDir dir;
+			const AppRun run = compressFile(dir, "zstd", entry.data, {"--threads", std::to_string(threads)});
+			REQUIRE(run.code == ExitCode::ok);
+			const std::uint64_t expected = threads == 1 ? 0 : entry.workersAtFour;
+			const std::optional<std::string> start = lineOfType(run.out, "start");
+			REQUIRE(start.has_value());
+			CHECK(numberField(*start, "threads") == threads);
+			CHECK(numberField(*start, "workers") == expected);
+			const std::optional<std::string> result = lineOfType(run.out, "result");
+			REQUIRE(result.has_value());
+			CHECK(numberField(*result, "workers") == expected);
+			MESSAGE(entry.name << " --threads " << threads << ": " << *result);
+
+			const Bytes encoded = readBytes(dir.path() / "out.bin");
+			ZSTD_FrameHeader header{};
+			REQUIRE(ZSTD_getFrameHeader(&header, encoded.data(), encoded.size()) == 0);
+			CHECK(header.frameContentSize == entry.data.size());
+			CHECK(header.checksumFlag == 1U);
+			CHECK(header.windowSize <= (std::uint64_t{1} << 28));
+			CHECK(ZSTD_findFrameCompressedSize(encoded.data(), encoded.size()) == encoded.size());
+			const std::optional<Bytes> decoded = decodeZstd(encoded, 28);
+			REQUIRE(decoded.has_value());
+			CHECK(*decoded == entry.data);
+		}
+	}
+}
+
+TEST_CASE("multithreaded zstd output depends on the job layout only: 2 and 4 workers give the same bytes")
+{
+	const Bytes data = stlLike(3 * MiB + 100, 24);
+	const TempDir two;
+	const TempDir four;
+	REQUIRE(compressFile(two, "zstd", data, {"--threads", "2"}).code == ExitCode::ok);
+	REQUIRE(compressFile(four, "zstd", data, {"--threads", "4"}).code == ExitCode::ok);
+	CHECK(readBytes(two.path() / "out.bin") == readBytes(four.path() / "out.bin"));
+}
+
+TEST_CASE("multithreaded encodeZstd: nbWorkers is applied, jobs run in parallel, peakBytes stays within the estimate")
+{
+	struct Case
+	{
+		std::string name;
+		Bytes data;
+		int workers;
+	};
+	std::vector<Case> cases;
+	cases.push_back({"8 MiB mixed", mixed8MiB(), 4});
+	cases.push_back({"8 MiB mixed", mixed8MiB(), 2});
+	cases.push_back({"64 MiB repeated", repeated64MiB(), 2});
+	for (const Case& entry : cases)
+	{
+		CAPTURE(entry.name);
+		CAPTURE(entry.workers);
+		const TempDir dir;
+		writeBytes(dir.path() / "in.bin", entry.data);
+		const CompressRequest request = requestFor(dir, entry.data.size(), 6144 * MiB);
+		const ZstdPlan plan = planZstd(entry.data.size(), 28);
+		REQUIRE(plan.jobs.count >= static_cast<std::uint64_t>(entry.workers));
+		const std::uint64_t estimate = zstdEstimate(plan, entry.workers);
+		BudgetAllocator allocator{request.budgetBytes};
+		std::ostringstream out;
+		ProgressReporter progress{out, 64 * MiB};
+		const std::clock_t cpuStarted = std::clock();
+		const auto wallStarted = std::chrono::steady_clock::now();
+		const CompressOutcome outcome = encodeZstd(plan, entry.workers, request, progress, allocator);
+		const double cpuSeconds = static_cast<double>(std::clock() - cpuStarted) / CLOCKS_PER_SEC;
+		const double wallSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - wallStarted).count();
+		REQUIRE(std::holds_alternative<CompressStats>(outcome));
+		const CompressStats& stats = std::get<CompressStats>(outcome);
+		MESSAGE(entry.name << " with " << entry.workers << " workers: peakBytes " << stats.peakBytes << ", estimate "
+			<< estimate << " (single-threaded " << plan.estimatedBytes << "), jobs in flight " << stats.peakActiveWorkers
+			<< ", peak live blocks " << allocator.peakBlocks() << ", CPU " << cpuSeconds << " s in " << wallSeconds
+			<< " s wall");
+		CHECK(stats.workers == static_cast<std::uint64_t>(entry.workers));
+		// zstd reports jobs in flight only in MT mode (0 single-threaded): several jobs were handed out.
+		CHECK(stats.peakActiveWorkers >= 2);
+		// Running, plus one queued and one cut but not yet posted.
+		CHECK(stats.peakActiveWorkers <= static_cast<std::uint64_t>(entry.workers) + 2);
+		// The process used clearly more CPU time than wall time: the workers really ran side by side.
+		if (std::thread::hardware_concurrency() >= 2)
+		{
+			CHECK(cpuSeconds > wallSeconds * 1.25);
+		}
+		CHECK(stats.peakBytes <= estimate);
+		CHECK(stats.peakBytes > plan.estimatedBytes);
+		CHECK(allocator.peakBlocks() <= BudgetAllocator::kAllowedLiveBlocks);
+		CHECK(allocator.current() == 0);
+		const std::optional<Bytes> decoded = decodeZstd(readBytes(request.output), 28);
+		REQUIRE(decoded.has_value());
+		CHECK(*decoded == entry.data);
+	}
+}
+
+TEST_CASE("multithreaded zstd: a worker's allocation refused mid-run is exit 4, every worker stops, the output is removed")
+{
+	// The budget holds the shared state and one worker's context, not a second one: the first job
+	// runs, the second job's worker is refused its context after the output was created.
+	const TempDir dir;
+	const Bytes data = mixed8MiB();
+	writeBytes(dir.path() / "in.bin", data);
+	const ZstdPlan plan = planZstd(data.size(), 28);
+	const CompressRequest request = requestFor(dir, data.size(), zstdEstimate(plan, 1));
+	REQUIRE(request.budgetBytes < zstdEstimate(plan, 2));
+	BudgetAllocator allocator{request.budgetBytes};
+	bool outputSeen = false;
+	std::ostringstream out;
+	ProgressReporter progress{out, MiB, [&request, &outputSeen](std::uint64_t, std::uint64_t)
+	{
+		outputSeen = outputSeen || fs::exists(request.output);
+	}};
+	const auto started = std::chrono::steady_clock::now();
+	const CompressOutcome outcome = encodeZstd(plan, 4, request, progress, allocator);
+	const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
+	MESSAGE("refused run returned after " << elapsed.count() << " ms");
+	CHECK(outputSeen);
+	REQUIRE(std::holds_alternative<CodecFailure>(outcome));
+	CHECK(std::get<CodecFailure>(outcome).code == ExitCode::budget);
+	CHECK_FALSE(fs::exists(request.output));
+	// The context was freed, so every worker has finished and returned all its memory.
+	CHECK(allocator.current() == 0);
+	CHECK(allocator.peak() <= request.budgetBytes);
+	CHECK(allocator.lastFailure() == AllocationFailure::none);
+}
+
+namespace
+{
+	// A system allocator that runs out of memory on demand: allocations of at least
+	// gSystemMinBytes use up one of gSystemAllowed and fail (nullptr) once none are left;
+	// smaller ones always succeed. zstd workers call it from their own threads.
+	std::atomic<std::uint64_t> gSystemMinBytes = 0;
+	std::atomic<std::uint64_t> gSystemAllowed = 0;
+	std::atomic<std::uint64_t> gSystemRefused = 0;
+
+	void* exhaustibleMalloc(std::size_t bytes) noexcept
+	{
+		if (bytes >= gSystemMinBytes.load())
+		{
+			std::uint64_t left = gSystemAllowed.load();
+			do
+			{
+				if (left == 0)
+				{
+					gSystemRefused.fetch_add(1);
+					return nullptr;
+				}
+			}
+			while (!gSystemAllowed.compare_exchange_weak(left, left - 1));
+		}
+		return std::malloc(bytes);
+	}
+
+	void resetExhaustibleMalloc(std::uint64_t minBytes, std::uint64_t allowed)
+	{
+		gSystemMinBytes.store(minBytes);
+		gSystemAllowed.store(allowed);
+		gSystemRefused.store(0);
+	}
+
+	void checkSystemOutOfMemory(const CompressOutcome& outcome, const CompressRequest& request,
+		const BudgetAllocator& allocator)
+	{
+		CHECK(gSystemRefused.load() > 0);
+		REQUIRE(std::holds_alternative<CodecFailure>(outcome));
+		const CodecFailure& failure = std::get<CodecFailure>(outcome);
+		// Exit 70, not the budget refusal (4): the budget allowed the block, the system did not.
+		CHECK(failure.code == ExitCode::internal);
+		CHECK(toInt(failure.code) == 70);
+		CHECK(failure.message.find("out of memory") != std::string::npos);
+		CHECK_FALSE(fs::exists(request.output));
+		CHECK(allocator.current() == 0);
+		CHECK(allocator.lastFailure() == AllocationFailure::none);
+	}
+}
+
+TEST_CASE("a malloc failure within the budget is exit 70 for both codecs, at context creation and after it")
+{
+	const TempDir dir;
+	const Bytes data = stlLike(MiB, 31);
+	writeBytes(dir.path() / "in.bin", data);
+	const CompressRequest request = requestFor(dir, data.size(), 6144 * MiB);
+	// allowed 0: the context itself cannot be created. allowed 1: the context exists, its
+	// workspace (zstd) or first table (brotli) cannot be allocated.
+	//
+	// Not covered: zstd 1.5.7 crashes (SIGSEGV) when one of the small blocks of its multithreaded
+	// setup (ZSTDMT_createCCtx_advanced, POOL_create) fails, because ZSTD_customCalloc writes to
+	// the null pointer (fixed upstream after 1.5.7 in commit 3f8f9b3f, not released). So zstd with
+	// workers is only failed at context creation here and at a worker's workspace below.
+	struct ZstdCase
+	{
+		std::uint64_t allowed = 0;
+		int workers = 0;
+	};
+	for (const ZstdCase zstdCase : {ZstdCase{0, 0}, ZstdCase{0, 4}, ZstdCase{1, 0}})
+	{
+		CAPTURE(zstdCase.allowed);
+		CAPTURE(zstdCase.workers);
+		resetExhaustibleMalloc(0, zstdCase.allowed);
+		BudgetAllocator allocator{request.budgetBytes, &exhaustibleMalloc};
+		std::ostringstream out;
+		ProgressReporter progress{out, MiB};
+		const CompressOutcome outcome = encodeZstd(planZstd(data.size(), 28), zstdCase.workers, request, progress, allocator);
+		checkSystemOutOfMemory(outcome, request, allocator);
+	}
+
+	for (const std::uint64_t allowed : {std::uint64_t{0}, std::uint64_t{1}})
+	{
+		CAPTURE(allowed);
+		resetExhaustibleMalloc(0, allowed);
+		BudgetAllocator allocator{request.budgetBytes, &exhaustibleMalloc};
+		std::ostringstream out;
+		ProgressReporter progress{out, MiB};
+		const CompressOutcome outcome = encodeBrotli(planBrotli(data.size(), 28), request, progress, allocator);
+		checkSystemOutOfMemory(outcome, request, allocator);
+	}
+}
+
+TEST_CASE("a malloc failure after output bytes were written: brotli exits 70 and removes the output")
+{
+	// As in the budget case above, but the budget stays at 6 GiB: from the first output byte on,
+	// the system refuses every allocation, so the next metablock's allocation fails mid-stream.
+	const TempDir dir;
+	const Bytes data = stlLike(4 * MiB, 12);
+	writeBytes(dir.path() / "in.bin", data);
+	const CompressRequest request = requestFor(dir, data.size(), 6144 * MiB);
+	resetExhaustibleMalloc(0, std::numeric_limits<std::uint64_t>::max());
+	BudgetAllocator allocator{request.budgetBytes, &exhaustibleMalloc};
+	std::uint64_t readWhenExhausted = 0;
+	std::ostringstream out;
+	ProgressReporter progress{out, MiB, [&](std::uint64_t read, std::uint64_t written)
+	{
+		if (written > 0 && readWhenExhausted == 0)
+		{
+			readWhenExhausted = read;
+			CHECK(fs::exists(request.output));
+			gSystemAllowed.store(0);
+		}
+	}};
+	const CompressOutcome outcome = encodeBrotli(planBrotli(data.size(), 18), request, progress, allocator);
+	CHECK(readWhenExhausted > 0);
+	CHECK(readWhenExhausted < data.size() / 2);
+	checkSystemOutOfMemory(outcome, request, allocator);
+}
+
+TEST_CASE("multithreaded zstd: a worker's malloc failing mid-run is exit 70, every worker stops, the output is removed")
+{
+	// The system hands out one worker context and refuses the second, on the second worker's
+	// own thread; the budget (6 GiB) would allow both.
+	const TempDir dir;
+	const Bytes data = mixed8MiB();
+	writeBytes(dir.path() / "in.bin", data);
+	const ZstdPlan plan = planZstd(data.size(), 28);
+	const CompressRequest request = requestFor(dir, data.size(), 6144 * MiB);
+	REQUIRE(zstdEstimate(plan, 4) < request.budgetBytes);
+	// Only a worker context's workspace is this large: the input ring buffer, the output buffers
+	// and the LDM tables are each far smaller (checked by the estimate breakdown in the README).
+	resetExhaustibleMalloc(plan.workerContextBytes / 2, 1);
+	BudgetAllocator allocator{request.budgetBytes, &exhaustibleMalloc};
+	std::ostringstream out;
+	ProgressReporter progress{out, MiB};
+	const CompressOutcome outcome = encodeZstd(plan, 4, request, progress, allocator);
+	checkSystemOutOfMemory(outcome, request, allocator);
+}
+
+TEST_CASE("--threads 4 under a small budget: fewer workers, or single-threaded, never a refusal that a smaller count avoids")
+{
+	const Bytes data = mixed8MiB();
+	const ZstdPlan plan = planZstd(data.size(), 28);
+	const std::uint64_t allowance = BudgetAllocator::kHeaderAllowanceBytes;
+	struct Case
+	{
+		std::uint64_t budgetMib;
+		std::uint64_t workers;
+	};
+	const std::uint64_t twoWorkersMib = ceilMiB(zstdEstimate(plan, 2) + allowance);
+	REQUIRE(twoWorkersMib * MiB < zstdEstimate(plan, 3) + allowance);
+	const std::uint64_t singleMib = ceilMiB(plan.estimatedBytes + allowance);
+	REQUIRE(singleMib * MiB < zstdEstimate(plan, 2) + allowance);
+	for (const Case& entry : {Case{6144, 4}, Case{twoWorkersMib, 2}, Case{singleMib, 0}})
+	{
+		CAPTURE(entry.budgetMib);
+		const TempDir dir;
+		const AppRun run = compressFile(dir, "zstd", data,
+			{"--threads", "4", "--memory-budget-mib", std::to_string(entry.budgetMib)});
+		REQUIRE(run.code == ExitCode::ok);
+		const std::optional<std::string> start = lineOfType(run.out, "start");
+		REQUIRE(start.has_value());
+		CHECK(numberField(*start, "threads") == 4);
+		CHECK(numberField(*start, "workers") == entry.workers);
+		const std::optional<std::string> result = lineOfType(run.out, "result");
+		REQUIRE(result.has_value());
+		CHECK(numberField(*result, "workers") == entry.workers);
+		const std::optional<std::uint64_t> peak = numberField(*result, "peakBytes");
+		REQUIRE(peak.has_value());
+		CHECK(*peak <= entry.budgetMib * MiB);
+		const std::optional<Bytes> decoded = decodeZstd(readBytes(dir.path() / "out.bin"), 28);
+		REQUIRE(decoded.has_value());
+		CHECK(*decoded == data);
+	}
+	// Below the single-threaded estimate it is still exit 4 before any output.
+	const TempDir dir;
+	const AppRun run = compressFile(dir, "zstd", data, {"--threads", "4", "--memory-budget-mib", "64"});
+	CHECK(run.code == ExitCode::budget);
+	CHECK_FALSE(fs::exists(dir.path() / "out.bin"));
 }
 
 TEST_CASE("large: a 129 MiB input uses zstd window 28, which needs ZSTD_d_windowLogMax = 28 to decode")

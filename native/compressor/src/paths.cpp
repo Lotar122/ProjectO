@@ -139,6 +139,16 @@ namespace projecto
 		{
 			return rule("input must be a regular file");
 		}
+		// A second link would let the same bytes be reached, and changed, from outside the root.
+		const std::uintmax_t links = fs::hard_link_count(input, ec);
+		if (ec)
+		{
+			return ioFailure("cannot count the links of", input, ec);
+		}
+		if (links != 1)
+		{
+			return rule("input must not have other hard links (it has " + std::to_string(links) + ")");
+		}
 
 		if (std::optional<PathError> error = checkDirectChild(canonicalRoot, input, "input"))
 		{

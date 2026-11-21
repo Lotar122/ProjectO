@@ -28,6 +28,17 @@ namespace projecto
 		return std::min(std::max(needed, kMinWindowLog), maxWindowLog);
 	}
 
+	// What a failed multithreaded zstd run does with the jobs its workers are still running
+	// (zstd cannot cancel a job; freeing the context lets every handed-out job finish).
+	enum class WorkerCleanup
+	{
+		// Free the context and wait for those jobs: for callers that live on (tests).
+		wait,
+		// Leave the context, its workers and their allocator alive and let the process exit end
+		// them: the binary, which exits right after reporting the failure.
+		abandon,
+	};
+
 	// One compress run, with validated canonical paths.
 	struct CompressRequest
 	{
@@ -37,6 +48,9 @@ namespace projecto
 		std::uint64_t budgetBytes = kDefaultMemoryBudgetMib * kMiB;
 		std::uint64_t maxWindowLog = kDefaultMaxWindowLog;
 		std::uint64_t progressIntervalBytes = kDefaultProgressIntervalMib * kMiB;
+		// Requested zstd threads (--threads); brotli ignores it.
+		std::uint64_t threads = kDefaultThreads;
+		WorkerCleanup workerCleanup = WorkerCleanup::wait;
 	};
 
 	struct CompressStats
@@ -44,6 +58,13 @@ namespace projecto
 		std::uint64_t inputSize = 0;
 		std::uint64_t outputSize = 0;
 		std::uint64_t peakBytes = 0;
+		// zstd's nbWorkers as read back from the context after the run (0: single-threaded, and
+		// always 0 for brotli).
+		std::uint64_t workers = 0;
+		// Most zstd jobs in flight at once (running, queued, or cut and waiting for a worker),
+		// sampled after each input chunk with ZSTD_getFrameProgression. zstd reports it in MT
+		// mode only, so it stays 0 single-threaded.
+		std::uint64_t peakActiveWorkers = 0;
 	};
 
 	struct CodecFailure
@@ -58,11 +79,13 @@ namespace projecto
 	std::string formatBytes(std::uint64_t bytes);
 
 	// Writes {"type":"progress","read":...,"written":...} each time the bytes read
-	// pass another multiple of the interval.
+	// pass another multiple of the interval. With zstd workers "read" is the input the
+	// jobs have compressed so far (the file itself is read up to a window ahead of them).
 	class ProgressReporter
 	{
 	public:
-		// Called after every chunk with (bytes read, bytes written); lets tests act mid-run.
+		// Called after every update (each input chunk; with zstd workers each output step) with
+		// (bytes read, bytes written); lets tests act mid-run.
 		using Listener = std::function<void(std::uint64_t, std::uint64_t)>;
 
 		ProgressReporter(std::ostream& out, std::uint64_t intervalBytes, Listener listener = {});
@@ -78,7 +101,8 @@ namespace projecto
 	};
 
 	// Reads the input in 1 MiB chunks and fails as soon as the file turns out
-	// longer or shorter than the size it was validated with.
+	// longer or shorter than the size it was validated with. open() checks the open
+	// handle itself: a regular file with one link and the expected size.
 	class InputReader
 	{
 	public:
@@ -103,7 +127,8 @@ namespace projecto
 
 	// Exclusive-create output that removes itself unless commit() succeeded,
 	// so every failure path (error return or exception) leaves no partial file.
-	// A file that could not be created is never touched.
+	// A file that could not be created is never touched. Until commit() the path is
+	// listed in PendingOutputs, so a shutdown on another thread can remove it too.
 	class OutputFile
 	{
 	public:
@@ -113,10 +138,13 @@ namespace projecto
 		OutputFile& operator=(OutputFile&&) = delete;
 		OutputFile(const OutputFile&) = delete;
 		OutputFile& operator=(const OutputFile&) = delete;
+		// Removes the file unless it was committed. Never throws.
 		~OutputFile();
 
 		std::optional<CodecFailure> write(std::span<const std::byte> data);
-		// Flushes and closes. The file is kept only when this succeeds.
+		// Flushes, syncs to stable storage and closes. The file is kept only when this succeeds,
+		// and success also marks the run finished (PendingOutputs::markFinished), in the same
+		// lock hold that unregisters the path: the run has one output, so it is decided here.
 		std::optional<CodecFailure> commit();
 
 		std::uint64_t written() const noexcept

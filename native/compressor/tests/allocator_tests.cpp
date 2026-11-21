@@ -1,10 +1,13 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <thread>
+#include <vector>
 
 #include "projecto/budget_allocator.hpp"
 
@@ -171,6 +174,33 @@ TEST_CASE("setBudget caps later allocations without touching live blocks")
 	CHECK(allocator.current() == 0);
 }
 
+TEST_CASE("a malloc failure within the budget is a system failure, not a budget refusal")
+{
+	// No machine can hand out half the address space, so malloc fails while the budget allows it.
+	BudgetAllocator allocator{std::numeric_limits<std::uint64_t>::max()};
+	CHECK(allocator.allocate(std::numeric_limits<std::size_t>::max() / 2) == nullptr);
+	CHECK(allocator.lastFailure() == projecto::AllocationFailure::system);
+	CHECK_FALSE(allocator.refused());
+	CHECK(allocator.current() == 0);
+}
+
+TEST_CASE("takeFailure reports the most recent failure once, then nothing")
+{
+	BudgetAllocator allocator{1000};
+	CHECK(allocator.lastFailure() == projecto::AllocationFailure::none);
+	CHECK(allocator.allocate(2000) == nullptr);
+	CHECK(allocator.takeFailure() == projecto::AllocationFailure::budget);
+	CHECK(allocator.takeFailure() == projecto::AllocationFailure::none);
+	CHECK_FALSE(allocator.refused());
+
+	// A later success does not clear an untaken failure: the library may still report it.
+	CHECK(allocator.allocate(5000) == nullptr);
+	void* block = allocator.allocate(10);
+	REQUIRE(block != nullptr);
+	CHECK(allocator.refused());
+	allocator.deallocate(block);
+}
+
 TEST_CASE("fitsBudget leaves room for the block headers on top of the estimate")
 {
 	constexpr std::uint64_t allowance = BudgetAllocator::kHeaderAllowanceBytes;
@@ -181,4 +211,60 @@ TEST_CASE("fitsBudget leaves room for the block headers on top of the estimate")
 	CHECK_FALSE(projecto::fitsBudget(2000, 1000));
 	CHECK(projecto::fitsBudget(0, std::numeric_limits<std::uint64_t>::max()));
 	CHECK_FALSE(projecto::fitsBudget(std::numeric_limits<std::uint64_t>::max(), std::numeric_limits<std::uint64_t>::max()));
+}
+
+TEST_CASE("concurrent allocations from many threads never pass the budget and balance to zero")
+{
+	// zstd workers allocate and free from their own threads. Each thread holds up to 4 blocks of
+	// 1 KiB at a time, so the threads together want more than the budget allows and some
+	// allocations must be refused; none may push the live total over it.
+	constexpr int kThreads = 8;
+	constexpr int kRounds = 20'000;
+	constexpr std::size_t kBlock = 1024;
+	constexpr std::uint64_t budget = 20 * (kBlock + kHeader);
+	BudgetAllocator allocator{budget};
+	std::atomic<std::uint64_t> refusals = 0;
+	std::atomic<std::uint64_t> overBudget = 0;
+	{
+		std::vector<std::jthread> threads;
+		for (int index = 0; index < kThreads; ++index)
+		{
+			threads.emplace_back([&allocator, &refusals, &overBudget, index]()
+			{
+				std::array<void*, 4> held{};
+				for (int round = 0; round < kRounds; ++round)
+				{
+					void*& slot = held[static_cast<std::size_t>(round + index) % held.size()];
+					if (slot != nullptr)
+					{
+						allocator.deallocate(slot);
+						slot = nullptr;
+						continue;
+					}
+					slot = allocator.allocate(kBlock);
+					if (slot == nullptr)
+					{
+						refusals.fetch_add(1);
+						continue;
+					}
+					std::memset(slot, index, kBlock);
+					if (allocator.current() > budget)
+					{
+						overBudget.fetch_add(1);
+					}
+				}
+				for (void* block : held)
+				{
+					allocator.deallocate(block);
+				}
+			});
+		}
+	}
+	CHECK(overBudget.load() == 0);
+	CHECK(refusals.load() > 0);
+	CHECK(allocator.current() == 0);
+	CHECK(allocator.peak() <= budget);
+	CHECK(allocator.peak() >= 2 * (kBlock + kHeader));
+	CHECK(allocator.peakBlocks() <= 20);
+	CHECK(allocator.takeFailure() == projecto::AllocationFailure::budget);
 }

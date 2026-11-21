@@ -42,6 +42,25 @@ namespace
 	}
 }
 
+TEST_CASE("validateInput rejects an input with a second hard link")
+{
+	const TempDir dir;
+	const fs::path input = dir.makeFile("in.bin", 10);
+	std::error_code ec;
+	fs::create_hard_link(input, dir.path() / "other-name.bin", ec);
+	if (ec)
+	{
+		MESSAGE("hard links are not available here: " << ec.message());
+		return;
+	}
+	const PathResult result = validateInput(dir.path(), input, 10);
+	REQUIRE(isRuleError(result));
+	CHECK(std::get<PathError>(result).message.find("hard link") != std::string::npos);
+
+	fs::remove(dir.path() / "other-name.bin");
+	CHECK(isPath(validateInput(dir.path(), input, 10)));
+}
+
 TEST_CASE("validateRoot accepts an absolute directory and returns it canonical")
 {
 	const TempDir dir;

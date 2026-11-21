@@ -25,14 +25,25 @@ namespace projecto
 		std::string message;
 	};
 
+	// What the open handle itself refers to, so checks cannot be fooled by a path that
+	// was swapped after validation.
+	struct FileFacts
+	{
+		bool regular = false;
+		std::uint64_t links = 0;
+		std::uint64_t size = 0;
+	};
+
 	// Move-only owner of a std::FILE*. The destructor closes quietly; call close()
-	// to learn whether the final flush succeeded.
+	// to learn whether the final flush succeeded. The OS-specific opens live in platform.cpp.
 	class File
 	{
 	public:
-		// "rb"
+		// Read-only. On POSIX the open does not follow a symlink in the last component and
+		// cannot block on a FIFO; check the type with inspect() before reading.
 		static std::variant<File, IoError> openRead(const std::filesystem::path& path);
-		// "wbx": fails if the path already exists.
+		// Fails if the path already exists (a dangling symlink counts as existing).
+		// On POSIX the file is created with mode 0600 (before the umask).
 		static std::variant<File, IoError> createExclusive(const std::filesystem::path& path);
 
 		File(File&&) noexcept = default;
@@ -50,9 +61,13 @@ namespace projecto
 		// An empty buffer reads nothing and returns 0 without touching the file.
 		std::variant<std::size_t, IoError> read(std::span<std::byte> buffer);
 		std::optional<IoError> write(std::span<const std::byte> data);
-		// Size of the open file, measured on the handle (seek to the end, then back to
-		// the start). Call it before the first read.
-		std::variant<std::uint64_t, IoError> size();
+		// Type, link count and size of the open file, measured on the handle (64-bit sizes
+		// on every platform). Does not move the read position.
+		std::variant<FileFacts, IoError> inspect() const;
+		// Size of the open file, measured on the handle.
+		std::variant<std::uint64_t, IoError> size() const;
+		// Flushes the stdio buffer and asks the OS to put the data on stable storage.
+		std::optional<IoError> sync();
 		// Flushes and closes. Safe to call twice.
 		std::optional<IoError> close();
 
