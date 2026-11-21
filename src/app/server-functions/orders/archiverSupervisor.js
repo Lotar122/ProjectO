@@ -4,6 +4,15 @@
 // SIGTERM / SIGKILL abort path. The advisory lock in orderArchiver.js keeps
 // several web replicas down to one running job.
 //
+// On POSIX the worker leads its own process group, so the SIGKILL escalation
+// and the clean-up after a crash also reach the projecto-compress child it may
+// have left behind.
+//
+// Shutdown: `next start` exits on SIGTERM / SIGINT without waiting for stop().
+// With NEXT_MANUAL_SIG_HANDLE set (docker/web-supervised.Dockerfile) Next
+// registers no handler, and the supervisor exits the process itself once the
+// worker has stopped.
+//
 // No "server-only" import: this module is loaded from src/instrumentation-node.js
 // (see src/app/lib/logger.js). Uses node:child_process so it runs on Node and Bun.
 
@@ -20,6 +29,47 @@ export const DEFAULT_BACKOFF = Object.freeze({
 
 const GLOBAL_KEY = "__projectoArchiverSupervisor";
 const WORKER_ENTRY = path.join("worker", "archiver", "main.js");
+// After SIGKILL the exit event should follow at once; stop() resolves after
+// this long even if it never comes, so shutdown cannot hang.
+const KILL_WAIT_MS = 5_000;
+// 128 + signal number, as `next start` uses.
+const SIGNAL_EXIT_CODES = Object.freeze({ SIGINT: 130, SIGTERM: 143 });
+
+const isPid = (pid) => Number.isSafeInteger(pid) && pid > 0;
+
+// Signals every process in the group the worker leads. False when there is no
+// such group (ESRCH, the normal case once all of it has exited).
+function signalGroup(pid, signal)
+{
+	try
+	{
+		process.kill(-pid, signal);
+		return true;
+	}
+	catch
+	{
+		return false;
+	}
+}
+
+// Sends signal to the worker's process group when it leads one, else to the
+// worker alone. Never throws.
+function signalWorker(child, signal, useGroup)
+{
+	if (useGroup && isPid(child.pid) && signalGroup(child.pid, signal))
+	{
+		return;
+	}
+
+	try
+	{
+		child.kill(signal);
+	}
+	catch
+	{
+		// A kill failure is reported through the child's "error" event.
+	}
+}
 
 function readPositiveInt(raw, fallback, name)
 {
@@ -52,6 +102,12 @@ function readPositiveInt(raw, fallback, name)
  * @param {number} [options.stopGraceMs] SIGTERM to SIGKILL wait (default ARCHIVER_STOP_GRACE_MS or 100000).
  * @param {{initialMs?: number, maxMs?: number, resetAfterMs?: number}} [options.backoff] Restart delays in ms.
  * @param {boolean} [options.handleSignals] Stop on SIGTERM / SIGINT of this process (default true).
+ * @param {boolean} [options.exitOnSignal] After a signal-triggered stop, exit the process with
+ *   128 + the signal number (default: true when env.NEXT_MANUAL_SIG_HANDLE is set, because then
+ *   nothing else exits). Only used with handleSignals.
+ * @param {(code: number) => void} [options.exitFn] Replacement for process.exit (tests).
+ * @param {boolean} [options.processGroup] Run the worker as a process group leader and signal the
+ *   whole group on SIGKILL and after a crash (default true, except on Windows).
  * @returns {{start: () => void, stop: () => Promise<void>, readonly running: boolean}}
  */
 export function createArchiverSupervisor(options = {})
@@ -62,11 +118,19 @@ export function createArchiverSupervisor(options = {})
 		spawnFn = spawn,
 		cwd = process.cwd(),
 		handleSignals = true,
+		exitOnSignal = Boolean(env.NEXT_MANUAL_SIG_HANDLE),
+		exitFn = (code) => process.exit(code),
+		processGroup = process.platform !== "win32",
 	} = options;
 
 	if (typeof spawnFn !== "function")
 	{
 		throw new TypeError("spawnFn must be a function");
+	}
+
+	if (typeof exitFn !== "function")
+	{
+		throw new TypeError("exitFn must be a function");
 	}
 
 	const stopGraceMs = options.stopGraceMs ?? readPositiveInt(env.ARCHIVER_STOP_GRACE_MS, DEFAULT_STOP_GRACE_MS, "ARCHIVER_STOP_GRACE_MS");
@@ -89,10 +153,21 @@ export function createArchiverSupervisor(options = {})
 	let stopPromise = null;
 	let restartTimer = null;
 	let graceTimer = null;
+	let killWaitTimer = null;
 	let resolveStop = null;
 	let delayMs = backoff.initialMs;
 	let startedAt = 0;
 	let signalHandler = null;
+
+	function finishStop()
+	{
+		clearTimeout(graceTimer);
+		clearTimeout(killWaitTimer);
+		graceTimer = null;
+		killWaitTimer = null;
+		resolveStop?.();
+		resolveStop = null;
+	}
 
 	function onChildGone(current, detail)
 	{
@@ -103,11 +178,17 @@ export function createArchiverSupervisor(options = {})
 
 		child = null;
 
+		// The worker is gone; a compressor it started may not be. Its process
+		// group still exists only if something in it is still running.
+		if (processGroup && isPid(current.pid))
+		{
+			signalGroup(current.pid, "SIGKILL");
+		}
+
 		if (stopped)
 		{
 			log.info(`Archiver worker stopped (${detail})`);
-			clearTimeout(graceTimer);
-			resolveStop?.();
+			finishStop();
 			return;
 		}
 
@@ -133,6 +214,8 @@ export function createArchiverSupervisor(options = {})
 				cwd,
 				stdio: ["pipe", "inherit", "inherit"],
 				env: { ...env, ARCHIVER_SUPERVISED: "1" },
+				// POSIX: a new process group led by the worker (see signalWorker).
+				detached: processGroup,
 			});
 		}
 		catch (err)
@@ -151,13 +234,33 @@ export function createArchiverSupervisor(options = {})
 
 		// The worker ends when this pipe closes; a write error is not ours to handle.
 		current.stdin?.on("error", () => undefined);
-		current.once("error", (err) =>
+		// "error" can fire more than once (a failed kill() also lands here), and
+		// an unhandled one would throw, so the listener stays.
+		current.on("error", (err) =>
 		{
-			// 'error' without 'exit' means the process never started (ENOENT).
 			log.error(`Archiver worker error: ${err.message}`);
-			onChildGone(current, `error ${err.code ?? err.message}`);
+
+			// Only a child that never started (ENOENT, EACCES) has no pid and no
+			// "exit" to wait for. Any other error, such as a failed kill(),
+			// leaves the worker running, and "exit" reports its end.
+			if (current.pid === undefined)
+			{
+				onChildGone(current, `error ${err.code ?? err.message}`);
+			}
 		});
 		current.once("exit", (code, signal) => onChildGone(current, signal ? `signal ${signal}` : `code ${code}`));
+	}
+
+	function onSignal(signal)
+	{
+		if (!exitOnSignal)
+		{
+			void stop();
+			return;
+		}
+
+		log.info(`Received ${signal}; exiting once the archiver worker has stopped`);
+		void stop().then(() => exitFn(SIGNAL_EXIT_CODES[signal] ?? 128));
 	}
 
 	function start()
@@ -171,12 +274,11 @@ export function createArchiverSupervisor(options = {})
 
 		if (handleSignals)
 		{
-			signalHandler = () =>
-			{
-				void stop();
-			};
-			process.once("SIGTERM", signalHandler);
-			process.once("SIGINT", signalHandler);
+			// "on", not "once": with exitOnSignal nothing else handles a repeated
+			// signal, and its default action would kill the process mid-stop.
+			signalHandler = onSignal;
+			process.on("SIGTERM", signalHandler);
+			process.on("SIGINT", signalHandler);
 		}
 
 		spawnChild();
@@ -191,10 +293,13 @@ export function createArchiverSupervisor(options = {})
 
 		stopped = true;
 
-		if (signalHandler)
+		// With exitOnSignal the handler stays: it is this process's only exit
+		// path on SIGTERM / SIGINT, also after a stop() that came from elsewhere.
+		if (signalHandler && !exitOnSignal)
 		{
 			process.off("SIGTERM", signalHandler);
 			process.off("SIGINT", signalHandler);
+			signalHandler = null;
 		}
 
 		if (restartTimer)
@@ -215,11 +320,17 @@ export function createArchiverSupervisor(options = {})
 
 			resolveStop = resolve;
 			log.info(`Stopping the archiver worker (SIGTERM, then SIGKILL after ${stopGraceMs} ms)`);
-			current.kill("SIGTERM");
+			// The worker alone: it aborts its compressor and ends the job itself.
+			signalWorker(current, "SIGTERM", false);
 			graceTimer = setTimeout(() =>
 			{
-				log.error("Archiver worker did not stop in time; sending SIGKILL");
-				current.kill("SIGKILL");
+				log.error("Archiver worker did not stop in time; sending SIGKILL to its process group");
+				signalWorker(current, "SIGKILL", processGroup);
+				killWaitTimer = setTimeout(() =>
+				{
+					log.error(`Archiver worker did not exit ${KILL_WAIT_MS} ms after SIGKILL; giving up on it`);
+					finishStop();
+				}, KILL_WAIT_MS);
 			}, stopGraceMs);
 		});
 

@@ -9,12 +9,13 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 
 import { INTERRUPTED_ERROR, deleteStaleWorkers, getArchiveStatus, hasQueuedJob } from "../src/app/server-functions/orders/archiveJobs.js";
+import { DEFAULT_STOP_GRACE_MS } from "../src/app/server-functions/orders/archiverSupervisor.js";
 import {
 	FILE_OUTCOMES,
 	createStatus,
@@ -24,6 +25,7 @@ import {
 import { createArchiveWorker } from "../worker/archiver/archiveWorker.js";
 import { readCompressorVersion } from "../worker/archiver/compressorVersion.js";
 import { createProgressFlusher } from "../worker/archiver/progressFlusher.js";
+import { readStopDeadlineMs, runUntilStopped } from "../worker/archiver/shutdown.js";
 import { createFakeJournal } from "./helpers/fakeJournal.mjs";
 import { withS3 } from "./helpers/s3Server.mjs";
 import { TEST_ENCODER, testCompressor } from "./helpers/testCompressor.mjs";
@@ -112,6 +114,16 @@ afterEach(async () =>
 });
 
 const archiverTempFiles = async () => (await readdir(tempDir)).filter((name) => name.startsWith("projecto-archive-"));
+// Files a crashed run left behind: older than the startup sweep's age threshold.
+const CRASH_AGE_MS = 60 * 60 * 1000;
+
+async function writeCrashLeftover(filePath, data)
+{
+	const mtime = new Date(Date.now() - CRASH_AGE_MS);
+
+	await writeFile(filePath, data);
+	await utimes(filePath, mtime, mtime);
+}
 
 // ---- fake Postgres ----
 
@@ -142,6 +154,12 @@ function lockHandler({ confirm, unlock } = {})
 				return unlock ? unlock() : Promise.resolve(db.unlockAll(connection));
 			}
 
+			// The worker's heartbeat ownership check (isLockHeld).
+			if (text.includes("FROM pg_locks"))
+			{
+				return Promise.resolve([{ pid: connection.pid, locked: db.lockOwner === connection }]);
+			}
+
 			return Promise.resolve([]);
 		};
 	};
@@ -159,6 +177,8 @@ function createFakeDb({ jobs = [], orders = [] } = {})
 		jobs: jobs.map((job) => ({ progress: {}, triggered_by: ADMIN_ID, worker_id: null, last_error: null, ...job })),
 		orders: orders.map((order) => ({ archived_at: null, ...order })),
 		workers: new Map(),
+		// worker ids passed to deregisterWorker
+		deregistered: [],
 		lockOwner: null,
 		lockRefusals: 0,
 		progressWrites: [],
@@ -234,9 +254,20 @@ function createFakeDb({ jobs = [], orders = [] } = {})
 			return [];
 		}
 
+		if (text.startsWith("DELETE FROM archive_workers WHERE worker_id ="))
+		{
+			db.deregistered.push(values[0]);
+			return db.workers.delete(values[0]) ? [{ worker_id: values[0] }] : [];
+		}
+
 		if (text.startsWith("DELETE FROM archive_workers"))
 		{
 			return [];
+		}
+
+		if (text.startsWith("SELECT 1 FROM archive_jobs WHERE id ="))
+		{
+			return db.job(values[0])?.state === "running" ? [{}] : [];
 		}
 
 		if (text.startsWith("SELECT id FROM archive_jobs WHERE state = 'queued'"))
@@ -315,7 +346,13 @@ function createFakeDb({ jobs = [], orders = [] } = {})
 
 		if (text.includes("SELECT order_id, files"))
 		{
-			return db.orders.filter((order) => order.archived_at === null).map(({ order_id, files }) => ({ order_id, files }));
+			return db.orders
+				.filter((order) => order.archived_at === null)
+				.map(({ order_id, files }) => ({
+					order_id,
+					files,
+					journaled_files: (files ?? []).filter((fileId) => db.journal.rows.has(fileId)),
+				}));
 		}
 
 		if (text.startsWith("UPDATE orders"))
@@ -424,9 +461,13 @@ function makeWorker(db, options = {})
 		flushMs: options.flushMs ?? 5,
 		heartbeatMs: options.heartbeatMs ?? 5,
 		dbTimeoutMs: options.dbTimeoutMs ?? 1000,
+		...(options.startupRetryMaxMs ? { startupRetryMaxMs: options.startupRetryMaxMs } : {}),
+		...(options.livenessFile ? { livenessFile: options.livenessFile } : {}),
 		log,
 		...(options.recoverAtStartup ? { recoverAtStartup: options.recoverAtStartup } : {}),
 		...(options.recoverAtJobStart ? { recoverAtJobStart: options.recoverAtJobStart } : {}),
+		...(options.sweepTemp ? { sweepTemp: options.sweepTemp } : {}),
+		...(options.idleSweepMs ? { idleSweepMs: options.idleSweepMs } : {}),
 	});
 
 	return { worker, log };
@@ -613,6 +654,9 @@ describe("main loop", () =>
 			const running = worker.run();
 
 			await waitFor(() => ["done", "failed", "interrupted"].includes(db.job(1).state), "the job to finish");
+
+			const registeredVersion = db.workers.get("worker-1")?.version;
+
 			await worker.stop();
 			await running;
 
@@ -667,7 +711,10 @@ describe("main loop", () =>
 
 			expect(objects.get(FILE_C).metadata.compression).toBe("identity");
 			expect(db.orders.map((order) => order.archived_at !== null)).toEqual([true, true, false]);
-			expect(db.workers.get("worker-1").version).toBe("test / projecto-compress 0.0.0");
+			expect(registeredVersion).toBe("test / projecto-compress 0.0.0");
+			// A clean stop removes the worker's row, so it is offline at once.
+			expect(db.deregistered).toEqual(["worker-1"]);
+			expect(db.workers.has("worker-1")).toBe(false);
 			expect(db.lockOwner).toBe(null);
 			expect(db.connections.every((connection) => connection.ended)).toBe(true);
 			expect(await archiverTempFiles()).toEqual([]);
@@ -1156,7 +1203,12 @@ describe("failure paths", () =>
 			resume();
 			await ticking;
 
-			expect(db.job(1).state).toBe("done");
+			// The file in progress finishes, but the order is not marked by a
+			// worker that no longer holds the lock: the job fails there.
+			expect(db.job(1).state).toBe("failed");
+			// The dead lock connection refuses the confirmation query.
+			expect(db.job(1).last_error).toMatch(/CONNECTION_CLOSED|Lost the database session/);
+			expect(db.orders.find((order) => order.order_id === "o1").archived_at).toBe(null);
 			expect(lockConnection.ended).toBe(true);
 			expect(log.lines.some(({ message }) => /unexpected query/.test(message))).toBe(false);
 
@@ -1167,6 +1219,79 @@ describe("failure paths", () =>
 
 			expect(db.job(2).state).toBe("done");
 			expect(db.lockOwner).toBe(null);
+		});
+	});
+
+	test("a job ended elsewhere during a file stops the worker before its next file", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			seedFile(objects, FILE_A, compressibleData(1));
+			seedFile(objects, FILE_B, compressibleData(2));
+
+			const db = createFakeDb({ orders: [{ order_id: "o1", files: [FILE_A, FILE_B] }] });
+			const compress = async (srcPath, options) =>
+			{
+				// Another worker took the lock over and marked this job interrupted.
+				db.job(1).state = "interrupted";
+
+				return testCompressor(srcPath, options);
+			};
+			const { worker, log } = makeWorker(db, { s3, compress });
+
+			await worker.tick();
+			db.enqueue(1);
+			await worker.tick();
+
+			// File A was already under way and finishes; file B never starts.
+			expect(objects.get(FILE_A).metadata.compression).toBe("zstd");
+			expect(objects.get(FILE_B).metadata.compression).toBe(undefined);
+			expect(db.orders[0].archived_at).toBe(null);
+			// The row keeps the state the other worker gave it.
+			expect(db.job(1).state).toBe("interrupted");
+			expect(log.lines.some(({ message }) => /no longer running/.test(message))).toBe(true);
+		});
+	});
+
+	test("a file that still has a crash journal row is skipped without being downloaded", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			seedFile(objects, FILE_A, compressibleData(1));
+			seedFile(objects, FILE_B, compressibleData(2));
+
+			const db = createFakeDb({ orders: [{ order_id: "o1", files: [FILE_A, FILE_B] }] });
+			const compressed = [];
+			const compress = async (srcPath, options) =>
+			{
+				compressed.push(srcPath);
+
+				return testCompressor(srcPath, options);
+			};
+			const { worker } = makeWorker(db, { s3, compress });
+
+			db.journal.seed({
+				file_id: FILE_A,
+				state: "needs_attention",
+				original_sha256: "a".repeat(64),
+				original_size: 10,
+				stored_size: 5,
+				pre_upload_etag: "\"etag\"",
+				original_path: path.join(os.tmpdir(), "projecto-archive-00000000-0000-4000-8000-000000000000"),
+			});
+
+			await worker.tick();
+			db.enqueue(1);
+			await worker.tick();
+
+			expect(compressed).toHaveLength(1);
+			expect(objects.get(FILE_A).metadata.compression).toBe(undefined);
+			expect(objects.get(FILE_B).metadata.compression).toBe("zstd");
+			expect(db.job(1).state).toBe("done");
+			expect(db.job(1).progress.filesFailed).toBe(1);
+			expect(db.job(1).progress.lastError).toMatch(/crash journal row/);
+			expect(db.orders[0].archived_at).toBe(null);
+			expect(db.journal.rows.get(FILE_A).state).toBe("needs_attention");
 		});
 	});
 
@@ -1275,6 +1400,142 @@ describe("main.js", () =>
 		expect(output).toContain(kind === "exception" ? "Uncaught exception; stopping the worker" : "Unhandled rejection; stopping the worker");
 		expect(output).toContain("stopped after a fatal error");
 	}, 30_000);
+
+	test.skipIf(process.platform === "win32")("SIGTERM stops the worker and exits 0 once the stop has finished", async () =>
+	{
+		const binPath = path.join(tempDir, "fake-compress");
+
+		await writeFile(binPath, "#!/bin/sh\necho '{\"type\":\"version\",\"version\":\"1.0.0\",\"zstd\":\"1.5.7\",\"brotli\":\"1.1.0\"}'\n", { mode: 0o755 });
+
+		const child = Bun.spawn([process.execPath, "--conditions", "react-server", "worker/archiver/main.js"], {
+			cwd: path.join(import.meta.dir, ".."),
+			env: {
+				PATH: process.env.PATH ?? "",
+				TMPDIR: tempDir,
+				DB_URL: "postgres://user:pw@127.0.0.1:1/x",
+				MINIO_ENDPOINT: "http://127.0.0.1:1",
+				MINIO_ACCESS_KEY: "a",
+				MINIO_SECRET_KEY: "b",
+				PROJECTO_COMPRESSOR_BIN: binPath,
+				ARCHIVER_STOP_GRACE_MS: "20000",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+			timeout: 20_000,
+		});
+		let output = "";
+		const collect = async (stream) =>
+		{
+			for await (const chunk of stream.pipeThrough(new TextDecoderStream()))
+			{
+				output += chunk;
+			}
+		};
+		const collected = Promise.all([collect(child.stdout), collect(child.stderr)]);
+
+		await waitFor(() => output.includes("starting"), "the worker to start", 15_000);
+		child.kill("SIGTERM");
+
+		const exitCode = await child.exited;
+
+		await collected;
+		expect(exitCode).toBe(0);
+		expect(output).toContain("Received SIGTERM; stopping after the current file");
+		expect(output).toMatch(/Archiver worker \S+ stopped\n/);
+		expect(output).not.toContain("did not stop within");
+	}, 30_000);
+
+	test("a bad ARCHIVER_STOP_GRACE_MS stops the start", async () =>
+	{
+		const child = Bun.spawn([process.execPath, "--conditions", "react-server", "worker/archiver/main.js"], {
+			cwd: path.join(import.meta.dir, ".."),
+			env: {
+				PATH: process.env.PATH ?? "",
+				DB_URL: "postgres://user:pw@127.0.0.1:1/x",
+				MINIO_ENDPOINT: "http://127.0.0.1:1",
+				MINIO_ACCESS_KEY: "a",
+				MINIO_SECRET_KEY: "b",
+				ARCHIVER_STOP_GRACE_MS: "soon",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [stdout, stderr, exitCode] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stdout + stderr).toContain("ARCHIVER_STOP_GRACE_MS must be a positive integer");
+	});
+});
+
+// ---- shutdown ----
+
+describe("shutdown", () =>
+{
+	test("runUntilStopped waits for a signal's stop to remove the worker row before closing the pool", async () =>
+	{
+		const db = createFakeDb();
+		const { worker } = makeWorker(db);
+		const ends = [];
+		const sql = {
+			end: async (options) =>
+			{
+				ends.push({ options, rowPresent: db.workers.has("worker-1"), deregistered: [...db.deregistered] });
+			},
+		};
+		const done = runUntilStopped(worker, sql);
+
+		await waitFor(() => db.workers.has("worker-1"), "the worker to register");
+
+		// Like main.js's SIGTERM handler: stop() is started, not awaited.
+		worker.stop();
+		await done;
+
+		expect(ends).toEqual([{ options: { timeout: 5 }, rowPresent: false, deregistered: ["worker-1"] }]);
+		expect(db.workers.has("worker-1")).toBe(false);
+		expect(db.lockOwner).toBe(null);
+	});
+
+	test("runUntilStopped refuses bad arguments", async () =>
+	{
+		const db = createFakeDb();
+		const { worker } = makeWorker(db);
+
+		await expect(runUntilStopped({}, { end: async () => undefined })).rejects.toThrow(TypeError);
+		await expect(runUntilStopped(worker, {})).rejects.toThrow(TypeError);
+	});
+
+	test("the stop deadline is strictly shorter than the supervisor's SIGKILL grace", () =>
+	{
+		expect(readStopDeadlineMs({})).toBe(90_000);
+		expect(readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: "" })).toBe(90_000);
+		expect(readStopDeadlineMs({})).toBeLessThan(DEFAULT_STOP_GRACE_MS);
+		expect(readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: "120000" })).toBe(110_000);
+		expect(readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: "20000" })).toBe(18_000);
+		expect(readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: "1" })).toBe(0);
+
+		for (const grace of [1, 2, 9, 10, 11, 999, 1000, 99_999, 100_001, 2 ** 31 - 1])
+		{
+			const deadline = readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: String(grace) });
+
+			expect(deadline).toBeLessThan(grace);
+			expect(deadline).toBeGreaterThanOrEqual(0);
+		}
+
+		// Above the setTimeout limit the deadline is capped, never clamped to 1 ms.
+		expect(readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: String(2 ** 40) })).toBe(2 ** 31 - 1);
+	});
+
+	test("a bad ARCHIVER_STOP_GRACE_MS throws RangeError", () =>
+	{
+		for (const raw of ["0", "-5", "1.5", "abc", "1e400", String(2 ** 53)])
+		{
+			expect(() => readStopDeadlineMs({ ARCHIVER_STOP_GRACE_MS: raw })).toThrow(RangeError);
+		}
+	});
 });
 
 // ---- progress flusher ----
@@ -1554,8 +1815,8 @@ describe("crash journal", () =>
 		const archive = zlib.zstdCompressSync(data);
 		const originalPath = path.join(tempDir, `projecto-archive-${fileId}`);
 
-		await writeFile(originalPath, data);
-		await writeFile(path.join(tempDir, `projecto-archive-${fileId}.zst`), archive);
+		await writeCrashLeftover(originalPath, data);
+		await writeCrashLeftover(path.join(tempDir, `projecto-archive-${fileId}.zst`), archive);
 		objects.set(fileId, {
 			body: archive,
 			contentType: "model/stl",
@@ -1602,8 +1863,11 @@ describe("crash journal", () =>
 			});
 			const { archive } = await seedCrashedUpload(objects, db, FILE_A);
 			const stray = path.join(tempDir, "projecto-archive-unreferenced");
+			// Still being written by an orphaned compressor: too recent to sweep.
+			const inFlight = "projecto-archive-in-flight.zst";
 
-			await writeFile(stray, "left by a killed download");
+			await writeCrashLeftover(stray, "left by a killed download");
+			await writeFile(path.join(tempDir, inFlight), "still being written");
 
 			const { worker } = makeWorker(db, { s3 });
 
@@ -1614,8 +1878,9 @@ describe("crash journal", () =>
 			expect(db.journal.rows.size).toBe(0);
 			expect(objects.get(FILE_A).body.equals(archive)).toBe(true);
 			expect(counters.put).toBe(0);
-			// The sweep removed the candidate and the unreferenced original.
-			expect(await archiverTempFiles()).toEqual([]);
+			// The sweep removed the candidate and the unreferenced original, and
+			// left the recently written file alone.
+			expect(await archiverTempFiles()).toEqual([inFlight]);
 
 			const job = await runQueuedJob(db, worker, 2);
 
@@ -1692,15 +1957,18 @@ describe("crash journal", () =>
 			expect(await archiverTempFiles()).toEqual([path.basename(originalPath)]);
 			expect((await readFile(originalPath)).equals(data)).toBe(true);
 
-			// A job sees the file as already archived, but never marks its order.
+			// A job skips the file (it still has a row) without touching S3,
+			// counts it failed and never marks its order.
 			const { worker } = makeWorker(db, { s3, workerId: "worker-3" });
 
 			await worker.tick();
 
 			const job = await runQueuedJob(db, worker, 1);
 
+			expect(requests).toHaveLength(0);
 			expect(job.progress.ordersArchived).toBe(0);
-			expect(job.progress.ordersChanged).toBe(1);
+			expect(job.progress.ordersFailed).toBe(1);
+			expect(job.progress.filesFailed).toBe(1);
 			expect(db.orders[0].archived_at).toBe(null);
 			expect(db.journal.rows.get(FILE_A)).toEqual(before);
 			expect(objects.get(FILE_A).body.equals(archive)).toBe(true);
@@ -1712,5 +1980,433 @@ describe("crash journal", () =>
 
 			expect(status.needsAttention).toBe(1);
 		});
+	});
+});
+
+// ---- job ownership, startup backoff, liveness (review 2026-11-20 items 4, 11, 26, 27, 28) ----
+
+describe("job ownership and liveness", () =>
+{
+	// A compressor that only ends when the worker aborts it.
+	function abortableCompress(state)
+	{
+		return (srcPath, options) => new Promise((resolve, reject) =>
+		{
+			const onAbort = () =>
+			{
+				state.aborted = true;
+				reject(options.signal.reason);
+			};
+
+			state.started = true;
+			// Synchronous with the call: the "compress-zstd" phase the archiver
+			// reported just before is not flushed yet, so the next progress
+			// write comes after the interference.
+			state.onStart?.();
+
+			// Like nativeCompressBest: an already aborted signal rejects at once.
+			if (options.signal.aborted)
+			{
+				onAbort();
+				return;
+			}
+
+			options.signal.addEventListener("abort", onAbort, { once: true });
+		});
+	}
+
+	// Runs the worker until job 1 starts compressing, calls interfere(db) at
+	// that moment, then waits for the job to end and stops the worker.
+	async function runAndInterfere(db, s3, interfere, options = {})
+	{
+		const state = { started: false, aborted: false, onStart: () => interfere(db) };
+		const { worker, log } = makeWorker(db, { s3, compress: abortableCompress(state), ...options });
+		const running = worker.run();
+
+		try
+		{
+			await waitFor(() => state.started, "the compressor to start");
+			await waitFor(() => state.aborted, "the compressor to be aborted");
+			await waitFor(() => db.job(1).state !== "running" || log.lines.some(({ message }) => /ended elsewhere/.test(message)), "the job to end");
+		}
+		finally
+		{
+			await worker.stop();
+			await running;
+		}
+
+		return { state, log };
+	}
+
+	test("a heartbeat that finds the lock lost aborts the running compressor and fails the job", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			seedFile(objects, FILE_A, compressibleData());
+
+			const db = createFakeDb({ jobs: [{ id: 1, state: "queued" }], orders: [{ order_id: "o1", files: [FILE_A] }] });
+			const { log } = await runAndInterfere(db, s3, () =>
+			{
+				// Another session now holds the lock: this worker's session lost it.
+				db.lockOwner = db.openLockClient();
+			});
+
+			expect(db.job(1).state).toBe("failed");
+			expect(db.job(1).last_error).toMatch(/Lost ownership of the job: lost the archive lock/);
+			expect(db.orders[0].archived_at).toBe(null);
+			expect(log.lines.some(({ level, message }) => level === "error" && /Job 1: lost the archive lock; aborting the job/.test(message))).toBe(true);
+		});
+	});
+
+	test("a job ended elsewhere is aborted, and its row keeps the other worker's state", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			seedFile(objects, FILE_A, compressibleData());
+
+			const db = createFakeDb({ jobs: [{ id: 1, state: "queued" }], orders: [{ order_id: "o1", files: [FILE_A] }] });
+			const { log } = await runAndInterfere(db, s3, () =>
+			{
+				Object.assign(db.job(1), { state: "interrupted", last_error: INTERRUPTED_ERROR });
+			});
+
+			expect(db.job(1).state).toBe("interrupted");
+			expect(db.job(1).last_error).toBe(INTERRUPTED_ERROR);
+			expect(db.orders[0].archived_at).toBe(null);
+			expect(log.lines.some(({ message }) => /Job 1: the job row is no longer running \(ended elsewhere\); aborting the job/.test(message))).toBe(true);
+		});
+	});
+
+	test("lock checks that keep failing abort the job after three tries", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			seedFile(objects, FILE_A, compressibleData());
+
+			const db = createFakeDb({ jobs: [{ id: 1, state: "queued" }], orders: [{ order_id: "o1", files: [FILE_A] }] });
+			const base = lockHandler();
+
+			db.connectionHandler = (context) =>
+			{
+				const inner = base(context);
+
+				return (text) => (text.includes("FROM pg_locks") ? Promise.reject(new Error("lock check failed")) : inner(text));
+			};
+
+			const { log } = await runAndInterfere(db, s3, () => undefined);
+
+			expect(db.job(1).state).toBe("failed");
+			expect(db.job(1).last_error).toMatch(/could not confirm the archive lock 3 times in a row/);
+			expect(log.lines.filter(({ message }) => /could not check the archive lock/.test(message)).length).toBeGreaterThanOrEqual(3);
+		});
+	});
+
+	test("a progress write that finds the row ended aborts the job", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			seedFile(objects, FILE_A, compressibleData());
+
+			const db = createFakeDb({ jobs: [{ id: 1, state: "queued" }], orders: [{ order_id: "o1", files: [FILE_A] }] });
+			// A heartbeat far in the future: only the progress write can notice.
+			const { log } = await runAndInterfere(db, s3, () =>
+			{
+				db.job(1).state = "failed";
+			}, { heartbeatMs: 60_000 });
+
+			expect(db.job(1).state).toBe("failed");
+			expect(log.lines.some(({ message }) => /Job 1: the job row is no longer running/.test(message))).toBe(true);
+		});
+	});
+
+	test("while another worker holds the lock, startup is retried with a growing delay", async () =>
+	{
+		const db = createFakeDb();
+		const other = db.openLockClient();
+
+		db.tryLock(other);
+
+		const { worker } = makeWorker(db, { pollMs: 5, startupRetryMaxMs: 40, heartbeatMs: 60_000 });
+		const running = worker.run();
+
+		try
+		{
+			await delay(400);
+
+			// Every 5 ms would be about 80 attempts; 10, 20, 40, 40, ... ms is about 11.
+			expect(db.lockRefusals).toBeGreaterThan(2);
+			expect(db.lockRefusals).toBeLessThan(25);
+			expect(worker.isStartupDone()).toBe(false);
+
+			db.unlockAll(other);
+			await waitFor(() => worker.isStartupDone(), "startup once the lock is free");
+		}
+		finally
+		{
+			await worker.stop();
+			await running;
+		}
+	});
+
+	test("the worker writes its liveness file after heartbeats, and removes its row on stop", async () =>
+	{
+		const { isLivenessFresh } = await import("../worker/archiver/liveness.js");
+		const livenessFile = path.join(tempDir, "archiver-alive");
+		const db = createFakeDb();
+		const { worker } = makeWorker(db, { livenessFile, heartbeatMs: 5, pollMs: 1000 });
+
+		expect(await isLivenessFresh(livenessFile)).toBe(false);
+
+		const running = worker.run();
+
+		await waitFor(() => isLivenessFresh(livenessFile), "the liveness file");
+		expect(await isLivenessFresh(livenessFile, { maxAgeMs: 1, now: Date.now() + 10_000 })).toBe(false);
+		expect(db.workers.has("worker-1")).toBe(true);
+
+		await worker.stop();
+		await running;
+
+		expect(db.deregistered).toEqual(["worker-1"]);
+		expect(db.workers.has("worker-1")).toBe(false);
+		expect(() => createArchiveWorker({
+			sql: db.client(), s3: noS3, workerId: "w", version: "v", compress: testCompressor, livenessFile: "",
+		})).toThrow(TypeError);
+	});
+
+	test("the worker health check exits 0 only for a fresh liveness file", async () =>
+	{
+		const livenessFile = path.join(tempDir, "archiver-alive");
+		const check = async (env) =>
+		{
+			const child = Bun.spawn([process.execPath, "worker/archiver/healthcheck.js"], {
+				cwd: path.join(import.meta.dir, ".."),
+				env: { PATH: process.env.PATH ?? "", ...env },
+				stdout: "ignore",
+				stderr: "ignore",
+			});
+
+			return child.exited;
+		};
+
+		expect(await check({})).toBe(1);
+		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
+
+		await writeFile(livenessFile, "now\n");
+		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(0);
+
+		// Two minutes old: past the default 60 s.
+		const { utimes } = await import("node:fs/promises");
+		const old = new Date(Date.now() - 120_000);
+
+		await utimes(livenessFile, old, old);
+		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
+		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile, ARCHIVER_LIVENESS_MAX_AGE_MS: "300000" })).toBe(0);
+	});
+
+	test("the web health check needs /api/ping and, in embedded mode, a fresh worker heartbeat", async () =>
+	{
+		const livenessFile = path.join(tempDir, "archiver-alive");
+		let pingStatus = 200;
+		const server = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: (request) => (new URL(request.url).pathname === "/api/ping"
+				? new Response("{}", { status: pingStatus })
+				: new Response("not found", { status: 404 })),
+		});
+		const check = (env) => Bun.spawn([process.execPath, "docker/web-healthcheck.js"], {
+			cwd: path.join(import.meta.dir, ".."),
+			env: { PATH: process.env.PATH ?? "", PORT: String(server.port), ...env },
+			stdout: "ignore",
+			stderr: "ignore",
+		}).exited;
+
+		try
+		{
+			expect(await check({})).toBe(0);
+			expect(await check({ ARCHIVER_MODE: "embedded", ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
+
+			await writeFile(livenessFile, "now\n");
+			expect(await check({ ARCHIVER_MODE: "embedded", ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(0);
+
+			pingStatus = 500;
+			expect(await check({})).toBe(1);
+		}
+		finally
+		{
+			server.stop(true);
+		}
+	});
+
+	test("readCompressorVersion reports a timeout and a signal as such", async () =>
+	{
+		const hangScript = path.join(tempDir, "hang.mjs");
+		const killScript = path.join(tempDir, "kill.mjs");
+
+		await writeFile(hangScript, "setInterval(() => {}, 1000);\n");
+		await writeFile(killScript, "process.kill(process.pid, \"SIGTERM\"); setInterval(() => {}, 1000);\n");
+
+		const started = Date.now();
+
+		await expect(readCompressorVersion({ binPath: process.execPath, binArgs: [hangScript], timeoutMs: 300 }))
+			.rejects.toThrow(/did not finish within 300 ms/);
+		expect(Date.now() - started).toBeLessThan(5000);
+		await expect(readCompressorVersion({ binPath: process.execPath, binArgs: [killScript] }))
+			.rejects.toThrow(/terminated by SIGTERM/);
+		await expect(readCompressorVersion({ binPath: process.execPath, timeoutMs: 0 })).rejects.toThrow(RangeError);
+	});
+});
+
+// ---- temp sweep at job start and while idle (review 2026-11-20: disk leak) ----
+
+describe("temp sweep after startup", () =>
+{
+	// What the startup sweep had to keep: written by a run killed a moment ago.
+	const RECENT = "projecto-archive-recent-leftover.zst";
+
+	async function ageFile(name)
+	{
+		const mtime = new Date(Date.now() - CRASH_AGE_MS);
+
+		await utimes(path.join(tempDir, name), mtime, mtime);
+	}
+
+	test("a job start sweeps a leftover the startup sweep kept as recent, and keeps journal-referenced originals", async () =>
+	{
+		const db = createFakeDb();
+		const referenced = path.join(tempDir, "projecto-archive-00000000-0000-4000-8000-00000000000a");
+
+		await writeFile(path.join(tempDir, RECENT), "half-written candidate");
+		await writeCrashLeftover(referenced, "verified original");
+		db.journal.seed({
+			file_id: FILE_A,
+			state: "needs_attention",
+			original_sha256: sha("verified original"),
+			original_size: 17,
+			stored_size: 5,
+			pre_upload_etag: "\"etag\"",
+			original_path: referenced,
+		});
+
+		const { worker } = makeWorker(db);
+
+		await worker.tick();
+		expect(worker.isStartupDone()).toBe(true);
+		expect((await archiverTempFiles()).sort()).toEqual([path.basename(referenced), RECENT].sort());
+
+		// Ten minutes later, as far as the sweep can tell.
+		await ageFile(RECENT);
+		db.enqueue(1);
+		await worker.tick();
+
+		expect(db.job(1).state).toBe("done");
+		expect(await archiverTempFiles()).toEqual([path.basename(referenced)]);
+	});
+
+	test("a job start still keeps a file written in the last minutes", async () =>
+	{
+		const db = createFakeDb();
+		const { worker } = makeWorker(db);
+
+		await worker.tick();
+		await writeFile(path.join(tempDir, RECENT), "being written by an orphaned compressor");
+		db.enqueue(1);
+		await worker.tick();
+
+		expect(db.job(1).state).toBe("done");
+		expect(await archiverTempFiles()).toEqual([RECENT]);
+	});
+
+	test("while idle the worker sweeps under the lock, at most once per idleSweepMs", async () =>
+	{
+		const db = createFakeDb();
+		const sweeps = [];
+		const sweepTemp = async ({ sql, timeoutMs }) =>
+		{
+			sweeps.push({ lockHeld: db.lockOwner !== null, timeoutMs, hasSql: typeof sql === "function" });
+		};
+		const { worker } = makeWorker(db, { sweepTemp, idleSweepMs: 200 });
+
+		// Startup swept (through recoverAtStartup), so the first idle sweep waits idleSweepMs.
+		await worker.tick();
+		await worker.tick();
+		expect(sweeps).toEqual([]);
+
+		await delay(220);
+		await worker.tick();
+		await worker.tick();
+
+		expect(sweeps).toEqual([{ lockHeld: true, timeoutMs: 1000, hasSql: true }]);
+		expect(db.lockOwner).toBe(null);
+	});
+
+	test("the real idle sweep removes a leftover once it is old enough", async () =>
+	{
+		const db = createFakeDb();
+		const { worker } = makeWorker(db, { idleSweepMs: 1 });
+
+		await writeFile(path.join(tempDir, RECENT), "half-written candidate");
+		await worker.tick();
+		expect(await archiverTempFiles()).toEqual([RECENT]);
+
+		await ageFile(RECENT);
+		await delay(5);
+		await worker.tick();
+
+		expect(await archiverTempFiles()).toEqual([]);
+		expect(db.lockOwner).toBe(null);
+	});
+
+	test("an idle sweep is skipped, not retried every poll, while another worker holds the lock", async () =>
+	{
+		const db = createFakeDb();
+		let sweeps = 0;
+		const { worker } = makeWorker(db, { sweepTemp: async () => 
+		{
+			sweeps++;
+		}, idleSweepMs: 50 });
+
+		await worker.tick();
+
+		const busy = { pid: 1 };
+
+		db.lockOwner = busy;
+		await delay(60);
+
+		const refusalsBefore = db.lockRefusals;
+
+		await worker.tick();
+		await worker.tick();
+
+		expect(sweeps).toBe(0);
+		// One lock attempt for the idle sweep, not one per tick.
+		expect(db.lockRefusals - refusalsBefore).toBe(1);
+		db.lockOwner = null;
+	});
+
+	test("a failing sweep at job start is logged and does not fail the job", async () =>
+	{
+		const db = createFakeDb();
+		const { worker, log } = makeWorker(db, {
+			sweepTemp: async () =>
+			{
+				throw new Error("EACCES: permission denied, scandir");
+			},
+		});
+
+		await worker.tick();
+		db.enqueue(1);
+		await worker.tick();
+
+		expect(db.job(1).state).toBe("done");
+		expect(log.lines.some(({ level, message }) => level === "warn" && message.includes("Temp sweep at job start failed"))).toBe(true);
+	});
+
+	test("sweepTemp and idleSweepMs are checked", () =>
+	{
+		const db = createFakeDb();
+
+		expect(() => makeWorker(db, { sweepTemp: "yes" })).toThrow(TypeError);
+		expect(() => makeWorker(db, { idleSweepMs: 1.5 })).toThrow(RangeError);
 	});
 });
