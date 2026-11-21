@@ -24,10 +24,20 @@ const log = createLogger("upload");
 export const UPLOAD_LIMIT = "UPLOAD_LIMIT";
 export const INVALID_UPLOAD = "INVALID_UPLOAD";
 
+// Limits of one request. The client shows them as limits per order (see
+// orderUtils.js), so ORDER_LIMITS applies the same numbers to the whole order
+// after an edit: without it, repeated edits could each add up to the request
+// limit and grow one order without bound (checked in applyOrderEdit.js).
 export const UPLOAD_LIMITS = {
 	maxFiles: 20,
 	maxFileBytes: 250 * 1024 * 1024,
 	maxTotalBytes: 1024 * 1024 * 1024,
+};
+
+export const ORDER_LIMITS = {
+	maxFiles: UPLOAD_LIMITS.maxFiles,
+	maxFileBytes: UPLOAD_LIMITS.maxFileBytes,
+	maxTotalBytes: UPLOAD_LIMITS.maxTotalBytes,
 };
 
 const MAX_FIELDS = 500;
@@ -191,7 +201,8 @@ function truncateFileName(name)
 // `validate` runs once the text fields are complete (before the first file is
 // read, so a bad request costs no upload); throw InvalidUploadError from it.
 //
-// Resolves to { fields, files }, with `files` in request order. On any failure
+// Resolves to { fields, files }, with `files` in request order (each
+// { fileID, fileName, sha256, size }, size in bytes). On any failure
 // every object this request started is deleted again (after the in-flight
 // requests for it have finished) before the error is rethrown.
 export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LIMITS } = {})
@@ -355,11 +366,13 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 			const encodedFileName = encodeMetadataValue(fileName);
 			const fileID = uuid7();
 			const hash = createHash("sha256");
+			let size = 0;
 
 			const meter = new Transform({
 				transform(chunk, encoding, callback)
 				{
 					touch();
+					size += chunk.length;
 					totalBytes += chunk.length;
 
 					if (totalBytes > limits.maxTotalBytes)
@@ -414,7 +427,7 @@ export async function receiveOrderUpload(req, s3, { validate, limits = UPLOAD_LI
 					{
 						const sha256 = hash.digest("hex");
 
-						uploaded[index] = { fileID, fileName, sha256 };
+						uploaded[index] = { fileID, fileName, sha256, size };
 
 						if (clientChecksum && clientChecksum !== sha256)
 						{

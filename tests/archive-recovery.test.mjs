@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -17,6 +17,7 @@ import * as journalSql from "../src/app/server-functions/orders/archiveJournal.j
 import {
 	ArchiveFileError,
 	FILE_OUTCOMES,
+	TEMP_SWEEP_MIN_AGE_MS,
 	archiveOrderFile,
 	recoverPendingVerifications,
 	sweepTempDir,
@@ -343,7 +344,7 @@ describe("recoverPendingVerifications (9.3)", () =>
 		});
 	});
 
-	test("a kept original outside the temp directory is never read or removed", async () =>
+	test("a kept original that is not named like an archiver temp file is never read or removed", async () =>
 	{
 		await withS3(async (s3, { objects, counters }) =>
 		{
@@ -358,6 +359,119 @@ describe("recoverPendingVerifications (9.3)", () =>
 			expect(journal.rows.get(FILE_A).note).toContain("not an archiver temp file");
 			expect(writes(counters)).toBe(0);
 			expect(await exists(elsewhere)).toBe(true);
+		});
+	});
+
+	test("journal paths that are relative, not normalized or not lowercase are never read or removed", async () =>
+	{
+		const variants = [
+			// Relative: resolved against whatever the cwd happens to be.
+			() => `projecto-archive-${randomUUID()}`,
+			// Absolute, but with a ".." segment path.normalize would remove.
+			() => `${tempDir}${path.sep}..${path.sep}${path.basename(tempDir)}${path.sep}projecto-archive-${randomUUID()}`,
+			// createTempFilePath() only ever writes a lowercase UUID.
+			() => path.join(tempDir, `projecto-archive-${randomUUID().toUpperCase()}`),
+		];
+
+		for (const makePath of variants)
+		{
+			journal = createFakeJournal();
+
+			await withS3(async (s3, { objects, counters }) =>
+			{
+				const { data, originalPath } = await scenario(objects, { stored: "corrupt-archive" });
+				const bad = makePath();
+				// Where the file really is (the relative one is not created).
+				const onDisk = path.isAbsolute(bad) ? path.normalize(bad) : null;
+
+				if (onDisk)
+				{
+					await writeFile(onDisk, data);
+				}
+
+				journal.rows.get(FILE_A).original_path = bad;
+				attach(FILE_A);
+
+				expect((await recover(s3)).needsAttention).toBe(1);
+				expect(journal.rows.get(FILE_A).note).toContain("not an archiver temp file");
+				expect(writes(counters)).toBe(0);
+
+				if (onDisk)
+				{
+					expect(await exists(onDisk)).toBe(true);
+					await rm(onDisk);
+				}
+
+				await rm(originalPath);
+			});
+		}
+	});
+
+	test("a never-replaced row whose path is not an archiver original removes nothing", async () =>
+	{
+		const variants = [
+			// Same file, reached through a ".." segment.
+			(originalPath) => ({
+				bad: `${tempDir}${path.sep}..${path.sep}${path.basename(tempDir)}${path.sep}${path.basename(originalPath)}`,
+				onDisk: originalPath,
+			}),
+			// An uppercase UUID in the name.
+			(originalPath) =>
+			{
+				const bad = path.join(tempDir, `projecto-archive-${path.basename(originalPath).slice("projecto-archive-".length).toUpperCase()}`);
+
+				return { bad, onDisk: bad };
+			},
+		];
+
+		for (const variant of variants)
+		{
+			journal = createFakeJournal();
+
+			await withS3(async (s3, { objects }) =>
+			{
+				const { data, originalPath } = await scenario(objects, { stored: "original", state: "uploading" });
+				const { bad, onDisk } = variant(originalPath);
+
+				await writeFile(onDisk, data);
+				journal.rows.get(FILE_A).original_path = bad;
+
+				expect((await recover(s3)).cleared).toBe(1);
+				expect(journal.rows.size).toBe(0);
+				expect(await exists(onDisk)).toBe(true);
+				await rm(onDisk);
+				await rm(originalPath, { force: true });
+			});
+		}
+	});
+
+	test("recovery never restores without the archive's ETag: the original is saved and the row flagged", async () =>
+	{
+		await withS3(async (s3, { objects, counters }) =>
+		{
+			const { data, originalPath } = await scenario(objects, { stored: "corrupt-archive" });
+			const archived = objects.get(FILE_A);
+			const send = s3.send.bind(s3);
+
+			attach(FILE_A);
+			s3.send = async (command, options) =>
+			{
+				const response = await send(command, options);
+
+				return command instanceof HeadObjectCommand ? { ...response, ETag: undefined } : response;
+			};
+
+			expect(await recover(s3)).toEqual({ checked: 1, cleared: 0, restored: 0, needsAttention: 1, kept: 0 });
+
+			const row = journal.rows.get(FILE_A);
+
+			expect(row.state).toBe("needs_attention");
+			expect(row.note).toContain("No ETag of our archive");
+			expect(row.note).toContain(path.join(recoveryDir, `${FILE_A}.orig`));
+			expect(objects.get(FILE_A)).toBe(archived);
+			expect(writes(counters)).toBe(0);
+			expect((await readFile(path.join(recoveryDir, `${FILE_A}.orig`))).equals(data)).toBe(true);
+			expect(await exists(originalPath)).toBe(true);
 		});
 	});
 
@@ -474,19 +588,71 @@ describe("recoverPendingVerifications (9.3)", () =>
 		});
 	});
 
-	test("a read-back that cannot read the object restores the verified original (the safe outcome)", async () =>
+	test("a read-back that cannot read the object keeps the row and the original, and restores nothing", async () =>
 	{
-		await withS3(async (s3, { objects }) =>
+		await withS3(async (s3, { objects, counters }) =>
 		{
-			const { data } = await scenario(objects);
+			const { archive, originalPath } = await scenario(objects);
 
 			attach(FILE_A);
 			failCommand(s3, GetObjectCommand, serviceUnavailable());
 
-			// The verified original replaces our archive: the safe outcome.
+			// A 503 says nothing about the archive's bytes: no restore, no
+			// churn; the next run reads it back again.
+			expect(await recover(s3)).toEqual({ checked: 1, cleared: 0, restored: 0, needsAttention: 0, kept: 1 });
+			expect(objects.get(FILE_A).body.equals(archive)).toBe(true);
+			expect(writes(counters)).toBe(0);
+			expect(journal.rows.get(FILE_A).state).toBe("uploaded");
+			expect(await exists(originalPath)).toBe(true);
+		});
+	});
+
+	test("a read-back that fails once with a network error is retried and clears the row", async () =>
+	{
+		await withS3(async (s3, { objects, counters }) =>
+		{
+			const { archive, originalPath } = await scenario(objects);
+			const send = s3.send.bind(s3);
+			let failed = 0;
+
+			attach(FILE_A);
+			s3.send = (command, options) =>
+			{
+				if (command instanceof GetObjectCommand && failed === 0)
+				{
+					failed++;
+					return Promise.reject(Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }));
+				}
+
+				return send(command, options);
+			};
+
+			expect((await recover(s3)).cleared).toBe(1);
+			expect(failed).toBe(1);
+			expect(objects.get(FILE_A).body.equals(archive)).toBe(true);
+			expect(writes(counters)).toBe(0);
+			expect(journal.rows.size).toBe(0);
+			expect(await exists(originalPath)).toBe(false);
+		});
+	});
+
+	test("a kept original in a former temp directory (TMPDIR changed) is still restored", async () =>
+	{
+		await withS3(async (s3, { objects }) =>
+		{
+			const { data, originalPath } = await scenario(objects, { stored: "corrupt-archive" });
+			const formerDir = await mkdtemp(path.join(recoveryDir, "former-tmp-"));
+			const moved = path.join(formerDir, path.basename(originalPath));
+
+			await writeFile(moved, data);
+			await rm(originalPath);
+			journal.rows.get(FILE_A).original_path = moved;
+			attach(FILE_A);
+
 			expect((await recover(s3)).restored).toBe(1);
 			expect(objects.get(FILE_A).body.equals(data)).toBe(true);
 			expect(journal.rows.size).toBe(0);
+			expect(await exists(moved)).toBe(false);
 		});
 	});
 
@@ -544,6 +710,11 @@ describe("recoverPendingVerifications (9.3)", () =>
 		await expect(recoverPendingVerifications(journal.sql, {})).rejects.toThrow(TypeError);
 		await expect(recoverPendingVerifications(journal.sql, { send: () => undefined }, { timeoutMs: 0 })).rejects.toThrow(RangeError);
 		await expect(sweepTempDir({})).rejects.toThrow(TypeError);
+		await expect(sweepTempDir({ sql: journal.sql, minAgeMs: -1 })).rejects.toThrow(RangeError);
+		await expect(sweepTempDir({ sql: journal.sql, minAgeMs: 1.5 })).rejects.toThrow(RangeError);
+		await expect(sweepTempDir({ sql: journal.sql, now: Date.now })).rejects.toThrow(/valid Date/);
+		await expect(sweepTempDir({ sql: journal.sql, now: "later" })).rejects.toThrow(TypeError);
+		await expect(sweepTempDir({ sql: journal.sql, now: () => new Date(Number.NaN) })).rejects.toThrow(TypeError);
 	});
 });
 
@@ -651,7 +822,8 @@ describe("archiveOrderFile and recovery", () =>
 
 			// A restart: recovery and the sweep leave the row and its original.
 			await recover(s3);
-			await sweepTempDir({ sql: journal.sql, timeoutMs: 1000 });
+			// The clock is past the age threshold, so only the journal keeps it.
+			await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: afterMinAge });
 
 			expect(journal.rows.get(FILE_A)).toEqual(row);
 			expect(await tempFiles()).toEqual([path.basename(row.original_path)]);
@@ -664,6 +836,9 @@ describe("archiveOrderFile and recovery", () =>
 });
 
 // ---- 9.4: temp sweep ----
+
+// A clock just past the sweep's age threshold, so files written by the test count as old.
+const afterMinAge = () => new Date(Date.now() + TEMP_SWEEP_MIN_AGE_MS + 60_000);
 
 describe("sweepTempDir (9.4)", () =>
 {
@@ -701,9 +876,9 @@ describe("sweepTempDir (9.4)", () =>
 			});
 		}
 
-		const counts = await sweepTempDir({ sql: journal.sql, timeoutMs: 1000 });
+		const counts = await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: afterMinAge });
 
-		expect(counts).toEqual({ candidatesRemoved: 2, originalsRemoved: 3, originalsKept: 2, failed: 0 });
+		expect(counts).toEqual({ candidatesRemoved: 2, originalsRemoved: 3, originalsKept: 2, recentKept: 0, failed: 0 });
 		// Directories and symlinks are never touched.
 		expect((await readdir(tempDir)).sort()).toEqual([
 			"other.txt",
@@ -725,6 +900,88 @@ describe("sweepTempDir (9.4)", () =>
 		expect(await tempFiles()).toEqual(["projecto-archive-c", "projecto-archive-c.zst"]);
 	});
 
+	test("keeps temp files written recently, so an in-flight archive is never swept (review item 5)", async () =>
+	{
+		// A download and the candidate an orphaned compressor is still writing.
+		const inFlight = [`projecto-archive-${FILE_A}`, `projecto-archive-${FILE_A}.zst`];
+
+		for (const name of inFlight)
+		{
+			await writeFile(path.join(tempDir, name), name);
+		}
+
+		// The real clock: both were just written.
+		expect(await sweepTempDir({ sql: journal.sql, timeoutMs: 1000 }))
+			.toEqual({ candidatesRemoved: 0, originalsRemoved: 0, originalsKept: 0, recentKept: 2, failed: 0 });
+		expect(await tempFiles()).toEqual(inFlight);
+
+		// Once the writer has gone quiet for longer than the threshold, they go.
+		expect(await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: afterMinAge }))
+			.toEqual({ candidatesRemoved: 1, originalsRemoved: 1, originalsKept: 0, recentKept: 0, failed: 0 });
+		expect(await tempFiles()).toEqual([]);
+	});
+
+	test("the age check uses each file's mtime against the injected clock and threshold", async () =>
+	{
+		const clock = new Date("2026-11-20T12:00:00Z");
+		const minute = 60_000;
+		const ages = {
+			"projecto-archive-old": TEMP_SWEEP_MIN_AGE_MS + minute,
+			"projecto-archive-old.br": TEMP_SWEEP_MIN_AGE_MS + minute,
+			"projecto-archive-at-cutoff": TEMP_SWEEP_MIN_AGE_MS,
+			"projecto-archive-young": TEMP_SWEEP_MIN_AGE_MS - minute,
+			"projecto-archive-young.zst": TEMP_SWEEP_MIN_AGE_MS - minute,
+			// Clock skew: a file dated in the future is treated as recent.
+			"projecto-archive-future.zst": -minute,
+		};
+
+		for (const [name, ageMs] of Object.entries(ages))
+		{
+			const filePath = path.join(tempDir, name);
+			const mtime = new Date(clock.getTime() - ageMs);
+
+			await writeFile(filePath, name);
+			await utimes(filePath, mtime, mtime);
+		}
+
+		expect(await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: () => clock }))
+			.toEqual({ candidatesRemoved: 1, originalsRemoved: 2, originalsKept: 0, recentKept: 3, failed: 0 });
+		expect(await tempFiles()).toEqual([
+			"projecto-archive-future.zst",
+			"projecto-archive-young",
+			"projecto-archive-young.zst",
+		]);
+
+		// A custom threshold is honoured: with a 30 minute one nothing young is touched,
+		// and a threshold of 0 lets the sweep take everything not in the future.
+		expect((await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: () => clock, minAgeMs: 30 * minute })).recentKept).toBe(3);
+		expect(await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: () => clock, minAgeMs: 0 }))
+			.toEqual({ candidatesRemoved: 1, originalsRemoved: 1, originalsKept: 0, recentKept: 1, failed: 0 });
+		expect(await tempFiles()).toEqual(["projecto-archive-future.zst"]);
+	});
+
+	test("an old original the crash journal references is kept regardless of the clock", async () =>
+	{
+		const originalPath = path.join(tempDir, `projecto-archive-${FILE_A}`);
+		const longAgo = new Date("2020-01-01T00:00:00Z");
+
+		await writeFile(originalPath, "verified original");
+		await utimes(originalPath, longAgo, longAgo);
+		journal.seed({
+			file_id: FILE_A,
+			state: "uploading",
+			original_sha256: "0".repeat(64),
+			original_size: 1,
+			stored_size: 1,
+			pre_upload_etag: "\"e\"",
+			original_path: originalPath,
+		});
+
+		expect(await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, minAgeMs: 0 }))
+			.toEqual({ candidatesRemoved: 0, originalsRemoved: 0, originalsKept: 1, recentKept: 0, failed: 0 });
+		expect(await tempFiles()).toEqual([path.basename(originalPath)]);
+	});
+
 	test("logs counts only", async () =>
 	{
 		await writeFile(path.join(tempDir, `projecto-archive-${FILE_A}`), "original");
@@ -736,7 +993,7 @@ describe("sweepTempDir (9.4)", () =>
 
 		try
 		{
-			await sweepTempDir({ sql: journal.sql, timeoutMs: 1000 });
+			await sweepTempDir({ sql: journal.sql, timeoutMs: 1000, now: afterMinAge });
 		}
 		finally
 		{
@@ -787,8 +1044,22 @@ describe.skipIf(!TEST_DB_URL)("crash journal on Postgres", () =>
 		admin = postgres(TEST_DB_URL, { max: 1 });
 		await admin.unsafe(`CREATE SCHEMA ${schema}`);
 		sql = postgres(TEST_DB_URL, { max: 2, connection: { search_path: schema } });
-		await sql.unsafe(migration);
-		await sql.unsafe("CREATE TABLE orders (order_id text PRIMARY KEY, files text[], archived_at timestamptz)");
+
+		// The migration file has its own BEGIN/COMMIT, which postgres.js refuses on a pooled
+		// connection (UNSAFE_TRANSACTION). A reserved connection keeps the search_path and is
+		// released even if the migration fails.
+		const reserved = await sql.reserve();
+
+		try
+		{
+			await reserved.unsafe(migration);
+		}
+		finally
+		{
+			reserved.release();
+		}
+
+		await sql.unsafe("CREATE TABLE orders (order_id text PRIMARY KEY, files text[], archived_at timestamptz, deleting_at timestamptz)");
 		[{ id: jobId }] = await sql`INSERT INTO archive_jobs (state) VALUES ('running') RETURNING id`;
 	});
 

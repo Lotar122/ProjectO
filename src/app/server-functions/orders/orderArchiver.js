@@ -2,14 +2,16 @@ import "server-only";
 
 import {
 	AbortMultipartUploadCommand,
+	CopyObjectCommand,
 	DeleteObjectCommand,
+	GetObjectCommand,
 	HeadObjectCommand,
 	ListMultipartUploadsCommand,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, lstat, mkdir, readdir, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Transform, Writable } from "node:stream";
@@ -17,6 +19,7 @@ import { pipeline } from "node:stream/promises";
 
 import { createDbClient } from "@/app/lib/db";
 import { createLogger } from "@/app/lib/logger";
+import { DELETION_STALE_INTERVAL } from "@/app/server-functions/orders/orderRowLock";
 import { isUuid } from "@/app/lib/validate";
 import {
 	ChecksumMismatchError,
@@ -37,8 +40,10 @@ import {
 	countArchiveCandidates,
 	selectArchiveCandidates,
 } from "@/app/server-functions/orders/archiveCandidates";
+import { isJobRunning } from "@/app/server-functions/orders/archiveJobs";
 import {
 	deletePendingVerify,
+	deletePendingVerifyAttempt,
 	insertPendingVerify,
 	isFileOnAnyOrder,
 	listJournalOriginalPaths,
@@ -73,6 +78,30 @@ const SIZE_PATTERN = /^\d+$/;
 // downloaded original has no extension, compressed candidates end in .zst/.br.
 const TEMP_FILE_PREFIX = "projecto-archive-";
 const TEMP_CANDIDATE_PATTERN = /\.(zst|br)$/;
+// The temp sweep leaves any temp file modified more recently than this: it may
+// belong to an archive still in flight (an orphaned compressor still writing
+// its candidate after the worker was killed, or a download in progress).
+export const TEMP_SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
+// The exact name createTempFilePath() gives a downloaded original.
+const TEMP_ORIGINAL_NAME_PATTERN = /^projecto-archive-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Downloaded originals and recovery copies hold patient data: owner only.
+const PRIVATE_FILE_MODE = 0o600;
+const PRIVATE_DIR_MODE = 0o700;
+// Read-back attempts when reading the stored object fails for a reason that
+// says nothing about its bytes (network error, 5xx).
+const READBACK_ATTEMPTS = 2;
+const TRANSIENT_NETWORK_CODES = new Set([
+	"ECONNRESET",
+	"ECONNREFUSED",
+	"ECONNABORTED",
+	"ETIMEDOUT",
+	"EPIPE",
+	"EAI_AGAIN",
+	"EHOSTUNREACH",
+	"ENETUNREACH",
+	"ERR_STREAM_PREMATURE_CLOSE",
+	"UND_ERR_SOCKET",
+]);
 // Upper bound for ListMultipartUploads pages per key during recovery.
 const MAX_MULTIPART_LIST_PAGES = 100;
 const JOURNAL_METHODS = new Set([COMPRESSION_METHODS.zstd, COMPRESSION_METHODS.brotli]);
@@ -133,6 +162,40 @@ class DbTimeoutError extends Error
 	{
 		super(`${label} timed out after ${ms} ms`);
 		this.name = "DbTimeoutError";
+	}
+}
+
+// The stored archive was read, but decoding it failed (a decoder error, or
+// the decoder ending or closing before the source did). Judges the archive's
+// bytes, so it is never transient, whatever code the underlying error has
+// (a decoder that stops early surfaces as ERR_STREAM_PREMATURE_CLOSE).
+class StoredArchiveDecodeError extends ArchiveFileError
+{
+	constructor(cause)
+	{
+		super(`Stored archive could not be decoded: ${cause?.message ?? String(cause)}`, { cause });
+		this.name = "StoredArchiveDecodeError";
+	}
+}
+
+// The read-back could not read the stored object (network error, 5xx), so it
+// says nothing about the archive's bytes. Never a reason to restore.
+class ReadBackUnavailableError extends ArchiveFileError
+{
+	constructor(cause)
+	{
+		super(`Could not read the stored object back: ${cause?.message ?? String(cause)}`, { cause });
+		this.name = "ReadBackUnavailableError";
+	}
+}
+
+// Raised before a file when this worker no longer owns the job.
+class JobNotRunningError extends Error
+{
+	constructor()
+	{
+		super("The archive job is no longer running (ended elsewhere); stopping");
+		this.name = "JobNotRunningError";
 	}
 }
 
@@ -199,6 +262,33 @@ function isConcurrentChange(err)
 	return isPreconditionFailed(err) || isNotFound(err);
 }
 
+// A failure to read an object that says nothing about its bytes: an S3 5xx or
+// throttling answer, an error the SDK marks retryable, a request timeout, or a
+// dropped connection. Checksum, size and decoder errors are not transient
+// (decodeAndHash wraps anything from the decoder stage in an ArchiveFileError).
+function isTransientReadError(err)
+{
+	if (err instanceof ArchiveFileError || err instanceof ChecksumMismatchError)
+	{
+		return false;
+	}
+
+	// S3 answers RequestTimeout with a 400, so it goes before the status check.
+	if (err?.$retryable || err?.name === "RequestTimeout" || err?.name === "TimeoutError")
+	{
+		return true;
+	}
+
+	const status = err?.$metadata?.httpStatusCode;
+
+	if (typeof status === "number")
+	{
+		return status >= 500 || status === 429;
+	}
+
+	return TRANSIENT_NETWORK_CODES.has(err?.code);
+}
+
 function parseSize(value)
 {
 	if (typeof value !== "string" || !SIZE_PATTERN.test(value))
@@ -233,8 +323,48 @@ async function hashStream(source, ...transforms)
 	return { sha256: hash.digest("hex"), size };
 }
 
+// hashStream(source, decoder) for a stored object, where it matters which
+// stage failed first. Only a failure the source raised (an error, or closing
+// before it ended) before the decoder did anything is passed on as is, for
+// isTransientReadError to judge. A failure after the source delivered every
+// byte, or one that started at the decoder (an error, or ending or closing
+// while the source still had bytes), throws StoredArchiveDecodeError: it is
+// about the archive's bytes, also when it surfaces as a premature close.
+async function decodeAndHash(source, method)
+{
+	const decoder = createDecompressStream(method);
+	let firstStage = null;
+	const mark = (stage) => () =>
+	{
+		firstStage ??= stage;
+	};
+
+	source.once("error", mark("source"));
+	source.once("end", mark("bytes"));
+	source.once("close", mark("source"));
+	decoder.once("error", mark("decoder"));
+	decoder.once("end", mark("decoder"));
+	decoder.once("close", mark("decoder"));
+
+	try
+	{
+		return await hashStream(source, decoder);
+	}
+	catch (err)
+	{
+		if (firstStage === "bytes" || firstStage === "decoder")
+		{
+			throw new StoredArchiveDecodeError(err);
+		}
+
+		throw err;
+	}
+}
+
 // Writes source to filePath, hashing the bytes on the way. onBytes(size) is
-// called with the running total after every chunk.
+// called with the running total after every chunk. The file is created
+// owner-only and exclusively ("wx"), so nothing planted at the path in a
+// shared temp directory is followed or reused.
 async function saveToFile(source, filePath, onBytes)
 {
 	const hash = createHash("sha256");
@@ -251,10 +381,30 @@ async function saveToFile(source, filePath, onBytes)
 				callback(null, chunk);
 			},
 		}),
-		createWriteStream(filePath),
+		createWriteStream(filePath, { flags: "wx", mode: PRIVATE_FILE_MODE }),
 	);
 
 	return { sha256: hash.digest("hex"), size };
+}
+
+// Like getFile, plus the ETag of the version this GET returned, so the later
+// If-Match can be tied to the bytes that were actually downloaded.
+async function getOrderFile(s3, fileId)
+{
+	const response = await s3.send(
+		new GetObjectCommand({
+			Bucket: ORDER_FILES_BUCKET,
+			Key: fileId,
+		}),
+	);
+
+	return {
+		body: response.Body,
+		contentLength: response.ContentLength,
+		contentType: response.ContentType,
+		metadata: response.Metadata,
+		etag: response.ETag ?? null,
+	};
 }
 
 function headOrderFile(s3, fileId)
@@ -286,29 +436,35 @@ function deleteOrderFileObject(s3, fileId)
 // unconditional replace (the behaviour before this check existed).
 //
 // A metadata-only copy (rename, checksum backfill) keeps the content ETag, so
-// a rename that lands between the last HEAD and this write is still lost;
-// renames that come after it re-read the metadata (updateOrderFileMetadata).
+// If-Match does not catch it: a rename that lands between the caller's last
+// HEAD and this write is lost. archiveOrderFile takes that HEAD right before
+// calling this, after its journal row exists, and renameOrderFile refuses
+// while the row exists; renames that come after the write re-read the
+// metadata (updateOrderFileMetadata).
 //
 // Resolves to the ETag of the written object.
 async function uploadOrderFile(s3, fileId, filePath, { contentType, metadata, ifMatch })
 {
-	const upload = new Upload({
-		client: s3,
-		params: {
-			Bucket: ORDER_FILES_BUCKET,
-			Key: fileId,
-			Body: createReadStream(filePath),
-			...(contentType ? { ContentType: contentType } : {}),
-			...(ifMatch ? { IfMatch: ifMatch } : {}),
-			Metadata: metadata,
-		},
-		queueSize: 1,
-		partSize: PART_SIZE_BYTES,
-		leavePartsOnError: false,
-	});
+	const body = createReadStream(filePath);
+	let upload = null;
 
 	try
 	{
+		upload = new Upload({
+			client: s3,
+			params: {
+				Bucket: ORDER_FILES_BUCKET,
+				Key: fileId,
+				Body: body,
+				...(contentType ? { ContentType: contentType } : {}),
+				...(ifMatch ? { IfMatch: ifMatch } : {}),
+				Metadata: metadata,
+			},
+			queueSize: 1,
+			partSize: PART_SIZE_BYTES,
+			leavePartsOnError: false,
+		});
+
 		const result = await upload.done();
 
 		return result?.ETag ?? null;
@@ -317,7 +473,7 @@ async function uploadOrderFile(s3, fileId, filePath, { contentType, metadata, if
 	{
 		// lib-storage does not abort the multipart upload when its completion
 		// is refused, which would leave the parts behind.
-		if (upload.uploadId)
+		if (upload?.uploadId)
 		{
 			await s3.send(
 				new AbortMultipartUploadCommand({
@@ -329,6 +485,27 @@ async function uploadOrderFile(s3, fileId, filePath, { contentType, metadata, if
 		}
 
 		throw err;
+	}
+	finally
+	{
+		// A failed upload (or a constructor that threw) can leave the stream
+		// half read or never read; close its descriptor now.
+		body.destroy();
+	}
+}
+
+async function tightenIfExists(filePath)
+{
+	try
+	{
+		await chmod(filePath, PRIVATE_FILE_MODE);
+	}
+	catch (err)
+	{
+		if (err?.code !== "ENOENT")
+		{
+			throw err;
+		}
 	}
 }
 
@@ -345,11 +522,31 @@ async function saveForRecovery({ fileId, originalPath, contentType, metadata, or
 	const dir = recoveryDir();
 	const baseName = encodeURIComponent(fileId);
 	const filePath = path.join(dir, `${baseName}.orig`);
+	const infoPath = path.join(dir, `${baseName}.json`);
 
-	await mkdir(dir, { recursive: true });
+	await mkdir(dir, { recursive: true, mode: PRIVATE_DIR_MODE });
+
+	// mkdir's mode only applies to a folder it creates, so an existing one is
+	// tightened here too. A folder we cannot chmod (owned by someone else) still
+	// takes the copy: the files below are owner-only, and failing here would
+	// leave the ephemeral temp original as the only copy.
+	try
+	{
+		await chmod(dir, PRIVATE_DIR_MODE);
+	}
+	catch (err)
+	{
+		log.warn(`Could not make ${dir} owner-only (${err.message}); its files are still owner-only`);
+	}
+
+	// A copy left by an earlier save keeps its mode when overwritten, so it is
+	// made owner-only before the new bytes go in, and again afterwards.
+	await tightenIfExists(filePath);
+	await tightenIfExists(infoPath);
 	await copyFile(originalPath, filePath);
+	await chmod(filePath, PRIVATE_FILE_MODE);
 	await writeFile(
-		path.join(dir, `${baseName}.json`),
+		infoPath,
 		JSON.stringify(
 			{
 				fileId,
@@ -364,7 +561,10 @@ async function saveForRecovery({ fileId, originalPath, contentType, metadata, or
 			null,
 			"\t",
 		),
+		{ mode: PRIVATE_FILE_MODE },
 	);
+	// writeFile's mode, too, only applies when it creates the file.
+	await chmod(infoPath, PRIVATE_FILE_MODE);
 
 	return filePath;
 }
@@ -384,19 +584,90 @@ async function verifyStoredObject(s3, fileId, candidate, original)
 		throw new ArchiveFileError("Stored object does not match the uploaded archive");
 	}
 
-	const roundTrip = await hashStream(stored.body, createDecompressStream(candidate.method));
+	if (typeof stored.body?.once !== "function")
+	{
+		throw new ArchiveFileError("Stored object read back without a readable body");
+	}
+
+	const roundTrip = await decodeAndHash(stored.body, candidate.method);
 
 	assertChecksum(fileId, original, roundTrip, `stored ${candidate.method} archive read back`);
+}
+
+// verifyStoredObject, retried when the object could not be read at all.
+// Throws ReadBackUnavailableError when every attempt failed that way: the
+// archive's bytes were never judged, so the caller must not restore over it.
+async function readBackStoredObject(s3, fileId, candidate, original)
+{
+	for (let attempt = 1; ; attempt++)
+	{
+		try
+		{
+			await verifyStoredObject(s3, fileId, candidate, original);
+			return;
+		}
+		catch (err)
+		{
+			if (!isTransientReadError(err))
+			{
+				throw err;
+			}
+
+			if (attempt >= READBACK_ATTEMPTS)
+			{
+				throw new ReadBackUnavailableError(err);
+			}
+
+			log.warn(`Read-back of file ${fileId} could not read the object (attempt ${attempt}/${READBACK_ATTEMPTS}): ${err.message}`);
+		}
+	}
+}
+
+// updateOrderFileMetadata, but only on the object version expectedEtag. That
+// helper does its own HEAD right before its copy and binds the copy to the
+// HEAD's ETag (CopySourceIfMatch), so the client it gets here refuses with
+// ObjectChangedError, before anything is written, when that HEAD (or the HEAD
+// of a retry after a 412) shows any other ETag or none, and refuses any copy
+// that is not bound to expectedEtag. Nothing is ever stamped on bytes other
+// than the ones that were hashed.
+function updateMetadataOfVersion(s3, fileId, expectedEtag, buildUpdate)
+{
+	const boundClient = {
+		send: async (command, ...rest) =>
+		{
+			if (command instanceof CopyObjectCommand && command.input?.CopySourceIfMatch !== expectedEtag)
+			{
+				throw new ObjectChangedError();
+			}
+
+			const response = await s3.send(command, ...rest);
+
+			if (command instanceof HeadObjectCommand && response?.ETag !== expectedEtag)
+			{
+				throw new ObjectChangedError();
+			}
+
+			return response;
+		},
+	};
+
+	return updateOrderFileMetadata(boundClient, fileId, buildUpdate);
 }
 
 // Puts the verified original back over our archive, only while the object is
 // still the version ifMatch (never over a newer write). Resolves to "restored",
 // or to "gone" when the object was deleted meanwhile (an order deletion removes
 // its objects before the row), so there is nothing to restore. Throws for any
-// other failure, including 412. Used after a failed read-back and by crash
+// other failure, including 412, and without an ifMatch (an unconditional PUT
+// could overwrite a newer write). Used after a failed read-back and by crash
 // recovery.
 async function restoreOriginal(s3, fileId, { originalPath, contentType, metadata, ifMatch })
 {
+	if (!ifMatch)
+	{
+		throw new ArchiveFileError("No ETag of our archive to bind the restore to; not restoring unconditionally");
+	}
+
 	try
 	{
 		await uploadOrderFile(s3, fileId, originalPath, { contentType, metadata, ifMatch });
@@ -412,6 +683,49 @@ async function restoreOriginal(s3, fileId, { originalPath, contentType, metadata
 	}
 
 	return "restored";
+}
+
+// For a restore when the upload returned no ETag: the object's current ETag,
+// but only while a HEAD still shows the archive this run wrote (same codec,
+// size, original sha256 and archive time). Resolves to { etag }, or to
+// { state: "gone" } / { state: "replaced" } when there is nothing of ours to
+// restore over. Throws when the HEAD fails or our archive has no ETag.
+async function findOwnArchive(s3, fileId, { method, size, sha256, archivedAt })
+{
+	let head;
+
+	try
+	{
+		head = await headOrderFile(s3, fileId);
+	}
+	catch (err)
+	{
+		if (isNotFound(err))
+		{
+			return { state: "gone" };
+		}
+
+		throw err;
+	}
+
+	const metadata = head.Metadata ?? {};
+	const ours =
+		metadata[ARCHIVE_META.method] === method &&
+		metadata[ARCHIVE_META.sha256] === sha256 &&
+		metadata[ARCHIVE_META.archivedAt] === archivedAt &&
+		head.ContentLength === size;
+
+	if (!ours)
+	{
+		return { state: "replaced" };
+	}
+
+	if (!head.ETag)
+	{
+		throw new ArchiveFileError("Neither the upload nor a HEAD returned an ETag for our archive");
+	}
+
+	return { etag: head.ETag };
 }
 
 // The metadata the original had, rebuilt from our archive's metadata: the
@@ -554,7 +868,7 @@ export async function archiveOrderFile({
 	let candidate = null;
 	// True while this file has a journal row: the temp original must stay.
 	let journalOpen = false;
-	const journalQuery = (query, label) => withTimeout(query, label, journal.timeoutMs);
+	const journalQuery = (query, label, onLate) => withTimeout(query, label, journal.timeoutMs, onLate);
 	// Deletes the row. Resolves to false (and logs) when that failed; the row
 	// and the temp original are then left for crash recovery and the sweep.
 	const closeJournal = async () =>
@@ -601,7 +915,7 @@ export async function archiveOrderFile({
 
 		try
 		{
-			file = await getFile(s3, ORDER_FILES_BUCKET, fileId);
+			file = await getOrderFile(s3, fileId);
 		}
 		catch (err)
 		{
@@ -618,6 +932,13 @@ export async function archiveOrderFile({
 		{
 			file.body?.destroy?.();
 			return alreadyArchivedResult(file.metadata, file.contentLength);
+		}
+
+		if (!file.etag)
+		{
+			// The upload's If-Match must name the version these bytes came from.
+			file.body?.destroy?.();
+			throw new ArchiveFileError(`GET of ${fileId} returned no ETag; original left untouched`);
 		}
 
 		report("download", 0, file.contentLength);
@@ -671,7 +992,10 @@ export async function archiveOrderFile({
 
 			try
 			{
-				updated = await updateOrderFileMetadata(s3, fileId, (current) =>
+				// Bound to file.etag: the sha256 stamped here is that of the
+				// bytes downloaded above, so a replacement since the GET (even
+				// one of the same size without a stored sha256) writes nothing.
+				updated = await updateMetadataOfVersion(s3, fileId, file.etag, (current) =>
 				{
 					if (current[ARCHIVE_META.method])
 					{
@@ -729,7 +1053,8 @@ export async function archiveOrderFile({
 
 		assertChecksum(fileId, original, verified, `${candidate.method} round trip; original left untouched`);
 
-		// Fresh metadata, so a rename that happened during compression is kept.
+		// Checks the object before the journal row is written; the metadata
+		// for the upload is read again once the row exists (below).
 		let latest;
 
 		try
@@ -763,31 +1088,26 @@ export async function archiveOrderFile({
 			return changedResult(original.size);
 		}
 
-		const contentType = latest.ContentType ?? file.contentType;
-		const originalMetadata = { ...latest.Metadata, [ARCHIVE_META.sha256]: original.sha256 };
 		const orphanedResult = {
 			outcome: FILE_OUTCOMES.orphaned,
 			method: candidate.method,
 			originalSize: original.size,
 			storedSize: candidate.size,
 		};
-		const storedMetadata = {
-			...latest.Metadata,
-			...archiveMetadata(candidate.method),
-		};
-
-		// Never carry over an encoder key that describes some other write.
-		delete storedMetadata[ENCODER_META_KEY];
-
-		if (typeof candidate.encoder === "string" && ENCODER_PATTERN.test(candidate.encoder))
-		{
-			storedMetadata[ENCODER_META_KEY] = candidate.encoder;
-		}
 
 		if (!latest.ETag)
 		{
 			// Without an ETag there is neither an If-Match nor a journal row.
 			throw new ArchiveFileError(`HEAD of ${fileId} returned no ETag; original left untouched`);
+		}
+
+		// The bytes downloaded and verified above are the version file.etag.
+		// Any other ETag now means the content was replaced since the GET, also
+		// when the size matches and no stored sha256 could tell.
+		if (latest.ETag !== file.etag)
+		{
+			log.info(`File ${fileId} was replaced during archiving; left for the next run`);
+			return changedResult(original.size);
 		}
 
 		// 9.2 step 1: no journal row, no upload.
@@ -802,7 +1122,16 @@ export async function archiveOrderFile({
 				storedSize: candidate.size,
 				preUploadEtag: latest.ETag,
 				originalPath,
-			}), "Writing the crash journal");
+			}), "Writing the crash journal", (lateErr) =>
+			{
+				// The insert landed after it had timed out. Nothing was uploaded
+				// for that row, so it goes again instead of blocking the order
+				// until the next job-start recovery.
+				if (!lateErr)
+				{
+					removeLateJournalRow(journal, fileId, originalPath);
+				}
+			});
 		}
 		catch (err)
 		{
@@ -813,6 +1142,65 @@ export async function archiveOrderFile({
 		}
 
 		journalOpen = true;
+
+		// The metadata the upload writes (and a restore would write) is read
+		// here, after the journal row exists and right before the upload
+		// (review 2026-11-20, item 3). A metadata-only rename keeps the ETag, so
+		// If-Match cannot catch one; instead renameOrderFile refuses while the
+		// row exists, and a rename that came earlier is in this HEAD. What is
+		// left is a rename whose journal check ran just before the insert above
+		// and whose copy lands after this HEAD: it is overwritten by the upload.
+		// That window is one journal query plus one S3 round trip on the rename
+		// side (see renameOrderFile). The restore after a failed read-back
+		// reuses this metadata: the row is still open then, so no rename can
+		// have landed on our archive since.
+		let fresh;
+
+		try
+		{
+			fresh = await headOrderFile(s3, fileId);
+		}
+		catch (err)
+		{
+			// Nothing was written for this row.
+			await closeJournal();
+
+			if (isNotFound(err))
+			{
+				log.info(`File ${fileId} was deleted before its archive was written; left for the next run`);
+				return changedResult(original.size);
+			}
+
+			throw err;
+		}
+
+		if (fresh.ETag !== file.etag)
+		{
+			await closeJournal();
+			log.info(`File ${fileId} was replaced before its archive was written; left for the next run`);
+			return changedResult(original.size);
+		}
+
+		if (fresh.Metadata?.[ARCHIVE_META.method])
+		{
+			await closeJournal();
+			return alreadyArchivedResult(fresh.Metadata, fresh.ContentLength);
+		}
+
+		const contentType = fresh.ContentType ?? file.contentType;
+		const originalMetadata = { ...fresh.Metadata, [ARCHIVE_META.sha256]: original.sha256 };
+		const storedMetadata = {
+			...fresh.Metadata,
+			...archiveMetadata(candidate.method),
+		};
+
+		// Never carry over an encoder key that describes some other write.
+		delete storedMetadata[ENCODER_META_KEY];
+
+		if (typeof candidate.encoder === "string" && ENCODER_PATTERN.test(candidate.encoder))
+		{
+			storedMetadata[ENCODER_META_KEY] = candidate.encoder;
+		}
 
 		let storedEtag;
 
@@ -826,7 +1214,7 @@ export async function archiveOrderFile({
 			storedEtag = await uploadOrderFile(s3, fileId, candidate.path, {
 				contentType,
 				metadata: storedMetadata,
-				ifMatch: latest.ETag,
+				ifMatch: fresh.ETag,
 			});
 		}
 		catch (err)
@@ -857,10 +1245,18 @@ export async function archiveOrderFile({
 
 		try
 		{
-			await verifyStoredObject(s3, fileId, candidate, original);
+			await readBackStoredObject(s3, fileId, candidate, original);
 		}
 		catch (verifyErr)
 		{
+			// The object could not be read at all, so nothing says the archive
+			// is bad: no restore. The row and the temp original stay, and crash
+			// recovery reads it back again at the next job start.
+			if (verifyErr instanceof ReadBackUnavailableError)
+			{
+				throw verifyErr;
+			}
+
 			// When the read-back failed because the order (and its objects) was
 			// deleted meanwhile, restoring would bring back a file no order owns.
 			let attached = true;
@@ -889,13 +1285,21 @@ export async function archiveOrderFile({
 
 			try
 			{
-				// Only over our own archive, never over a newer write.
-				restored = await restoreOriginal(s3, fileId, {
-					originalPath,
-					contentType,
-					metadata: originalMetadata,
-					ifMatch: storedEtag,
-				});
+				// Only over our own archive, never over a newer write. An upload
+				// that returned no ETag is bound to the one a HEAD shows now, and
+				// only while that HEAD still shows this archive.
+				const target = storedEtag
+					? { etag: storedEtag }
+					: await findOwnArchive(s3, fileId, { method: candidate.method, size: candidate.size, sha256: original.sha256, archivedAt });
+
+				restored = target.etag
+					? await restoreOriginal(s3, fileId, {
+						originalPath,
+						contentType,
+						metadata: originalMetadata,
+						ifMatch: target.etag,
+					})
+					: target.state;
 			}
 			catch (restoreErr)
 			{
@@ -944,13 +1348,32 @@ export async function archiveOrderFile({
 				return changedResult(original.size);
 			}
 
+			if (restored === "replaced")
+			{
+				log.info(`File ${fileId} was replaced by a newer write after its archive was uploaded; nothing to restore`);
+				return changedResult(original.size);
+			}
+
 			throw new ArchiveFileError(
 				`Read-back verification failed, original restored: ${verifyErr.message}`,
 				{ cause: verifyErr },
 			);
 		}
 
-		if (!(await isStillAttached()))
+		let attached = true;
+
+		try
+		{
+			attached = await isStillAttached();
+		}
+		catch (err)
+		{
+			// Like the check before a restore: an unknown answer keeps the
+			// verified archive. The order is only marked when its files match.
+			log.warn(`Could not check whether file ${fileId} is still on its order: ${err.message}`);
+		}
+
+		if (!attached)
 		{
 			await deleteOrderFileObject(s3, fileId);
 			log.info(`File ${fileId} was removed from its order during archiving; deleted the object`);
@@ -993,6 +1416,9 @@ export async function archiveOrderFile({
 
 // ---- Database access (all short statements; statement_timeout is 15 s) ----
 
+// True while the file is on the order and no deletion of the order is running
+// (orders.deleting_at younger than DELETION_STALE_AFTER_MS): a file of an order
+// being deleted counts as no longer attached, so the archiver does not replace it.
 export async function isFileOnOrder(sql, orderId, fileId)
 {
 	const rows = await sql`
@@ -1000,6 +1426,7 @@ export async function isFileOnOrder(sql, orderId, fileId)
 		FROM orders
 		WHERE order_id = ${orderId}
 			AND ${fileId} = ANY(files)
+			AND (orders.deleting_at IS NULL OR orders.deleting_at < now() - ${DELETION_STALE_INTERVAL}::interval)
 	`;
 
 	return rows.length > 0;
@@ -1008,7 +1435,9 @@ export async function isFileOnOrder(sql, orderId, fileId)
 // Only marks the order when its files are still the ones that were archived;
 // an order edited meanwhile is left for the next run. An order with a file
 // that still has a crash journal row (one recovery could not settle, or a
-// 'needs_attention' row) is not marked either (phase4.md 9.1).
+// 'needs_attention' row) is not marked either (phase4.md 9.1), nor is one whose
+// deletion is running (orders.deleting_at younger than DELETION_STALE_AFTER_MS;
+// an expired marker does not count).
 export async function markOrderArchived(sql, orderId, files)
 {
 	const rows = await sql`
@@ -1017,6 +1446,7 @@ export async function markOrderArchived(sql, orderId, files)
 		WHERE order_id = ${orderId}
 			AND files IS NOT DISTINCT FROM ${files}
 			AND archived_at IS NULL
+			AND (orders.deleting_at IS NULL OR orders.deleting_at < now() - ${DELETION_STALE_INTERVAL}::interval)
 			AND NOT EXISTS (
 				SELECT 1
 				FROM archive_pending_verify
@@ -1216,6 +1646,22 @@ async function flagNeedsAttention(journal, fileId, note)
 	return true;
 }
 
+// Removes a journal row whose insert landed after archiveOrderFile had already
+// given up on it (no upload was made for it). Only that attempt's row, and only
+// while still 'uploading'. Never throws; a failure leaves it to crash recovery,
+// which finds the object never replaced and clears it.
+function removeLateJournalRow(journal, fileId, originalPath)
+{
+	withTimeout(
+		deletePendingVerifyAttempt(journal.sql, fileId, originalPath),
+		"Removing a late crash journal row",
+		journal.timeoutMs,
+	).then(
+		() => log.info(`Removed the crash journal row of file ${fileId} that was written after its insert timed out`),
+		(err) => log.warn(`Could not remove the late crash journal row of file ${fileId}; recovery will clear it: ${err.message}`),
+	);
+}
+
 /**
  * The job's mutable counters. The worker writes this object (plus
  * currentFile) to archive_jobs.progress.
@@ -1309,11 +1755,26 @@ function notify(listener, event)
 }
 
 // Resolves to true when it stopped early because shouldStop() said so; the
-// order is then neither counted nor marked.
-async function archiveOrder({ sql, s3, order, status, timeoutMs, journal, compress, shouldStop, onFileResult })
+// order is then neither counted nor marked. confirmOwnership() runs before
+// every file and before the order is marked, and throws (failing the job)
+// once this worker no longer holds the lock or the job is no longer running.
+async function archiveOrder({
+	sql,
+	s3,
+	order,
+	status,
+	timeoutMs,
+	journal,
+	compress,
+	shouldStop,
+	onFileResult,
+	confirmOwnership,
+})
 {
 	const orderId = order.order_id;
 	const files = Array.isArray(order.files) ? order.files : [];
+	// Files with a crash journal row left (see selectArchiveCandidates).
+	const journaled = new Set(Array.isArray(order.journaled_files) ? order.journaled_files : []);
 	let failedFiles = 0;
 	let changedFiles = 0;
 
@@ -1337,6 +1798,22 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs, journal, compre
 			notify(onFileResult, { orderId, fileId: null, result });
 			continue;
 		}
+
+		// Its row would refuse the journal insert only after the whole
+		// download and compression, so the file is not even started. It stays
+		// failed (and the order unmarked) until recovery or an operator settles
+		// the row.
+		if (journaled.has(fileId))
+		{
+			result = failedResult(new ArchiveFileError("The file still has a crash journal row; skipped until it is settled"));
+			failedFiles++;
+			recordFileResult(status, result, fileId);
+			log.warn(`File ${fileId} of order ${orderId} still has a crash journal row; skipped`);
+			notify(onFileResult, { orderId, fileId, result });
+			continue;
+		}
+
+		await confirmOwnership();
 
 		try
 		{
@@ -1406,6 +1883,8 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs, journal, compre
 		return false;
 	}
 
+	await confirmOwnership();
+
 	try
 	{
 		const marked = await withTimeout(
@@ -1438,14 +1917,17 @@ async function archiveOrder({ sql, s3, order, status, timeoutMs, journal, compre
 
 /**
  * Runs one archive job: every candidate order, one file at a time, while
- * holding the archive lock (confirmed before every order). The caller owns the
- * lock: it writes the job's final state and then releases it, so the job row
- * never looks abandoned while the lock is still held.
+ * holding the archive lock. Before every file and before an order is marked,
+ * the lock is confirmed and the job must still be "running"; otherwise the job
+ * fails there. The caller owns the lock: it writes the job's final state and
+ * then releases it, so the job row never looks abandoned while the lock is
+ * still held. Files that still have a crash journal row are skipped (failed).
  *
  * Never throws for a failing job: the outcome is the resolved state, also set
  * on status.state together with status.finishedAt.
  * - "done": every candidate was handled (individual files may have failed).
- * - "failed": the job itself failed (candidate query, lock lost); see status.lastError.
+ * - "failed": the job itself failed (candidate query, lock lost, job ended
+ *   elsewhere); see status.lastError.
  * - "interrupted": shouldStop() cut the work short. The file in progress is
  *   finished first, unless the caller's compress rejects with an AbortError,
  *   which leaves that file uncounted. The current order is neither counted nor
@@ -1518,6 +2000,24 @@ export async function runArchiveJob({
 	}
 
 	let finalState = "done";
+	// A worker whose lock session dropped, or whose job was ended by another
+	// worker that took the lock over, must not start another file: that worker
+	// is now archiving (and recovering) the same files.
+	const confirmOwnership = async () =>
+	{
+		await confirmArchiveLock(lock, timeoutMs);
+
+		const running = await withTimeout(
+			isJobRunning({ jobId, sql }),
+			"Checking the archive job",
+			timeoutMs,
+		);
+
+		if (!running)
+		{
+			throw new JobNotRunningError();
+		}
+	};
 
 	status.currentFile = null;
 
@@ -1540,8 +2040,6 @@ export async function runArchiveJob({
 				break;
 			}
 
-			await confirmArchiveLock(lock, timeoutMs);
-
 			const stopped = await archiveOrder({
 				sql,
 				s3,
@@ -1552,6 +2050,7 @@ export async function runArchiveJob({
 				compress,
 				shouldStop,
 				onFileResult,
+				confirmOwnership,
 			});
 
 			if (stopped)
@@ -1610,22 +2109,18 @@ function parseJournalRow(row)
 }
 
 // A journal row's original_path is only ever read or removed when it is an
-// archiver original directly inside the temp directory.
+// archiver original: an absolute, normalized path whose name is exactly what
+// createTempFilePath() gives one. Its folder may differ from today's
+// os.tmpdir(), so a TMPDIR change between runs does not strand the row; a
+// restore still re-hashes the file against the journal first.
 function isTempOriginal(filePath)
 {
-	if (typeof filePath !== "string" || !path.isAbsolute(filePath))
+	if (typeof filePath !== "string" || !path.isAbsolute(filePath) || path.normalize(filePath) !== filePath)
 	{
 		return false;
 	}
 
-	const resolved = path.resolve(filePath);
-	const name = path.basename(resolved);
-
-	return (
-		path.dirname(resolved) === path.resolve(os.tmpdir()) &&
-		name.startsWith(TEMP_FILE_PREFIX) &&
-		!TEMP_CANDIDATE_PATTERN.test(name)
-	);
+	return TEMP_ORIGINAL_NAME_PATTERN.test(path.basename(filePath));
 }
 
 async function removeJournalOriginal(filePath, fileId)
@@ -1737,7 +2232,7 @@ async function recoverStoredArchive({ sql, s3, entry, head, timeoutMs, discard }
 
 	try
 	{
-		await verifyStoredObject(
+		await readBackStoredObject(
 			s3,
 			fileId,
 			{ method: entry.method, size: entry.storedSize },
@@ -1746,6 +2241,13 @@ async function recoverStoredArchive({ sql, s3, entry, head, timeoutMs, discard }
 	}
 	catch (verifyErr)
 	{
+		// The object could not be read, so its bytes were never judged: the
+		// row (and the kept original) stay for the next run.
+		if (verifyErr instanceof ReadBackUnavailableError)
+		{
+			throw verifyErr;
+		}
+
 		const attached = await withTimeout(isFileOnAnyOrder(sql, fileId), "Checking the orders' files", timeoutMs);
 
 		if (!attached)
@@ -1978,19 +2480,32 @@ export async function recoverPendingVerifications(sql, s3, { timeoutMs = DB_TIME
 }
 
 /**
- * Temp sweep at worker startup, after recovery (phases-bugfix/phase4.md 9.4):
- * deletes every compressed candidate (projecto-archive-*.zst / *.br) and every
- * downloaded original (projecto-archive-*) that no journal row references.
- * Only regular files directly in `dir` are touched. Logs counts only. Call it
- * under the archive lock, while no job runs.
+ * Temp sweep (phases-bugfix/phase4.md 9.4): deletes every compressed
+ * candidate (projecto-archive-*.zst / *.br) and every downloaded original
+ * (projecto-archive-*) that no journal row references. Only regular files
+ * directly in `dir` are touched, and only once their mtime is at least
+ * `minAgeMs` old: a recently written file may belong to an archive still in
+ * flight and is left for a later sweep (review 2026-11-20, item 5). The worker
+ * runs it at startup after recovery, at each job start after recovery and
+ * every IDLE_SWEEP_MS while idle, so a file kept as recent is removed by a
+ * later sweep. Logs counts only. Call it under the archive lock, while no job
+ * runs.
  *
  * @param {object} options
  * @param {Function} options.sql postgres.js pool.
  * @param {number} [options.timeoutMs] Bound for the journal query.
  * @param {string} [options.dir] The archiver's temp directory (os.tmpdir()).
- * @returns {Promise<{ candidatesRemoved: number, originalsRemoved: number, originalsKept: number, failed: number }>}
+ * @param {number} [options.minAgeMs] Files modified less than this long ago are kept.
+ * @param {() => Date} [options.now]
+ * @returns {Promise<{ candidatesRemoved: number, originalsRemoved: number, originalsKept: number, recentKept: number, failed: number }>}
  */
-export async function sweepTempDir({ sql, timeoutMs = DB_TIMEOUT_MS, dir = os.tmpdir() } = {})
+export async function sweepTempDir({
+	sql,
+	timeoutMs = DB_TIMEOUT_MS,
+	dir = os.tmpdir(),
+	minAgeMs = TEMP_SWEEP_MIN_AGE_MS,
+	now = () => new Date(),
+} = {})
 {
 	if (typeof sql !== "function")
 	{
@@ -2004,6 +2519,27 @@ export async function sweepTempDir({ sql, timeoutMs = DB_TIMEOUT_MS, dir = os.tm
 		throw new TypeError("dir must be a non-empty string");
 	}
 
+	if (!Number.isSafeInteger(minAgeMs) || minAgeMs < 0)
+	{
+		throw new RangeError("minAgeMs must be a non-negative integer");
+	}
+
+	if (typeof now !== "function")
+	{
+		throw new TypeError("now must be a function returning a Date");
+	}
+
+	// Taken before anything is read, so a file written while the sweep runs
+	// is always newer than the cutoff.
+	const current = now();
+
+	if (!(current instanceof Date) || !Number.isFinite(current.getTime()))
+	{
+		throw new TypeError("now must return a valid Date");
+	}
+
+	const cutoffMs = current.getTime() - minAgeMs;
+
 	// Read first: without the journal no original may be removed.
 	const rows = await withTimeout(listJournalOriginalPaths(sql), "Reading the crash journal", timeoutMs);
 	const referenced = new Set(
@@ -2012,7 +2548,7 @@ export async function sweepTempDir({ sql, timeoutMs = DB_TIMEOUT_MS, dir = os.tm
 			.filter((value) => typeof value === "string" && value !== "")
 			.map((value) => path.resolve(value)),
 	);
-	const counts = { candidatesRemoved: 0, originalsRemoved: 0, originalsKept: 0, failed: 0 };
+	const counts = { candidatesRemoved: 0, originalsRemoved: 0, originalsKept: 0, recentKept: 0, failed: 0 };
 	const entries = await readdir(dir, { withFileTypes: true });
 
 	for (const entry of entries)
@@ -2033,18 +2569,33 @@ export async function sweepTempDir({ sql, timeoutMs = DB_TIMEOUT_MS, dir = os.tm
 
 		try
 		{
+			// lstat, not stat: a symlink swapped in since readdir is never followed.
+			const stats = await lstat(filePath);
+
+			// A file whose mtime is in the future (clock skew) counts as recent.
+			if (!stats.isFile() || stats.mtimeMs > cutoffMs)
+			{
+				counts.recentKept++;
+				continue;
+			}
+
 			await removeTempFile(filePath);
 			counts[isCandidate ? "candidatesRemoved" : "originalsRemoved"]++;
 		}
-		catch
+		catch (err)
 		{
-			counts.failed++;
+			// Gone since readdir: nothing left to sweep.
+			if (err?.code !== "ENOENT")
+			{
+				counts.failed++;
+			}
 		}
 	}
 
 	log.info(
 		`Temp sweep: removed ${counts.candidatesRemoved} compressed candidate(s) and ${counts.originalsRemoved} ` +
 		`unreferenced original(s); kept ${counts.originalsKept} original(s) the crash journal references` +
+		` and ${counts.recentKept} file(s) modified in the last ${Math.round(minAgeMs / 60_000)} minute(s)` +
 		(counts.failed > 0 ? `; ${counts.failed} could not be removed` : ""),
 	);
 
