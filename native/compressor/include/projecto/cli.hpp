@@ -31,6 +31,14 @@ namespace projecto
 	inline constexpr std::uint64_t kMaxProgressIntervalMib = 1024;
 	inline constexpr std::uint64_t kDefaultProgressIntervalMib = 64;
 
+	// zstd compression threads: 0 and 1 compress on the calling thread, 2 and more start
+	// that many zstd workers (fewer when the input or the memory budget is too small).
+	// Brotli is single-threaded and ignores the value. Same range as PROJECTO_ZSTD_THREADS
+	// in nativeCompressor.js.
+	inline constexpr std::uint64_t kMinThreads = 0;
+	inline constexpr std::uint64_t kMaxThreads = 64;
+	inline constexpr std::uint64_t kDefaultThreads = 4;
+
 	// Syntactically valid arguments. Paths are only checked to be absolute here;
 	// the file system rules live in paths.hpp.
 	struct Options
@@ -43,6 +51,10 @@ namespace projecto
 		std::uint64_t memoryBudgetMib = kDefaultMemoryBudgetMib;
 		std::uint64_t maxWindowLog = kDefaultMaxWindowLog;
 		std::uint64_t progressIntervalMib = kDefaultProgressIntervalMib;
+		std::uint64_t threads = kDefaultThreads;
+		// --watch-stdin 1: exit (3) and remove the partial output as soon as stdin reaches end
+		// of file, so the run stops when the parent that holds the other end of the pipe dies.
+		bool watchStdin = false;
 	};
 
 	struct VersionRequest

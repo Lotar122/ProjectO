@@ -22,6 +22,8 @@ namespace projecto
 			memoryBudget,
 			maxWindowLog,
 			progressInterval,
+			watchStdin,
+			threads,
 			count,
 		};
 
@@ -41,6 +43,8 @@ namespace projecto
 			{"--memory-budget-mib", Flag::memoryBudget, false},
 			{"--max-window-log", Flag::maxWindowLog, false},
 			{"--progress-interval-mib", Flag::progressInterval, false},
+			{"--watch-stdin", Flag::watchStdin, false},
+			{"--threads", Flag::threads, false},
 		}};
 
 		using Seen = std::array<bool, static_cast<std::size_t>(Flag::count)>;
@@ -170,6 +174,22 @@ namespace projecto
 				{
 					auto parsed = parseRanged(spec.name, value, kMinProgressIntervalMib, kMaxProgressIntervalMib);
 					return take(parsed, options.progressIntervalMib);
+				}
+				case Flag::watchStdin:
+				{
+					std::uint64_t enabled = 0;
+					auto parsed = parseRanged(spec.name, value, 0, 1);
+					if (std::optional<UsageError> error = take(parsed, enabled))
+					{
+						return error;
+					}
+					options.watchStdin = enabled == 1;
+					return std::nullopt;
+				}
+				case Flag::threads:
+				{
+					auto parsed = parseRanged(spec.name, value, kMinThreads, kMaxThreads);
+					return take(parsed, options.threads);
 				}
 				case Flag::count:
 				{

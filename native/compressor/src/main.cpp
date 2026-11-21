@@ -1,11 +1,14 @@
 #include <csignal>
 #include <exception>
 #include <iostream>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
 #include "projecto/app.hpp"
 #include "projecto/exit_code.hpp"
+#include "projecto/platform.hpp"
 #include "projecto/protocol.hpp"
 
 namespace
@@ -34,8 +37,16 @@ int main(int argc, char** argv)
 #endif
 	try
 	{
+		// First, before any other thread exists: SIGTERM, SIGINT and SIGHUP remove the
+		// partial output and then end the process with that signal.
+		if (const std::optional<std::string> problem = projecto::platform::startSignalWatch())
+		{
+			std::cerr << "projecto-compress: " << *problem << '\n';
+		}
 		const std::vector<std::string_view> args(argv + (argc > 0 ? 1 : 0), argv + (argc > 0 ? argc : 0));
-		return projecto::toInt(projecto::runApp(args, std::cout, std::cerr));
+		// A failed run exits right away; zstd workers still busy with a job end with the process.
+		return projecto::toInt(projecto::runApp(args, std::cout, std::cerr, &projecto::platform::startStdinWatch,
+			projecto::WorkerCleanup::abandon));
 	}
 	catch (const std::exception& error)
 	{

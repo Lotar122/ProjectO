@@ -35,12 +35,27 @@ namespace projecto
 			std::string_view name;
 		};
 
-		CodecFailure libraryFailure(const BudgetAllocator& allocator, std::string_view what)
+		// A recorded allocation failure explains the library error; taking it clears it, so it
+		// is never blamed for a later error as well.
+		CodecFailure libraryFailure(BudgetAllocator& allocator, std::string_view what)
 		{
-			if (allocator.refused())
+			switch (allocator.takeFailure())
 			{
-				return CodecFailure{ExitCode::budget, std::format("brotli needs more memory than the budget of {} (peak {})",
-					formatBytes(allocator.budget()), formatBytes(allocator.peak()))};
+				case AllocationFailure::budget:
+				{
+					return CodecFailure{ExitCode::budget, std::format("brotli needs more memory than the budget of {} (peak {})",
+						formatBytes(allocator.budget()), formatBytes(allocator.peak()))};
+				}
+				case AllocationFailure::system:
+				{
+					return CodecFailure{ExitCode::internal, std::format(
+						"brotli: the system is out of memory (malloc failed within the budget of {}, peak {})",
+						formatBytes(allocator.budget()), formatBytes(allocator.peak()))};
+				}
+				case AllocationFailure::none:
+				{
+					break;
+				}
 			}
 			return CodecFailure{ExitCode::codec, std::format("brotli: {}", what)};
 		}
@@ -169,7 +184,7 @@ namespace projecto
 		{
 			return std::move(*failure);
 		}
-		return CompressStats{input.bytesRead(), output.written(), allocator.peak()};
+		return CompressStats{.inputSize = input.bytesRead(), .outputSize = output.written(), .peakBytes = allocator.peak()};
 	}
 
 	CompressOutcome compressBrotli(const CompressRequest& request, std::ostream& out)

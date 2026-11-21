@@ -6,6 +6,7 @@
 #include <ostream>
 #include <utility>
 
+#include "projecto/pending_outputs.hpp"
 #include "projecto/protocol.hpp"
 
 namespace projecto
@@ -66,26 +67,34 @@ namespace projecto
 		}
 		File& file = std::get<File>(opened);
 
-		// The path was validated before the open; check it again now that the handle exists,
-		// and measure the size on the handle itself. Portable C++ cannot tie the open handle
-		// to the inode that was validated, so file identity stays unbound: a swap between the
-		// validation and this check is caught, a swap back after it is not. The root is a
-		// private temp directory, which is what keeps that window closed in practice.
+		// The path was validated before the open, so the rules are checked again on what the
+		// handle actually refers to: whatever was swapped in between, the bytes compressed are
+		// those of a regular file with a single link and the expected size. On POSIX the open
+		// refused a symlink (O_NOFOLLOW) and could not hang on a FIFO (O_NONBLOCK). The path
+		// check below covers platforms without O_NOFOLLOW.
 		std::error_code ec;
 		const fs::file_status status = fs::symlink_status(path, ec);
 		if (ec || status.type() != fs::file_type::regular)
 		{
 			return CodecFailure{ExitCode::io, "input is no longer a regular file: " + path.string()};
 		}
-		auto measured = file.size();
-		if (IoError* error = std::get_if<IoError>(&measured))
+		auto inspected = file.inspect();
+		if (IoError* error = std::get_if<IoError>(&inspected))
 		{
 			return CodecFailure{ExitCode::io, std::move(error->message)};
 		}
-		const std::uint64_t actual = std::get<std::uint64_t>(measured);
-		if (actual != expectedSize)
+		const FileFacts& facts = std::get<FileFacts>(inspected);
+		if (!facts.regular)
 		{
-			return CodecFailure{ExitCode::io, std::format("input size changed to {} bytes, expected {}", actual, expectedSize)};
+			return CodecFailure{ExitCode::io, "input is no longer a regular file: " + path.string()};
+		}
+		if (facts.links != 1)
+		{
+			return CodecFailure{ExitCode::io, std::format("input has {} hard links, expected 1: {}", facts.links, path.string())};
+		}
+		if (facts.size != expectedSize)
+		{
+			return CodecFailure{ExitCode::io, std::format("input size changed to {} bytes, expected {}", facts.size, expectedSize)};
 		}
 		return InputReader{std::move(file), expectedSize};
 	}
@@ -134,21 +143,70 @@ namespace projecto
 
 	OutputFile::~OutputFile()
 	{
-		if (owned_ && file_.createdByThisProcess())
+		if (!owned_ || !file_.createdByThisProcess())
 		{
-			file_.close();
+			return;
+		}
+		// A close error does not matter for a file that is removed next. It is closed first
+		// because Windows cannot remove an open file.
+		try
+		{
+			PendingOutputs& pending = PendingOutputs::instance();
+			const auto held = pending.lock();
+			static_cast<void>(file_.close());
+			removeQuietly(path_);
+			pending.erase(held, path_);
+		}
+		catch (...)
+		{
+			// The lock could not be taken, or the close error could not be described (out of
+			// memory). The file is still removed; the registry keeps the stale path, which only
+			// a shutdown would act on, by removing an already missing file.
+			try
+			{
+				static_cast<void>(file_.close());
+			}
+			catch (...)
+			{
+			}
 			removeQuietly(path_);
 		}
 	}
 
 	std::variant<OutputFile, CodecFailure> OutputFile::create(const fs::path& path)
 	{
-		auto created = File::createExclusive(path);
+		// Copied before the file exists, so nothing between the create and the return can
+		// throw except add(), which cleans up after itself.
+		fs::path ownedPath = path;
+		// Created and registered under one lock, so a shutdown on another thread either runs
+		// before the file exists or finds it registered and removes it.
+		PendingOutputs& pending = PendingOutputs::instance();
+		const auto held = pending.lock();
+		auto created = File::createExclusive(ownedPath);
 		if (IoError* error = std::get_if<IoError>(&created))
 		{
 			return CodecFailure{ExitCode::io, std::move(error->message)};
 		}
-		return OutputFile{std::move(std::get<File>(created)), path};
+		File& file = std::get<File>(created);
+		try
+		{
+			pending.add(held, ownedPath);
+		}
+		catch (...)
+		{
+			// Closed first because Windows cannot remove an open file; a close error does not
+			// matter for a file that is removed next.
+			try
+			{
+				static_cast<void>(file.close());
+			}
+			catch (...)
+			{
+			}
+			removeQuietly(ownedPath);
+			throw;
+		}
+		return OutputFile{std::move(file), std::move(ownedPath)};
 	}
 
 	std::optional<CodecFailure> OutputFile::write(std::span<const std::byte> data)
@@ -167,10 +225,21 @@ namespace projecto
 
 	std::optional<CodecFailure> OutputFile::commit()
 	{
+		// On stable storage before it counts as committed: a crash after the result line
+		// must not leave a short or empty file behind a successful result.
+		if (std::optional<IoError> error = file_.sync())
+		{
+			return CodecFailure{ExitCode::io, std::move(error->message)};
+		}
 		if (std::optional<IoError> error = file_.close())
 		{
 			return CodecFailure{ExitCode::io, std::move(error->message)};
 		}
+		// Unregistered and the run marked finished in one hold: a closed stdin either removes
+		// the file before this (no result was reported yet) or finds the run finished.
+		PendingOutputs& pending = PendingOutputs::instance();
+		const auto held = pending.lock();
+		pending.eraseCommitted(held, path_);
 		owned_ = false;
 		return std::nullopt;
 	}

@@ -76,13 +76,17 @@ namespace
 	};
 
 	// The table was measured with the system libzstd 1.5.7, which is built with ZSTD_MULTITHREAD and so
-	// carries one extra ZSTDMT_CCtx* in ZSTD_CCtx. The pinned build is single-threaded (phase4.md 10.2),
-	// so its estimates are exactly one pointer smaller. Detected at run time from the nbWorkers bounds.
+	// carries one extra ZSTDMT_CCtx* in ZSTD_CCtx. The pinned build is multithreaded too, so the values
+	// match exactly. A single-threaded build fails here loudly: zstd would otherwise ignore --threads.
 	std::uint64_t pinnedEstimate(std::uint64_t tableValue)
 	{
-		const ZSTD_bounds workers = ZSTD_cParam_getBounds(ZSTD_c_nbWorkers);
-		const bool multithreaded = ZSTD_isError(workers.error) == 0U && workers.upperBound > 0;
-		return multithreaded ? tableValue : tableValue - sizeof(void*);
+		REQUIRE_MESSAGE(zstdSupportsThreads(), "libzstd was built without ZSTD_MULTITHREAD");
+		return tableValue;
+	}
+
+	std::uint64_t windowOf(const ZstdPlan& plan)
+	{
+		return std::uint64_t{1} << plan.params.windowLog;
 	}
 
 	std::vector<std::uint64_t> sampledSizes()
@@ -171,14 +175,111 @@ TEST_CASE("estimating with LDM on does not crash (SIGFPE regression) at 1 B and 
 	CHECK(planZstd(250 * MiB, 28).estimatedBytes == pinnedEstimate(2'686'042'783));
 }
 
-TEST_CASE("the zstd start line reports every parameter, the estimate and the budget")
+TEST_CASE("the zstd start line reports every parameter, the threads, the estimate and the budget")
 {
 	const ZstdPlan plan = planZstd(128 * MiB + 1, 28);
-	CHECK(zstdStartLine(plan, 6144 * MiB).str()
+	const ZstdThreading threading = chooseZstdThreading(plan, 4, 6144 * MiB);
+	// 4 workers need about 4 x 2.5 GiB at window 28: the 6 GiB budget leaves room for 2.
+	CHECK(threading.workers == 2);
+	CHECK(zstdStartLine(plan, threading, 6144 * MiB).str()
 		== "{\"type\":\"start\",\"codec\":\"zstd\",\"level\":22,\"windowLog\":28,\"chainLog\":29,\"hashLog\":25,"
 		   "\"searchLog\":9,\"minMatch\":3,\"targetLength\":999,\"strategy\":9,\"ldm\":true,\"ldmHashLog\":24,"
-		   "\"ldmMinMatch\":32,\"ldmBucketSizeLog\":8,\"ldmHashRateLog\":4,\"estimatedBytes\":"
-			+ std::to_string(pinnedEstimate(2'686'042'783)) + ",\"budgetBytes\":6442450944}\n");
+		   "\"ldmMinMatch\":32,\"ldmBucketSizeLog\":8,\"ldmHashRateLog\":4,\"threads\":4,\"workers\":2,"
+		   "\"jobSize\":8388608,\"overlapLog\":4,\"estimatedBytes\":"
+			+ std::to_string(zstdEstimate(plan, 2)) + ",\"budgetBytes\":6442450944}\n");
+
+	const ZstdThreading single = chooseZstdThreading(plan, 1, 6144 * MiB);
+	CHECK(zstdStartLine(plan, single, 6144 * MiB).str().find(
+		"\"threads\":1,\"workers\":0,\"jobSize\":8388608,\"overlapLog\":4,\"estimatedBytes\":"
+		+ std::to_string(pinnedEstimate(2'686'042'783)) + ",") != std::string::npos);
+}
+
+TEST_CASE("the linked libzstd is multithreaded and keeps nbWorkers as set")
+{
+	REQUIRE(zstdSupportsThreads());
+	const ZSTD_bounds bounds = ZSTD_cParam_getBounds(ZSTD_c_nbWorkers);
+	REQUIRE(ZSTD_isError(bounds.error) == 0U);
+	CHECK(bounds.upperBound >= static_cast<int>(kMaxThreads));
+
+	// zstd clamps out-of-range values silently and a single-threaded build refuses any value above 0,
+	// so the value read back is the proof that it applies.
+	ZSTD_CCtx* cctx = ZSTD_createCCtx();
+	REQUIRE(cctx != nullptr);
+	for (const int workers : {0, 2, 4, static_cast<int>(kMaxThreads)})
+	{
+		CAPTURE(workers);
+		CHECK(ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, workers) == static_cast<std::size_t>(workers));
+		int value = -1;
+		CHECK(ZSTD_isError(ZSTD_CCtx_getParameter(cctx, ZSTD_c_nbWorkers, &value)) == 0U);
+		CHECK(value == workers);
+	}
+	ZSTD_freeCCtx(cctx);
+}
+
+TEST_CASE("job layout: window / 8 clamped to 512 KiB..8 MiB, overlap == job size, one job per jobSize bytes")
+{
+	for (const std::uint64_t size : sampledSizes())
+	{
+		CAPTURE(size);
+		const ZstdPlan plan = planZstd(size, 28);
+		const ZstdJobs& jobs = plan.jobs;
+		CHECK(jobs.jobSize == std::clamp(windowOf(plan) / 8, kZstdMinJobBytes, kZstdMaxJobBytes));
+		CHECK(jobs.count == (size + jobs.jobSize - 1) / jobs.jobSize);
+		CHECK(jobs.overlapLog >= 1);
+		CHECK(jobs.overlapLog <= 9);
+		if (jobs.count >= 2)
+		{
+			// zstd raises a job smaller than the overlap to the overlap: equal means it keeps the size.
+			CHECK((windowOf(plan) >> (9 - jobs.overlapLog)) == jobs.jobSize);
+		}
+	}
+	CHECK(planZstd(8 * MiB, 28).jobs == ZstdJobs{MiB, 6, 8});
+	CHECK(planZstd(GiB, 28).jobs == ZstdJobs{8 * MiB, 4, 128});
+	CHECK(planZstd(512 * KiB, 28).jobs.count == 1);
+}
+
+TEST_CASE("the MT estimate grows with every worker and is above the single-threaded one")
+{
+	for (const std::uint64_t size : {MiB + 1, 8 * MiB, 64 * MiB, GiB})
+	{
+		CAPTURE(size);
+		const ZstdPlan plan = planZstd(size, 28);
+		CHECK(zstdEstimate(plan, 0) == plan.estimatedBytes);
+		CHECK(plan.workerContextBytes > 0);
+		CHECK(plan.workerContextBytes < plan.estimatedBytes);
+		std::uint64_t previous = plan.estimatedBytes;
+		for (int workers = 2; workers <= static_cast<int>(kMaxThreads); ++workers)
+		{
+			const std::uint64_t estimate = zstdEstimate(plan, workers);
+			CHECK(estimate > previous);
+			CHECK(estimate >= static_cast<std::uint64_t>(workers) * plan.workerContextBytes);
+			previous = estimate;
+		}
+	}
+}
+
+TEST_CASE("chooseZstdThreading: no more workers than jobs, lowered to fit the budget, 0 or 1 is single-threaded")
+{
+	const ZstdPlan plan = planZstd(8 * MiB, 28);
+	CHECK(chooseZstdThreading(plan, 4, 6144 * MiB).workers == 4);
+	CHECK(chooseZstdThreading(plan, 4, 6144 * MiB).estimatedBytes == zstdEstimate(plan, 4));
+	CHECK(chooseZstdThreading(plan, 64, 6144 * MiB).workers == 8);
+	CHECK(chooseZstdThreading(plan, 1, 6144 * MiB).workers == 0);
+	CHECK(chooseZstdThreading(plan, 0, 6144 * MiB).workers == 0);
+	CHECK(chooseZstdThreading(plan, 1, 6144 * MiB).estimatedBytes == plan.estimatedBytes);
+	CHECK(chooseZstdThreading(planZstd(300 * KiB, 28), 4, 6144 * MiB).workers == 0);
+
+	// A budget that fits exactly 3 workers (with the header allowance) gets 3; one byte less gets 2.
+	const std::uint64_t three = zstdEstimate(plan, 3) + BudgetAllocator::kHeaderAllowanceBytes;
+	CHECK(chooseZstdThreading(plan, 4, three).workers == 3);
+	CHECK(chooseZstdThreading(plan, 4, three - 1).workers == 2);
+	// Too small for 2 workers: single-threaded, whose estimate the caller still checks (exit 4 if over).
+	const std::uint64_t two = zstdEstimate(plan, 2) + BudgetAllocator::kHeaderAllowanceBytes;
+	const ZstdThreading fallback = chooseZstdThreading(plan, 4, two - 1);
+	CHECK(fallback.workers == 0);
+	CHECK(fallback.estimatedBytes == plan.estimatedBytes);
+	CHECK(fallback.requested == 4);
+	CHECK(chooseZstdThreading(plan, 4, 64 * MiB).workers == 0);
 }
 
 TEST_CASE("planBrotli: quality 11, window sized to the file, large-window only above 24")

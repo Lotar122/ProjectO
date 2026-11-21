@@ -96,6 +96,8 @@ TEST_CASE("a complete valid command line parses with the documented defaults")
 	CHECK(options.memoryBudgetMib == 6144);
 	CHECK(options.maxWindowLog == 28);
 	CHECK(options.progressIntervalMib == 64);
+	CHECK(options.threads == 4);
+	CHECK_FALSE(options.watchStdin);
 	CHECK(options.input.filename() == "in.stl");
 	CHECK(options.output.filename() == "out.zst");
 }
@@ -177,7 +179,7 @@ TEST_CASE("--progress-interval-mib is 1 to 1024, default 64")
 TEST_CASE("an unknown flag is a usage error")
 {
 	std::vector<std::string> tokens = validTokens();
-	tokens.push_back("--threads");
+	tokens.push_back("--workers");
 	tokens.push_back("4");
 	CHECK(isUsageError(parse(tokens)));
 }
@@ -208,6 +210,8 @@ TEST_CASE("every flag given twice is a usage error")
 		{"--memory-budget-mib", "128"},
 		{"--max-window-log", "20"},
 		{"--progress-interval-mib", "2"},
+		{"--watch-stdin", "1"},
+		{"--threads", "2"},
 	};
 	for (const auto& [flag, value] : flags)
 	{
@@ -267,4 +271,36 @@ TEST_CASE("a usage error names the offending flag")
 	const ParseResult result = parse(withFlag(validTokens(), "--memory-budget-mib", "7169"));
 	REQUIRE(isUsageError(result));
 	CHECK(std::get<UsageError>(result).message.find("--memory-budget-mib") != std::string::npos);
+}
+
+TEST_CASE("--watch-stdin takes exactly 0 or 1")
+{
+	CHECK(asOptions(parse(withFlag(validTokens(), "--watch-stdin", "1"))).watchStdin);
+	CHECK_FALSE(asOptions(parse(withFlag(validTokens(), "--watch-stdin", "0"))).watchStdin);
+	for (const char* bad : {"2", "yes", "true", "-1", ""})
+	{
+		CAPTURE(bad);
+		CHECK(isUsageError(parse(withFlag(validTokens(), "--watch-stdin", bad))));
+	}
+}
+
+TEST_CASE("--threads is 0 to 64 with default 4, and 0 and 1 both mean single-threaded")
+{
+	CHECK(asOptions(parse(validTokens())).threads == kDefaultThreads);
+	CHECK(kDefaultThreads == 4);
+	for (const std::uint64_t value : {0U, 1U, 2U, 4U, 64U})
+	{
+		CAPTURE(value);
+		CHECK(asOptions(parse(withFlag(validTokens(), "--threads", std::to_string(value)))).threads == value);
+	}
+	// Accepted with brotli too, which ignores it.
+	CHECK(asOptions(parse(withFlag(withFlag(validTokens(), "--codec", "br"), "--threads", "8"))).threads == 8);
+	for (const char* bad : {"65", "256", "-1", "+4", "4x", "four", "1.5", " 4", ""})
+	{
+		CAPTURE(bad);
+		CHECK(isUsageError(parse(withFlag(validTokens(), "--threads", bad))));
+	}
+	const ParseResult tooMany = parse(withFlag(validTokens(), "--threads", "65"));
+	REQUIRE(isUsageError(tooMany));
+	CHECK(std::get<UsageError>(tooMany).message == "--threads: must be between 0 and 64");
 }
