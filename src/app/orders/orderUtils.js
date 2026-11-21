@@ -1,3 +1,5 @@
+import { sha256HexFromBlob } from "./sha256Stream";
+
 export const CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH";
 export const UPLOAD_LIMIT = "UPLOAD_LIMIT";
 
@@ -20,26 +22,10 @@ export const getUploadLimitError = (files) =>
 	) ? UPLOAD_LIMIT_MESSAGE : null;
 };
 
-// Returns null when crypto.subtle is unavailable (non-secure context); the server then skips the comparison
-export const computeSha256Hex = async (blob) =>
-{
-	if (!globalThis.crypto?.subtle)
-	{
-		return null;
-	}
+// Hashes the blob in chunks, so a download or upload is never held in memory twice.
+export const computeSha256Hex = (blob) => sha256HexFromBlob(blob);
 
-	const digest = await globalThis.crypto.subtle.digest(
-		"SHA-256",
-		await blob.arrayBuffer(),
-	);
-
-	return Array.from(new Uint8Array(digest))
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
-};
-
-// One file at a time: crypto.subtle needs the whole file in memory, so hashing
-// them in parallel held every selected scan in RAM at once.
+// One file at a time, so only one file's chunks are in flight at once.
 export const computeSha256HexSequentially = async (blobs) =>
 {
 	const checksums = [];

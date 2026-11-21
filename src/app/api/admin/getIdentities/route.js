@@ -5,6 +5,7 @@ import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
 import { KRATOS_ADMIN_URL } from "@/app/lib/kratosServer";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { sanitizeIdentity } from "../identityUtils";
+import { IdentityListError, listAllIdentities } from "../listIdentities";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
 import { createLogger } from "@/app/lib/logger";
 
@@ -21,43 +22,34 @@ async function handleGet()
 			return Response.json({ error: "Admin access required" }, { status: 403 });
 		}
 
-		const response = await fetch(
-			`${KRATOS_ADMIN_URL}/admin/identities?page_size=500`,
-			{
-				cache: "no-store",
-				signal: AbortSignal.timeout(KRATOS_TIMEOUT_MS),
-				headers: {
-					Accept: "application/json",
-				},
-			},
-		);
+		const { identities, truncated } = await listAllIdentities({
+			adminUrl: KRATOS_ADMIN_URL,
+			timeoutMs: KRATOS_TIMEOUT_MS,
+		});
 
-		if (!response.ok)
+		if (truncated)
 		{
-			log.error(`Kratos identity list returned ${response.status}`);
-			return Response.json({ error: "Nie udało się pobrać użytkowników z Kratos." }, { status: 502 });
-		}
-
-		const payload = await response.json();
-		const identities = Array.isArray(payload)
-			? payload
-			: payload?.identities || payload?.data?.identities || payload?.data;
-
-		if (!Array.isArray(identities))
-		{
-			log.error("Unexpected identity list format from Kratos", {
-				status: response.status,
-				payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : [],
-			});
-			return Response.json({ error: "Ory Kratos zwrócił nieprawidłową listę użytkowników." }, { status: 502 });
+			log.warn(`Identity list stopped at ${identities.length} identities; Kratos still reported more pages`);
 		}
 
 		return Response.json({
 			identities: identities.map(sanitizeIdentity),
+			truncated,
 		});
 	}
 	catch (error)
 	{
+		if (error instanceof IdentityListError)
+		{
+			log.error(error.message, error.details);
+
+			const message = error.details?.payloadKeys
+				? "Ory Kratos zwrócił nieprawidłową listę użytkowników."
+				: "Nie udało się pobrać użytkowników z Kratos.";
+
+			return Response.json({ error: message }, { status: 502 });
+		}
+
 		log.error("Failed to list identities", error);
 		return Response.json({ error: "Nie udało się połączyć z Ory Kratos." }, { status: 502 });
 	}

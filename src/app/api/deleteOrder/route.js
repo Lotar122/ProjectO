@@ -13,6 +13,8 @@ const log = createLogger("orders");
 
 const ORDER_LOCKED_MESSAGE =
 	"Tego zlecenia nie można już usunąć, ponieważ ma status Gotowe lub Zrealizowane.";
+const ORDER_DELETING_MESSAGE =
+	"To zlecenie jest właśnie usuwane. Odśwież listę zleceń za chwilę.";
 
 //Has to be used with credentials
 async function handleDelete(req)
@@ -53,6 +55,11 @@ async function handleDelete(req)
 				log.warn(`Order ${orderID}: delete by ${userID} rejected, order is locked`);
 
 				return orderLockedError(ORDER_LOCKED_MESSAGE);
+
+			case "deleting":
+				log.warn(`Order ${orderID}: delete by ${userID} rejected, another delete is still running`);
+
+				return orderLockedError(ORDER_DELETING_MESSAGE);
 
 			case "files_left":
 				// The row stays while files remain, so the order can be deleted again instead of orphaning patient data.
