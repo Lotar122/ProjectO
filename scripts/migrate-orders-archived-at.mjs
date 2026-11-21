@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 // One-time migration: adds orders.archived_at (and its partial index) used by
 // the order auto-archiver. The SQL lives in db/migrations/2026-11-11_orders_archived_at.sql.
 //
@@ -5,10 +6,23 @@
 //
 // --dry-run only reports whether the column and index exist and what would be done.
 // Idempotent: running it again changes nothing.
+//
+// The statements run one at a time (CREATE INDEX CONCURRENTLY cannot run in a
+// transaction), the ALTER gives up after lock_timeout instead of blocking the
+// orders table, and an invalid index left by an earlier failed run is dropped
+// and built again.
 
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+import {
+	dropInvalidIndex,
+	indexState,
+	runStatements,
+	splitSqlStatements,
+	withMigrationLock,
+} from "./lib/migration.mjs";
 
 const DB_URL = process.env.DB_URL;
 const dryRun = process.argv.includes("--dry-run");
@@ -32,61 +46,74 @@ async function checkState()
 			AND table_name = 'orders'
 			AND column_name = 'archived_at'
 	`;
-	const indexes = await sql`
-		SELECT 1
-		FROM pg_indexes
-		WHERE schemaname = current_schema()
-			AND tablename = 'orders'
-			AND indexname = ${INDEX_NAME}
-	`;
 
-	return { column: columns.length > 0, index: indexes.length > 0 };
+	return { column: columns.length > 0, index: await indexState(sql, INDEX_NAME) };
 }
 
 function describe(state)
 {
-	return `column orders.archived_at: ${state.column ? "exists" : "missing"}, index ${INDEX_NAME}: ${state.index ? "exists" : "missing"}`;
+	return `column orders.archived_at: ${state.column ? "exists" : "missing"}, index ${INDEX_NAME}: ${state.index}`;
+}
+
+function isComplete(state)
+{
+	return state.column && state.index === "valid";
+}
+
+function plannedSteps(state)
+{
+	const steps = [];
+
+	if (!state.column)
+	{
+		steps.push("add column orders.archived_at");
+	}
+
+	if (state.index === "invalid")
+	{
+		steps.push(`drop the invalid index ${INDEX_NAME} left by a failed run`);
+	}
+
+	if (state.index !== "valid")
+	{
+		steps.push(`create index ${INDEX_NAME} concurrently`);
+	}
+
+	return steps;
 }
 
 let exitCode = 0;
 
 try
 {
+	const statements = splitSqlStatements(readFileSync(SQL_PATH, "utf8"));
 	const before = await checkState();
 
 	console.log(describe(before));
 
-	if (before.column && before.index)
+	if (isComplete(before))
 	{
 		console.log("Nothing to do.");
 	}
 	else if (dryRun)
 	{
-		const todo = [];
-
-		if (!before.column)
-		{
-			todo.push("add column orders.archived_at");
-		}
-
-		if (!before.index)
-		{
-			todo.push(`create index ${INDEX_NAME}`);
-		}
-
-		console.log(`[dry-run] would: ${todo.join(", ")}`);
+		console.log(`[dry-run] would: ${plannedSteps(before).join(", ")}`);
 	}
 	else
 	{
-		await sql.unsafe(readFileSync(SQL_PATH, "utf8"));
+		await withMigrationLock(sql, async () =>
+		{
+			await dropInvalidIndex(sql, INDEX_NAME);
+			await runStatements(sql, statements);
+		});
 
 		const after = await checkState();
 
 		console.log(`after migration - ${describe(after)}`);
 
-		if (!after.column || !after.index)
+		if (!isComplete(after))
 		{
-			throw new Error("Migration ran but the column or index is still missing");
+			throw new Error("Migration ran but the column or a valid index is still missing");
 		}
 
 		console.log("Migration applied.");

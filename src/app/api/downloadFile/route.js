@@ -42,6 +42,11 @@ const decodeBudget = createDecodeBudget(parseDecodeBudgetMiB(process.env.DOWNLOA
 // Browsers show non-ASCII names through filename*; this is the fallback for clients that ignore it.
 const toAsciiFileName = (name) => name.replace(/[^\x20-\x7e]|["\\]/g, "_");
 
+// RFC 8187 value for filename*. encodeURIComponent leaves ' ( ) * unescaped,
+// which are not attr-chars there; a ' would end the charset/language prefix early.
+const toExtendedFileName = (name) => encodeURIComponent(name)
+	.replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+
 // Files uploaded before checksumming have none stored. Hash them while they
 // stream to the user and store the result afterwards, off the request path.
 function backfillChecksumWhileStreaming(s3, fileKey, body)
@@ -201,7 +206,7 @@ async function handleGet(req)
 				headers: {
 					"Content-Type": file.contentType ?? "application/octet-stream",
 					...(contentLength === undefined ? {} : { "Content-Length": String(contentLength) }),
-					"Content-Disposition": `attachment; filename="${toAsciiFileName(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+					"Content-Disposition": `attachment; filename="${toAsciiFileName(fileName)}"; filename*=UTF-8''${toExtendedFileName(fileName)}`,
 					"Cache-Control": "private, no-store",
 					"X-Content-Type-Options": "nosniff",
 					...(storedChecksum ? { "X-Content-SHA256": storedChecksum } : {}),

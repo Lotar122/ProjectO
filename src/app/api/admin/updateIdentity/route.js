@@ -46,6 +46,7 @@ async function handlePut(request)
 		const lastName = String(payload?.lastName || "").trim();
 		const role = String(payload?.role || "").trim();
 		const password = String(payload?.password || "");
+		const expectedUpdatedAt = typeof payload?.updatedAt === "string" ? payload.updatedAt : "";
 
 		if (!isUuid(id) || !EMAIL_PATTERN.test(email))
 		{
@@ -78,6 +79,17 @@ async function handlePut(request)
 		}
 
 		const currentIdentity = await currentResponse.json();
+
+		// Optimistic concurrency: a client that sends the `updated_at` it showed
+		// (sanitizeIdentity returns it) gets a 409 instead of silently overwriting
+		// a change saved since. Kratos has no conditional write, so this narrows
+		// the race to the moment between this read and the PUT below.
+		if (expectedUpdatedAt && expectedUpdatedAt !== currentIdentity.updated_at)
+		{
+			log.warn(`Update of identity ${id} rejected: it changed since the form was loaded`);
+			return Response.json({ error: "Ten użytkownik został w międzyczasie zmieniony. Odśwież listę i wprowadź zmiany ponownie." }, { status: 409 });
+		}
+
 		// Keep traits the form doesn't edit; traits.role is only a mirror for
 		// identity schemas that still require it (see isAdminSession).
 		const traits = { ...currentIdentity.traits, email, role };

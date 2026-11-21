@@ -49,7 +49,7 @@ const IdentityEditForm = memo(function IdentityEditForm({
 		{
 			const response = await http.put(
 				"/api/admin/updateIdentity",
-				{ id: identity.id, ...form },
+				{ id: identity.id, ...form, updatedAt: identity.updated_at },
 				{ withCredentials: true },
 			);
 			setForm((current) => ({ ...current, password: "" }));

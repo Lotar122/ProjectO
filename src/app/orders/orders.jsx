@@ -36,6 +36,7 @@ import {
 	getUploadLimitResponseError,
 	normalizeOrderStatus,
 } from "./orderUtils";
+import { discardFailedEdit, rememberFailedEdit, takeFailedEdit } from "./failedEdits";
 import { isOwnerEditableStatus } from "@/app/lib/validate";
 import { ORDER_LOCKED } from "@/app/lib/apiErrors";
 
@@ -133,7 +134,7 @@ const downloadVerifiedFile = async (fileId) =>
 		const expectedChecksum = response.headers["x-content-sha256"];
 		const actualChecksum = await computeSha256Hex(response.data);
 
-		if (!expectedChecksum || actualChecksum === null || actualChecksum === expectedChecksum)
+		if (!expectedChecksum || actualChecksum === expectedChecksum)
 		{
 			return response.data;
 		}
@@ -230,6 +231,9 @@ export default function Orders({
 	const deleteReturnFocusRef = useRef(null);
 	// Set while a confirmed delete refreshes the list; checked once the new list is on screen.
 	const isFocusAfterDeletePendingRef = useRef(false);
+	// Edits whose save failed, by order id: { order, draft, files }. Reopening that
+	// order's edit form brings them back, so the changes and selected scans are not lost.
+	const failedEditsRef = useRef(new Map());
 	const ordersHeadingRef = useRef(null);
 	// Always-current values for stable callbacks, so memoized cards keep their props.
 	const latestRef = useRef({});
@@ -1000,6 +1004,20 @@ export default function Orders({
 			return;
 		}
 
+		// Dropped when the order changed on the server since the edit failed (for example a
+		// save that timed out after it committed), so stale scans are never uploaded twice.
+		const failedEdit = takeFailedEdit(failedEditsRef.current, order.order_id, order);
+
+		if (failedEdit)
+		{
+			setEditFiles(failedEdit.files);
+			setEditDraft(failedEdit.draft);
+			// The order as it was when that edit started, so knownFileIds still match its files.
+			setEditedOrder(failedEdit.order);
+			setCurrentPage("edit-order");
+			return;
+		}
+
 		let names = latestRef.current.fileNamesById ?? {};
 
 		try
@@ -1063,6 +1081,7 @@ export default function Orders({
 		const actionId = startBackgroundAction("Zapisywanie zmian", patient, {
 			timeoutMs: TRANSFER_ACTION_TIMEOUT_MS,
 		});
+		const failedEdit = { order: editedOrder, draft: editDraft, files: attachments };
 
 		setCurrentPage("orders");
 		clearEditState();
@@ -1130,12 +1149,20 @@ export default function Orders({
 					return;
 				}
 
-				failBackgroundAction(actionId, "Nie udało się zaktualizować zlecenia", patient);
+				// Keep the changes so the edit can be sent again, like a failed create keeps its form.
+				rememberFailedEdit(failedEditsRef.current, orderID, failedEdit);
+				failBackgroundAction(
+					actionId,
+					"Nie udało się zaktualizować zlecenia",
+					`${patient}. Zmiany zostały zachowane: otwórz edycję zlecenia, aby spróbować ponownie.`,
+				);
 				await showUploadError(err, "Nie udało się zapisać zmian w zleceniu");
 				return;
 			}
 
 			// The changes are saved; a failed refresh must not be reported as a failed save.
+			discardFailedEdit(failedEditsRef.current, orderID);
+
 			try
 			{
 				const updatedOrder = response.data.order;
@@ -1186,7 +1213,7 @@ export default function Orders({
 		})();
 	};
 
-	const handleDownloadFile = useCallback(async (order, attachment, index) =>
+	const downloadAttachment = useCallback(async (order, attachment, index) =>
 	{
 		if (attachment.file instanceof File)
 		{
@@ -1198,15 +1225,28 @@ export default function Orders({
 
 		if (!fileId)
 		{
-			const refreshedOrders = await refreshOrders({ page: latestRef.current.currentOrdersPage });
-			const refreshedOrder = refreshedOrders.find(
-				(currentOrder) => currentOrder.order_id === order.order_id,
-			);
-			fileId = refreshedOrder?.files?.[index];
+			try
+			{
+				const refreshedOrders = await refreshOrders({ page: latestRef.current.currentOrdersPage });
+				const refreshedOrder = refreshedOrders.find(
+					(currentOrder) => currentOrder.order_id === order.order_id,
+				);
+				fileId = refreshedOrder?.files?.[index];
+			}
+			catch (err)
+			{
+				// Callers do not await this handler, so a rejection here would go unhandled.
+				console.error("Nie udało się odświeżyć listy zleceń:", err);
+			}
 		}
 
 		if (!fileId)
 		{
+			failBackgroundAction(
+				startBackgroundAction("Pobieranie pliku", attachment.name),
+				"Nie udało się pobrać pliku",
+				"Odśwież stronę i spróbuj ponownie.",
+			);
 			return;
 		}
 
@@ -1287,6 +1327,24 @@ export default function Orders({
 		}
 	}, [failBackgroundAction, refreshOrders, startBackgroundAction]);
 
+	// Callers do not await this, so nothing may escape as an unhandled rejection.
+	const handleDownloadFile = useCallback(async (order, attachment, index) =>
+	{
+		try
+		{
+			await downloadAttachment(order, attachment, index);
+		}
+		catch (err)
+		{
+			console.error("Nie udało się pobrać pliku:", err);
+			failBackgroundAction(
+				startBackgroundAction("Pobieranie pliku", attachment?.name ?? ""),
+				"Nie udało się pobrać pliku",
+				attachment?.name ?? "",
+			);
+		}
+	}, [downloadAttachment, failBackgroundAction, startBackgroundAction]);
+
 	const handleStatusChange = useCallback(async (order, status) =>
 	{
 		if (!adminMode || !order?.order_id || order.status === status)
@@ -1308,7 +1366,24 @@ export default function Orders({
 		catch (err)
 		{
 			console.error("Nie udało się zmienić statusu zlecenia:", err);
-			failBackgroundAction(actionId, "Nie udało się zmienić statusu zlecenia", order.patient);
+
+			const lockedMessage = await getOrderLockedMessage(err);
+
+			failBackgroundAction(actionId, "Nie udało się zmienić statusu zlecenia", lockedMessage ?? order.patient);
+
+			if (lockedMessage)
+			{
+				// The order is being deleted (or changed), so the list on screen is stale.
+				try
+				{
+					await refreshOrders({ page: latestRef.current.currentOrdersPage });
+				}
+				catch (refreshErr)
+				{
+					console.error("Nie udało się odświeżyć listy zleceń:", refreshErr);
+				}
+			}
+
 			setStatusUpdatingOrderId(null);
 			return;
 		}

@@ -7,11 +7,12 @@ import {
 } from "@/app/server-functions/orders/orderFiles";
 import {
 	InvalidUploadError,
+	UploadLimitError,
 	receiveOrderUpload,
 	uploadErrorResponse,
 } from "@/app/server-functions/orders/multipartUpload";
 import { cookies } from "next/headers";
-import { internalError, jsonError, orderLockedError } from "@/app/lib/apiErrors";
+import { fileBeingArchivedError, internalError, jsonError, orderLockedError } from "@/app/lib/apiErrors";
 import {
 	MAX_DETAILS_LENGTH,
 	MAX_PATIENT_LENGTH,
@@ -27,6 +28,10 @@ const log = createLogger("orders");
 
 const ORDER_LOCKED_MESSAGE =
 	"Tego zlecenia nie można już edytować, ponieważ ma status Gotowe lub Zrealizowane.";
+const ORDER_DELETING_MESSAGE =
+	"Tego zlecenia nie można już edytować, ponieważ jest właśnie usuwane.";
+const FILE_BEING_ARCHIVED_MESSAGE =
+	"Nie można teraz zmienić nazwy pliku, ponieważ jest właśnie archiwizowany. Spróbuj ponownie za kilka minut.";
 
 // Rejects the request before any file is read when the text fields are bad.
 function validateFields(fields)
@@ -88,6 +93,7 @@ async function handlePut(req)
 			existingFileIds: fields.getAll("existingFileIds").filter(Boolean),
 			knownFileIds: readKnownFileIds(fields.get("knownFileIds"), { log, orderID }),
 			uploadedFileIds,
+			uploadedBytes: files.reduce((sum, file) => sum + file.size, 0),
 			fileNameUpdates: fields.getAll("fileNames").map(String),
 			assertEditable: (row) => isOwnerEditableStatus(row.status),
 			log,
@@ -103,11 +109,32 @@ async function handlePut(req)
 				context: `a rejected update of order ${orderID}`,
 			});
 
+			if (edit.result === "limit")
+			{
+				log.warn(`Order ${orderID}: update by ${userID} would exceed the per-order limit`);
+
+				return uploadErrorResponse(new UploadLimitError(edit.message));
+			}
+
 			if (edit.result === "locked")
 			{
 				log.warn(`Order ${orderID}: update by ${userID} rejected, order is locked`);
 
 				return orderLockedError(ORDER_LOCKED_MESSAGE);
+			}
+
+			if (edit.result === "deleting")
+			{
+				log.warn(`Order ${orderID}: update by ${userID} rejected, the order is being deleted`);
+
+				return orderLockedError(ORDER_DELETING_MESSAGE);
+			}
+
+			if (edit.result === "archiving")
+			{
+				log.warn(`Order ${orderID}: update by ${userID} rejected, renamed file(s) being archived: ${edit.fileIds.join(", ")}`);
+
+				return fileBeingArchivedError(FILE_BEING_ARCHIVED_MESSAGE);
 			}
 
 			return jsonError("Order not found", 404);
