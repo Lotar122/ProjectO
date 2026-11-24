@@ -4,8 +4,8 @@
 // order-archiver.test.mjs, where they drove the removed in-process
 // startArchiveJob.
 //
-// Not covered here: a real Postgres / MinIO run of `bun run worker:archiver`
-// (no database on this machine; see phase4-amendments.md A8).
+// Not covered here: a real Postgres / MinIO run of the worker under the web
+// server's supervisor (no database on this machine; see phase4-amendments.md A8).
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
@@ -2173,36 +2173,6 @@ describe("job ownership and liveness", () =>
 		})).toThrow(TypeError);
 	});
 
-	test("the worker health check exits 0 only for a fresh liveness file", async () =>
-	{
-		const livenessFile = path.join(tempDir, "archiver-alive");
-		const check = async (env) =>
-		{
-			const child = Bun.spawn([process.execPath, "worker/archiver/healthcheck.js"], {
-				cwd: path.join(import.meta.dir, ".."),
-				env: { PATH: process.env.PATH ?? "", ...env },
-				stdout: "ignore",
-				stderr: "ignore",
-			});
-
-			return child.exited;
-		};
-
-		expect(await check({})).toBe(1);
-		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
-
-		await writeFile(livenessFile, "now\n");
-		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(0);
-
-		// Two minutes old: past the default 60 s.
-		const { utimes } = await import("node:fs/promises");
-		const old = new Date(Date.now() - 120_000);
-
-		await utimes(livenessFile, old, old);
-		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
-		expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile, ARCHIVER_LIVENESS_MAX_AGE_MS: "300000" })).toBe(0);
-	});
-
 	test("the web health check needs /api/ping and, in embedded mode, a fresh worker heartbeat", async () =>
 	{
 		const livenessFile = path.join(tempDir, "archiver-alive");
@@ -2223,11 +2193,11 @@ describe("job ownership and liveness", () =>
 
 		try
 		{
-			expect(await check({})).toBe(0);
-			expect(await check({ ARCHIVER_MODE: "embedded", ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
+			expect(await check({ ARCHIVER_MODE: "off" })).toBe(0);
+			expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(1);
 
 			await writeFile(livenessFile, "now\n");
-			expect(await check({ ARCHIVER_MODE: "embedded", ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(0);
+			expect(await check({ ARCHIVER_LIVENESS_FILE: livenessFile })).toBe(0);
 
 			pingStatus = 500;
 			expect(await check({})).toBe(1);

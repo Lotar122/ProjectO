@@ -48,7 +48,12 @@ function addConsoleTimestamps()
 	}
 }
 
-export async function registerNode()
+/**
+ * @param {object} [options]
+ * @param {typeof import("node:child_process").spawn} [options.spawnFn] Replaces child_process.spawn for the archiver worker (tests).
+ * @returns {Promise<void>}
+ */
+export async function registerNode({ spawnFn } = {})
 {
 	addConsoleTimestamps();
 
@@ -80,21 +85,51 @@ export async function registerNode()
 			process.exit(1);
 		}
 	}
-	const archiverMode = process.env.ARCHIVER_MODE || "off";
 
-	if (archiverMode === "embedded")
+	// The bundled supervisor is the only compressor path. "off" is an explicit
+	// opt-out for builds, tests and development without the binary.
+	const archiverMode = process.env.ARCHIVER_MODE || "embedded";
+
+	if (archiverMode === "off")
 	{
-		const { startArchiverSupervisor } = await import("./app/server-functions/orders/archiverSupervisor");
-
-		startArchiverSupervisor({ env: process.env, log: createLogger("archiver-supervisor") });
+		log.warn("ARCHIVER_MODE=off: archiver worker not started, orders will not be compressed");
+		return;
 	}
-	else if (archiverMode !== "off")
+
+	if (archiverMode !== "embedded")
 	{
-		log.error(`Invalid ARCHIVER_MODE "${archiverMode}" (expected "embedded" or "off")`);
+		log.error(`Invalid ARCHIVER_MODE "${archiverMode}" (expected "off" to disable, or "embedded" or unset to run the supervised worker)`);
 
 		if (isProduction)
 		{
 			process.exit(1);
 		}
+
+		return;
 	}
+
+	const { checkArchiverEnv, startArchiverSupervisor } = await import("./app/server-functions/orders/archiverSupervisor");
+	// registerNode already logged any missing DB / MinIO variable by name above.
+	const problems = checkArchiverEnv(process.env, { workerEnv: false });
+
+	if (REQUIRED_ENV.some((name) => !process.env[name]))
+	{
+		problems.unshift("DB / MinIO variables are missing (listed above)");
+	}
+
+	if (problems.length > 0)
+	{
+		// One line, so the cause is visible in the log. Starting anyway would only
+		// loop on a worker that exits at once.
+		log.error(`Archiver worker not started: ${problems.join("; ")}`);
+
+		if (isProduction)
+		{
+			process.exit(1);
+		}
+
+		return;
+	}
+
+	startArchiverSupervisor({ env: process.env, log: createLogger("archiver-supervisor"), spawnFn });
 }

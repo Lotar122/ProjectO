@@ -1,9 +1,10 @@
 #
 # Web image with the embedded archiver (ARCHIVER_MODE=embedded): Next.js on Bun, the supervised
 # archiver worker as a child process (src/app/server-functions/orders/archiverSupervisor.js) and
-# the projecto-compress binary. There is no separate archiver-worker container in this setup.
+# the projecto-compress binary. This is the only supported image: there is no separate
+# archiver-worker container. Normally started through docker-compose.yml (see README).
 #
-# Build from the repo root, from a clean checkout. Every ARG below is required and has no default:
+# Plain build from the repo root, from a clean checkout. Every ARG below is required and has no default:
 #
 #   set -a; . docker/versions.env; set +a
 #   GIT_SHA=$(git rev-parse HEAD)
@@ -125,8 +126,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Next.js on Bun, so the supervised child is started with the same Bun as the web server
 # (ARCHIVER_BUN_BIN is not needed). Untested here: confirm `next start` runs under --bun.
 #
-# NEXT_MANUAL_SIG_HANDLE=1 is exported only when ARCHIVER_MODE=embedded (the default above; a
-# runtime -e ARCHIVER_MODE=off turns it off too). With it, `next start` installs no SIGTERM / SIGINT
+# NEXT_MANUAL_SIG_HANDLE=1 is exported when ARCHIVER_MODE is unset, empty or embedded (the
+# supervisor runs by default; see src/instrumentation-node.js). With it, `next start` installs no SIGTERM / SIGINT
 # handler of its own (that would exit at once and kill the archiver mid-job); the archiver
 # supervisor handles both signals and exits only after the worker has stopped
 # (archiverSupervisor.js, up to ARCHIVER_STOP_GRACE_MS, default 100 s, so keep the container's stop
@@ -139,4 +140,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # tini). bun as PID 1 does not reap orphaned grandchildren, so a projecto-compress left behind by a
 # SIGKILLed archiver worker (it exits on its own through --watch-stdin) would stay a zombie; tini
 # reaps it and forwards SIGTERM / SIGINT to bun.
-ENTRYPOINT ["/bin/sh", "-c", "if [ \"$ARCHIVER_MODE\" = embedded ]; then export NEXT_MANUAL_SIG_HANDLE=1; fi; exec bun --bun node_modules/next/dist/bin/next start \"$@\"", "web-entrypoint"]
+ENTRYPOINT ["/bin/sh", "-c", "case \"$ARCHIVER_MODE\" in ''|embedded) export NEXT_MANUAL_SIG_HANDLE=1;; esac; exec bun --bun node_modules/next/dist/bin/next start \"$@\"", "web-entrypoint"]

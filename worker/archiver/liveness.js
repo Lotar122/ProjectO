@@ -1,5 +1,5 @@
-// Liveness file for the Docker HEALTHCHECK (docker/*.Dockerfile). The worker
-// rewrites it after every successful heartbeat; healthcheck.js reports the
+// Liveness file for the Docker HEALTHCHECK (docker/web-supervised.Dockerfile). The worker
+// rewrites it after every successful heartbeat; the health check reports the
 // worker unhealthy once it is older than the allowed age. Bun-only, like the
 // rest of the worker.
 

@@ -1,5 +1,6 @@
 // Runs the archiver worker (worker/archiver/main.js) as a supervised Bun child
-// process of the web server (ARCHIVER_MODE=embedded). A child, not Bun FFI: a
+// process of the web server; this is the only way the compressor runs (started
+// from src/instrumentation-node.js unless ARCHIVER_MODE=off). A child, not Bun FFI: a
 // compressor OOM or crash only kills the child, and the worker keeps its
 // SIGTERM / SIGKILL abort path. The advisory lock in orderArchiver.js keeps
 // several web replicas down to one running job.
@@ -17,6 +18,7 @@
 // (see src/app/lib/logger.js). Uses node:child_process so it runs on Node and Bun.
 
 import { spawn } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 
@@ -34,6 +36,10 @@ const WORKER_ENTRY = path.join("worker", "archiver", "main.js");
 const KILL_WAIT_MS = 5_000;
 // 128 + signal number, as `next start` uses.
 const SIGNAL_EXIT_CODES = Object.freeze({ SIGINT: 130, SIGTERM: 143 });
+
+// What the worker needs to start (worker/archiver/main.js). Checked up front so
+// a missing value is one clear error, not a worker that exits and restarts.
+const REQUIRED_WORKER_ENV = ["DB_URL", "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"];
 
 const isPid = (pid) => Number.isSafeInteger(pid) && pid > 0;
 
@@ -86,6 +92,58 @@ function readPositiveInt(raw, fallback, name)
 	}
 
 	return value;
+}
+
+/**
+ * Checks what the archiver worker cannot start without: the database and MinIO
+ * variables, and PROJECTO_COMPRESSOR_BIN (set, absolute, an executable file).
+ * Only names and paths are reported, never secret values.
+ *
+ * @param {Record<string, string | undefined>} [env] Default process.env.
+ * @param {object} [options]
+ * @param {boolean} [options.workerEnv] Also check the database and MinIO variables (default true).
+ * @returns {string[]} One message per problem; empty when the worker can start.
+ */
+export function checkArchiverEnv(env = process.env, { workerEnv = true } = {})
+{
+	const problems = [];
+	const missing = workerEnv ? REQUIRED_WORKER_ENV.filter((name) => !env[name]) : [];
+
+	if (missing.length > 0)
+	{
+		problems.push(`missing environment variable(s) ${missing.join(", ")}`);
+	}
+
+	const bin = env.PROJECTO_COMPRESSOR_BIN;
+
+	if (!bin)
+	{
+		problems.push("PROJECTO_COMPRESSOR_BIN is not set (absolute path of the projecto-compress binary)");
+	}
+	else if (!path.isAbsolute(bin))
+	{
+		problems.push(`PROJECTO_COMPRESSOR_BIN must be an absolute path, got "${bin}"`);
+	}
+	else
+	{
+		try
+		{
+			if (!statSync(bin).isFile())
+			{
+				problems.push(`PROJECTO_COMPRESSOR_BIN "${bin}" is not a file`);
+			}
+			else
+			{
+				accessSync(bin, constants.X_OK);
+			}
+		}
+		catch (err)
+		{
+			problems.push(`PROJECTO_COMPRESSOR_BIN "${bin}" is not usable (${err.code ?? err.message})`);
+		}
+	}
+
+	return problems;
 }
 
 /**

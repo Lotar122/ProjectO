@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
-// Archiver worker entry: bun --conditions react-server worker/archiver/main.js
-// (package.json "worker:archiver"; also spawned by the web server when
-// ARCHIVER_MODE=embedded, see archiverSupervisor.js). Reads and checks its configuration, wires
+// Archiver worker entry: bun --conditions react-server worker/archiver/main.js,
+// spawned and supervised by the web server (archiverSupervisor.js). Reads and checks its configuration, wires
 // the worker to Postgres, MinIO and projecto-compress, and stops gracefully on
 // SIGTERM / SIGINT (phases-bugfix/phase4.md 9.6): the running compressor is
 // aborted, the job ends as "interrupted", the lock is released, exit code 0.
@@ -69,7 +68,7 @@ function onFatal(kind, err)
 	worker.stop();
 }
 
-// ARCHIVER_LIVENESS_FILE (docker/*.Dockerfile, read by healthcheck.js), or null.
+// ARCHIVER_LIVENESS_FILE (docker/web-supervised.Dockerfile, read by docker/web-healthcheck.js), or null.
 function readLivenessFile()
 {
 	const value = process.env.ARCHIVER_LIVENESS_FILE;
@@ -145,7 +144,7 @@ async function main()
 	process.on("SIGTERM", onSignal);
 	process.on("SIGINT", onSignal);
 
-	// Started by the web server (ARCHIVER_MODE=embedded): the stdin pipe closes
+	// Started by the web server's supervisor: the stdin pipe closes
 	// when the web process is gone, so stop like on SIGTERM and never linger as
 	// an orphan holding the lock. Only a real pipe says anything about the
 	// parent; a /dev/null stdin would read as EOF at once and stop every start.

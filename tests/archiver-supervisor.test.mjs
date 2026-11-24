@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import {
+	checkArchiverEnv,
 	createArchiverSupervisor,
 	startArchiverSupervisor,
 	stop as stopGlobal,
@@ -327,6 +328,35 @@ test("rejects an invalid ARCHIVER_STOP_GRACE_MS", () =>
 {
 	assert.throws(() => createArchiverSupervisor({ env: { ARCHIVER_STOP_GRACE_MS: "abc" }, log: silentLog }), RangeError);
 	assert.throws(() => createArchiverSupervisor({ env: { ARCHIVER_STOP_GRACE_MS: "0" }, log: silentLog }), RangeError);
+});
+
+test("checkArchiverEnv names every missing variable and a bad compressor path", async () =>
+{
+	const base = { DB_URL: "x", MINIO_ENDPOINT: "x", MINIO_ACCESS_KEY: "x", MINIO_SECRET_KEY: "x" };
+
+	assert.deepEqual(checkArchiverEnv({ ...base, PROJECTO_COMPRESSOR_BIN: process.execPath }), []);
+
+	const empty = checkArchiverEnv({});
+
+	assert.equal(empty.length, 2);
+	assert.match(empty[0], /DB_URL, MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY/);
+	assert.match(empty[1], /PROJECTO_COMPRESSOR_BIN is not set/);
+	assert.match(checkArchiverEnv({ ...base, PROJECTO_COMPRESSOR_BIN: "bin/x" })[0], /absolute path/);
+	assert.match(checkArchiverEnv({ ...base, PROJECTO_COMPRESSOR_BIN: "/nonexistent/projecto-compress" })[0], /ENOENT/);
+	assert.match(checkArchiverEnv({ ...base, PROJECTO_COMPRESSOR_BIN: os.tmpdir() })[0], /not a file/);
+
+	const dir = await mkdtemp(path.join(os.tmpdir(), "archiver-env-test-"));
+	const noExec = path.join(dir, "projecto-compress");
+
+	try
+	{
+		await writeFile(noExec, "", { mode: 0o644 });
+		assert.match(checkArchiverEnv({ ...base, PROJECTO_COMPRESSOR_BIN: noExec })[0], /not usable \(EACCES\)/);
+	}
+	finally
+	{
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test("stopOnParentGone calls back once when the stream ends", async () =>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Docker HEALTHCHECK for docker/web-supervised.Dockerfile. Exit 0 when:
 // - GET /api/ping on the local Next.js server answers 2xx within 5 s, and
-// - with ARCHIVER_MODE=embedded, the supervised archiver worker has written its
+// - when the supervisor runs (ARCHIVER_MODE unset, empty or "embedded"), the supervised archiver worker has written its
 //   liveness file recently (worker/archiver/liveness.js), so a crash-looping or
 //   hung worker makes the container unhealthy too.
 // Exit 1 otherwise, with one line on stderr saying which check failed.
@@ -26,7 +26,11 @@ async function checkWeb()
 
 async function checkArchiver()
 {
-	if (process.env.ARCHIVER_MODE !== "embedded")
+	// Same rule as src/instrumentation-node.js: the supervisor runs only when
+	// ARCHIVER_MODE is unset, empty or "embedded".
+	const mode = process.env.ARCHIVER_MODE ?? "";
+
+	if (mode !== "" && mode !== "embedded")
 	{
 		return;
 	}

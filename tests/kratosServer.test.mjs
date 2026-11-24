@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import path from "node:path";
+import { PassThrough } from "node:stream";
 
 // Run with `bun test --conditions react-server` so `server-only` resolves.
 const ENV_KEYS = [
@@ -183,11 +186,11 @@ test("db.js does not throw in production when DB_URL is set", async () =>
 
 // Runs registerNode() with process.exit and the console stubbed; returns the
 // exit codes it requested and the lines it logged.
-async function runRegisterNode(env)
+async function runRegisterNode(env, options)
 {
 	const mod = await importWithEnv(INSTRUMENTATION, {});
 	const savedEnv = Object.fromEntries(
-		[...ENV_KEYS, "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"].map((key) => [key, process.env[key]]),
+		[...ENV_KEYS, "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "ARCHIVER_MODE", "PROJECTO_COMPRESSOR_BIN"].map((key) => [key, process.env[key]]),
 	);
 	const savedConsole = {};
 	const savedExit = process.exit;
@@ -211,7 +214,7 @@ async function runRegisterNode(env)
 
 	try
 	{
-		await mod.registerNode();
+		await mod.registerNode(options);
 	}
 	finally
 	{
@@ -242,7 +245,11 @@ const FULL_ENV = {
 	KRATOS_PUBLIC_INTERNAL_URL: "http://kratos:4433",
 	KRATOS_ADMIN_URL: "http://kratos:4434",
 	NEXT_PUBLIC_KRATOS_PUBLIC_URL: "https://auth.example/kratos",
+	// These tests are about the Kratos variables; the archiver has its own below.
+	ARCHIVER_MODE: "off",
 };
+
+const ARCHIVER_ON = { ...FULL_ENV, ARCHIVER_MODE: undefined, PROJECTO_COMPRESSOR_BIN: process.execPath };
 
 test("registerNode exits in production when a required var is missing", async () =>
 {
@@ -275,4 +282,112 @@ test("registerNode logs but does not exit in development", async () =>
 
 	assert.deepEqual(exits, []);
 	assert.ok(lines.some((line) => line.includes("Missing environment variables")));
+});
+
+// Archiver branches of registerNode. A fake spawnFn is injected, so no worker
+// is started; the supervisor calling it is what proves it started.
+async function runArchiverCase(env)
+{
+	const spawned = [];
+		const fakeSpawn = (...args) =>
+	{
+		const child = new EventEmitter();
+
+		spawned.push(args);
+		child.pid = 424242;
+		child.stdin = new PassThrough();
+		child.kill = () =>
+		{
+			queueMicrotask(() => child.emit("exit", 0, "SIGTERM"));
+			return true;
+		};
+
+		return child;
+	};
+	const saved = globalThis.__projectoArchiverSupervisor;
+
+	delete globalThis.__projectoArchiverSupervisor;
+
+	try
+	{
+		const result = await runRegisterNode(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined)), { spawnFn: fakeSpawn });
+
+		return { ...result, spawned };
+	}
+	finally
+	{
+		await globalThis.__projectoArchiverSupervisor?.stop();
+
+		if (saved === undefined)
+		{
+			delete globalThis.__projectoArchiverSupervisor;
+		}
+		else
+		{
+			globalThis.__projectoArchiverSupervisor = saved;
+		}
+	}
+}
+
+test("registerNode with ARCHIVER_MODE=off warns and does not exit", async () =>
+{
+	const { exits, lines, spawned } = await runArchiverCase({ ...FULL_ENV, NODE_ENV: "production", ARCHIVER_MODE: "off" });
+
+	assert.deepEqual(exits, []);
+	assert.ok(lines.some((line) => line.includes("ARCHIVER_MODE=off")));
+	assert.ok(!lines.some((line) => line.includes("Archiver worker not started")));
+	assert.equal(spawned.length, 0);
+});
+
+test("registerNode rejects an invalid ARCHIVER_MODE and exits only in production", async () =>
+{
+	const prod = await runArchiverCase({ ...ARCHIVER_ON, NODE_ENV: "production", ARCHIVER_MODE: "external" });
+
+	assert.deepEqual(prod.exits, [1]);
+	assert.ok(prod.lines.some((line) => line.includes('Invalid ARCHIVER_MODE "external"') && line.includes("embedded")));
+
+	const dev = await runArchiverCase({ ...ARCHIVER_ON, NODE_ENV: "development", ARCHIVER_MODE: "external" });
+
+	assert.deepEqual(dev.exits, []);
+	assert.ok(dev.lines.some((line) => line.includes("Invalid ARCHIVER_MODE")));
+});
+
+test("registerNode exits in production when the compressor binary is unusable", async () =>
+{
+	const { exits, lines, spawned } = await runArchiverCase({ ...ARCHIVER_ON, NODE_ENV: "production", PROJECTO_COMPRESSOR_BIN: "relative/bin" });
+
+	assert.deepEqual(exits, [1]);
+	assert.equal(spawned.length, 0);
+	assert.equal(lines.filter((line) => line.includes("Archiver worker not started")).length, 1);
+	assert.ok(lines.some((line) => line.includes("PROJECTO_COMPRESSOR_BIN must be an absolute path")));
+});
+
+test("registerNode only logs an unusable compressor binary in development", async () =>
+{
+	const { PROJECTO_COMPRESSOR_BIN, ...env } = ARCHIVER_ON;
+	const { exits, lines } = await runArchiverCase({ ...env, NODE_ENV: "development" });
+
+	assert.deepEqual(exits, []);
+	assert.ok(lines.some((line) => line.includes("Archiver worker not started") && line.includes("PROJECTO_COMPRESSOR_BIN is not set")));
+});
+
+test("registerNode does not repeat missing DB / MinIO variable names in development", async () =>
+{
+	const { DB_URL, ...env } = ARCHIVER_ON;
+	const { exits, lines } = await runArchiverCase({ ...env, NODE_ENV: "development" });
+	const named = lines.filter((line) => line.includes("DB_URL"));
+
+	assert.deepEqual(exits, []);
+	assert.equal(named.length, 1);
+	assert.ok(lines.some((line) => line.includes("Archiver worker not started") && line.includes("listed above")));
+});
+
+test("registerNode starts the supervisor when the environment is complete", async () =>
+{
+	const { exits, lines, spawned } = await runArchiverCase({ ...ARCHIVER_ON, NODE_ENV: "production" });
+
+	assert.deepEqual(exits, []);
+	assert.ok(!lines.some((line) => line.includes("Archiver worker not started") || line.includes("ARCHIVER_MODE")));
+	assert.equal(spawned.length, 1);
+	assert.ok(spawned[0][1].some((arg) => String(arg).endsWith(path.join("worker", "archiver", "main.js"))));
 });

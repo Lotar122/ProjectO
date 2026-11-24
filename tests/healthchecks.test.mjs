@@ -1,6 +1,5 @@
-// Docker health checks: worker/archiver/liveness.js (public exports), and
-// worker/archiver/healthcheck.js and docker/web-healthcheck.js (spawned as
-// the HEALTHCHECK commands run them). Synthetic files and a local HTTP server only.
+// Docker health check: worker/archiver/liveness.js (public exports) and
+// docker/web-healthcheck.js (spawned as the HEALTHCHECK command runs it). Synthetic files and a local HTTP server only.
 //
 // Run with `bun test --conditions react-server tests/healthchecks.test.mjs`.
 
@@ -126,74 +125,6 @@ describe("liveness.js", () =>
 	});
 });
 
-describe("worker/archiver/healthcheck.js", () =>
-{
-	const SCRIPT = "worker/archiver/healthcheck.js";
-
-	test("exits 1 and says so when ARCHIVER_LIVENESS_FILE is not set", async () =>
-	{
-		const { code, stderr } = await run(SCRIPT, {});
-
-		expect(code).toBe(1);
-		expect(stderr).toContain("ARCHIVER_LIVENESS_FILE is not set");
-	});
-
-	test("exits 1 when the liveness file does not exist", async () =>
-	{
-		const { code, stderr } = await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: newPath() });
-
-		expect(code).toBe(1);
-		expect(stderr).toContain("no heartbeat in the last 60000 ms");
-	});
-
-	test("exits 0 for a fresh file", async () =>
-	{
-		const filePath = newPath();
-
-		await touchLivenessFile(filePath);
-
-		expect((await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: filePath })).code).toBe(0);
-	});
-
-	test("ARCHIVER_LIVENESS_MAX_AGE_MS moves the threshold in both directions", async () =>
-	{
-		const filePath = newPath();
-
-		await writeAged(filePath, 30_000);
-
-		expect((await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: filePath })).code).toBe(0);
-
-		const strict = await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: filePath, ARCHIVER_LIVENESS_MAX_AGE_MS: "5000" });
-
-		expect(strict.code).toBe(1);
-		expect(strict.stderr).toContain("no heartbeat in the last 5000 ms");
-
-		await writeAged(filePath, 120_000);
-		expect((await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: filePath, ARCHIVER_LIVENESS_MAX_AGE_MS: "300000" })).code).toBe(0);
-	});
-
-	test.each(["abc", "-5", "1.5"])("an invalid ARCHIVER_LIVENESS_MAX_AGE_MS (%p) is unhealthy, not ignored", async (maxAge) =>
-	{
-		const filePath = newPath();
-
-		await touchLivenessFile(filePath);
-
-		const { code, stderr } = await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: filePath, ARCHIVER_LIVENESS_MAX_AGE_MS: maxAge });
-
-		expect(code).toBe(1);
-		expect(stderr).toContain("health check failed");
-	});
-
-	test("an empty ARCHIVER_LIVENESS_MAX_AGE_MS falls back to the default", async () =>
-	{
-		const filePath = newPath();
-
-		await touchLivenessFile(filePath);
-
-		expect((await run(SCRIPT, { ARCHIVER_LIVENESS_FILE: filePath, ARCHIVER_LIVENESS_MAX_AGE_MS: "" })).code).toBe(0);
-	});
-});
-
 describe("docker/web-healthcheck.js", () =>
 {
 	const SCRIPT = "docker/web-healthcheck.js";
@@ -219,18 +150,18 @@ describe("docker/web-healthcheck.js", () =>
 
 	const check = (env = {}) => run(SCRIPT, { PORT: String(server.port), ...env });
 
-	test("exits 0 when /api/ping answers 2xx and the archiver is not embedded", async () =>
+	test("exits 0 when /api/ping answers 2xx and the archiver is off", async () =>
 	{
 		pingResponse = () => new Response("{}", { status: 204 });
 
-		expect((await check()).code).toBe(0);
+		expect((await check({ ARCHIVER_MODE: "off" })).code).toBe(0);
 	});
 
 	test("a non-2xx answer is unhealthy and the message names the status", async () =>
 	{
 		pingResponse = () => new Response("down", { status: 503 });
 
-		const { code, stderr } = await check();
+		const { code, stderr } = await check({ ARCHIVER_MODE: "off" });
 
 		expect(code).toBe(1);
 		expect(stderr).toContain("/api/ping answered 503");
@@ -240,7 +171,7 @@ describe("docker/web-healthcheck.js", () =>
 	{
 		pingResponse = () => new Response(null, { status: 302, headers: { Location: "/login" } });
 
-		const { code, stderr } = await check();
+		const { code, stderr } = await check({ ARCHIVER_MODE: "off" });
 
 		expect(code).toBe(1);
 		expect(stderr).toContain("302");
@@ -259,22 +190,22 @@ describe("docker/web-healthcheck.js", () =>
 		expect(stderr).toContain("health check failed");
 	});
 
-	test("embedded mode needs ARCHIVER_LIVENESS_FILE", async () =>
+	test("without ARCHIVER_MODE=off the check needs ARCHIVER_LIVENESS_FILE", async () =>
 	{
 		pingResponse = () => new Response("{}");
 
-		const { code, stderr } = await check({ ARCHIVER_MODE: "embedded" });
+		const { code, stderr } = await check();
 
 		expect(code).toBe(1);
 		expect(stderr).toContain("ARCHIVER_LIVENESS_FILE is not set");
 	});
 
-	test("embedded mode follows the worker heartbeat and ARCHIVER_LIVENESS_MAX_AGE_MS", async () =>
+	test("the check follows the worker heartbeat and ARCHIVER_LIVENESS_MAX_AGE_MS", async () =>
 	{
 		pingResponse = () => new Response("{}");
 
 		const filePath = newPath();
-		const env = { ARCHIVER_MODE: "embedded", ARCHIVER_LIVENESS_FILE: filePath };
+		const env = { ARCHIVER_LIVENESS_FILE: filePath };
 
 		expect((await check(env)).code).toBe(1);
 
@@ -290,11 +221,18 @@ describe("docker/web-healthcheck.js", () =>
 		expect((await check(env)).code).toBe(0);
 	});
 
-	test("the worker heartbeat is ignored unless ARCHIVER_MODE is embedded", async () =>
+	test.each(["off", "external"])("the worker heartbeat is ignored when ARCHIVER_MODE is %p (no supervisor)", async (mode) =>
 	{
 		pingResponse = () => new Response("{}");
 
-		expect((await check({ ARCHIVER_MODE: "external", ARCHIVER_LIVENESS_FILE: newPath() })).code).toBe(0);
+		expect((await check({ ARCHIVER_MODE: mode, ARCHIVER_LIVENESS_FILE: newPath() })).code).toBe(0);
+	});
+
+	test.each(["", "embedded"])("the worker heartbeat is required when ARCHIVER_MODE is %p", async (mode) =>
+	{
+		pingResponse = () => new Response("{}");
+
+		expect((await check({ ARCHIVER_MODE: mode, ARCHIVER_LIVENESS_FILE: newPath() })).code).toBe(1);
 	});
 
 	test("a healthy heartbeat does not hide a failing web check", async () =>
@@ -305,6 +243,6 @@ describe("docker/web-healthcheck.js", () =>
 
 		await touchLivenessFile(filePath);
 
-		expect((await check({ ARCHIVER_MODE: "embedded", ARCHIVER_LIVENESS_FILE: filePath })).code).toBe(1);
+		expect((await check({ ARCHIVER_LIVENESS_FILE: filePath })).code).toBe(1);
 	});
 });

@@ -1,5 +1,4 @@
-# Docker build context for every image built from the repo root (the archiver worker and,
-# if it uses the repo root as its context, the web image).
+# Docker build context for the web image (docker/web-supervised.Dockerfile), built from the repo root.
 
 # secrets: never reach an image layer
 .env

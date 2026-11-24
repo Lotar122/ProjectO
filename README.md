@@ -39,14 +39,14 @@ Adresy Kratosa i bazy pochodzą ze środowiska. Domyślne wartości (`http://kra
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | tak | Dostęp do MinIO. |
 | `MINIO_CA_FILE` | nie | Ścieżka do pliku PEM z urzędem certyfikacji (lub pakietem CA), który podpisał certyfikat MinIO. Dla endpointu `https://` z certyfikatem własnym lub prywatnym CA; zastępuje systemową listę CA tylko dla połączeń z MinIO. Certyfikat musi zawierać host z `MINIO_ENDPOINT` w `subjectAltName`. Nie łącz z `MINIO_TLS_INSECURE` (taka konfiguracja jest odrzucana). |
 | `MINIO_TLS_INSECURE` | nie | `1` lub `true` wyłącza weryfikację certyfikatu TLS MinIO. Niezalecane: każdy na trasie sieciowej może czytać i zmieniać pliki, używaj tylko lokalnie w developmentcie. Ostrzeżenie trafia do logów przy pierwszym utworzeniu klienta S3 (pierwsze użycie MinIO, nie start procesu) i tylko dla endpointu `https://`; dla `http://` zmienna jest ignorowana. Nie łącz z `MINIO_CA_FILE`: taka konfiguracja jest odrzucana przy tym samym pierwszym użyciu, też tylko dla `https://`. |
-| `ARCHIVER_MODE` | nie | `off` (domyślnie) albo `embedded`. `embedded` uruchamia worker archiwizacji jako nadzorowany proces potomny serwera web (sekcja "Worker archiwizacji"). Inna wartość kończy start serwera błędem w produkcji. |
-| `ARCHIVER_BUN_BIN` | nie | Polecenie Buna dla trybu `embedded`, gdy serwer web działa na Node.js, domyślnie `bun` z `PATH`. Gdy web działa na Bunie, używany jest ten sam plik wykonywalny. |
-| `ARCHIVER_STOP_GRACE_MS` | nie | Tryb `embedded`: ile ms czekać po `SIGTERM` na zakończenie workera, zanim dostanie `SIGKILL`. Dodatnia liczba całkowita, domyślnie `100000` (100 s); zła wartość zatrzymuje start. Sam worker kończy się wcześniej, po upływie tej wartości pomniejszonej o `min(10 s, jedna dziesiąta)` (domyślnie po 90 s), żeby zdążyć zamknąć połączenie z blokadą i kompresor przed `SIGKILL`. Limit zatrzymania kontenera (`docker stop -t`, `stop_grace_period`) ustaw wyżej niż ta wartość, np. `120` s. |
-| `ARCHIVER_LIVENESS_FILE` | nie | Bezwzględna ścieżka pliku, który worker nadpisuje po każdym udanym heartbeacie do bazy (co 10 s); `HEALTHCHECK` sprawdza jego czas modyfikacji. Oba obrazy ustawiają `/work/run/archiver-alive`. Ścieżka względna zatrzymuje start workera. Bez tej zmiennej worker nie zapisuje pliku, a sprawdzenie zdrowia (kontener `archiver-worker`, a w web tylko przy `ARCHIVER_MODE=embedded`) kończy się niepowodzeniem. Katalog musi być zapisywalny dla użytkownika `10001`; obrazy deklarują `/work/run` jako `VOLUME`, więc działa też przy `read_only: true`, a tmpfs (`uid=10001,gid=10001`) jest zalecany. |
+| `ARCHIVER_MODE` | nie | Domyślnie (zmienna nieustawiona) serwer web uruchamia worker archiwizacji jako nadzorowany proces potomny (sekcja "Worker archiwizacji"). Tylko `off` wyłącza worker; `embedded` jest równoważne wartości domyślnej, a inna wartość kończy start serwera błędem w produkcji. Bez workera kolejka archiwizacji nie jest przetwarzana i trasy kolejki odpowiadają `503 ARCHIVER_WORKER_OFFLINE`, więc `off` nie jest wspieranym wdrożeniem. |
+| `ARCHIVER_BUN_BIN` | nie | Polecenie Buna dla nadzorcy, gdy serwer web działa na Node.js, domyślnie `bun` z `PATH`. Gdy web działa na Bunie (obraz Dockera), używany jest ten sam plik wykonywalny. |
+| `ARCHIVER_STOP_GRACE_MS` | nie | Ile ms czekać po `SIGTERM` na zakończenie workera, zanim dostanie `SIGKILL`. Dodatnia liczba całkowita, domyślnie `100000` (100 s); zła wartość zatrzymuje start. Sam worker kończy się wcześniej, po upływie tej wartości pomniejszonej o `min(10 s, jedna dziesiąta)` (domyślnie po 90 s), żeby zdążyć zamknąć połączenie z blokadą i kompresor przed `SIGKILL`. Limit zatrzymania kontenera (`docker stop -t`, `stop_grace_period`) ustaw wyżej niż ta wartość, np. `120` s. |
+| `ARCHIVER_LIVENESS_FILE` | nie | Bezwzględna ścieżka pliku, który worker nadpisuje po każdym udanym heartbeacie do bazy (co 10 s); `HEALTHCHECK` sprawdza jego czas modyfikacji. Obraz ustawia `/work/run/archiver-alive`. Ścieżka względna zatrzymuje start workera. Bez tej zmiennej worker nie zapisuje pliku, a sprawdzenie zdrowia (gdy działa nadzorca, czyli `ARCHIVER_MODE` jest nieustawiona, pusta lub `embedded`) kończy się niepowodzeniem. Katalog musi być zapisywalny dla użytkownika `10001`; obraz deklaruje `/work/run` jako `VOLUME`, więc działa też przy `read_only: true`, a tmpfs (`uid=10001,gid=10001`) jest zalecany. |
 | `ARCHIVER_LIVENESS_MAX_AGE_MS` | nie | Czyta ją tylko `HEALTHCHECK`, nie worker: jak stary może być plik z `ARCHIVER_LIVENESS_FILE`, żeby kontener był nadal zdrowy. Dodatnia liczba całkowita ms, domyślnie `60000` (sześć pominiętych heartbeatów). Zła wartość też daje stan niezdrowy. |
-| `NEXT_MANUAL_SIG_HANDLE` | nie | Ustawia ją entrypoint `docker/web-supervised.Dockerfile` (na `1`), gdy `ARCHIVER_MODE=embedded`; zwykle nie ustawiasz jej ręcznie. Każda niepusta wartość sprawia, że `next start` nie rejestruje własnych handlerów `SIGTERM` i `SIGINT` (inaczej kończyłby proces od razu i zabijał worker w trakcie zadania), a nadzorca archiwizatora obsługuje oba sygnały sam: zatrzymuje worker i dopiero wtedy kończy proces kodem `128` + numer sygnału. Poza trybem `embedded` nic poza Next.js nie obsłużyłoby tych sygnałów, więc wtedy jej nie ustawiaj. |
-| `ARCHIVER_RECOVERY_DIR` | nie | Katalog na oryginały, których nie udało się zweryfikować ani przywrócić. Domyślnie `./archiver-recovery`; obrazy ustawiają `/work/recovery`. |
-| `PROJECTO_COMPRESSOR_BIN` | nie | Ścieżka programu `projecto-compress` dla trybu `embedded`; obraz web ustawia `/usr/local/bin/projecto-compress`. |
+| `NEXT_MANUAL_SIG_HANDLE` | nie | Ustawia ją entrypoint `docker/web-supervised.Dockerfile` (na `1`), gdy `ARCHIVER_MODE` jest nieustawiona, pusta lub `embedded` (czyli gdy działa nadzorca); zwykle nie ustawiasz jej ręcznie. Poza Dockerem (np. `bun run start`) ustaw `NEXT_MANUAL_SIG_HANDLE=1` samodzielnie, inaczej `next start` kończy proces od razu po `SIGTERM` / `SIGINT`, bez czekania na zatrzymanie workera. Każda niepusta wartość sprawia, że `next start` nie rejestruje własnych handlerów `SIGTERM` i `SIGINT` (inaczej kończyłby proces od razu i zabijał worker w trakcie zadania), a nadzorca archiwizatora obsługuje oba sygnały sam: zatrzymuje worker i dopiero wtedy kończy proces kodem `128` + numer sygnału. |
+| `ARCHIVER_RECOVERY_DIR` | nie | Katalog na oryginały, których nie udało się zweryfikować ani przywrócić. Domyślnie `./archiver-recovery`; obraz ustawia `/work/recovery`. |
+| `PROJECTO_COMPRESSOR_BIN` | tak (w produkcji) | Bezwzględna ścieżka wykonywalnego programu `projecto-compress`. Bez niej (lub ze ścieżką, której nie da się uruchomić) serwer w produkcji kończy start kodem 1. Obraz web ustawia `/usr/local/bin/projecto-compress`. |
 | `DOWNLOAD_DECODE_BUDGET_MIB` | nie | Budżet pamięci naraz dekompresowanych pobrań w procesie web (jedno okno na pobranie). Domyślnie `768`, minimum `272` (największe okno zstd 2^28 plus 16 MiB narzutu). Zła wartość powoduje błąd 500 przy każdym pobraniu, dopóki jej nie poprawisz. |
 | `ALLOWED_ORIGINS` | nie | Lista dozwolonych źródeł (`Origin`) oddzielonych przecinkami, dla ochrony CSRF tras zapisujących dane. |
 | `KRATOS_IDENTITY_SCHEMA_ID` | nie | Identyfikator schematu tożsamości Kratosa używany przy tworzeniu użytkowników w panelu administratora, domyślnie `default`. |
@@ -148,29 +148,43 @@ docker exec -i <kontener-postgres> psql -U <użytkownik> -d <baza> < db/migratio
 
 Plik ustawia `lock_timeout` na 5 s, żeby `ALTER TABLE` nie czekał w kolejce za długą transakcją i nie wstrzymał wszystkich zapytań do `orders`. Jeśli upłynie limit, uruchom plik ponownie. Wycofanie opisuje komentarz `rollback` na końcu pliku.
 
-# Worker archiwizacji (archiver-worker)
+# Worker archiwizacji (wbudowany w obraz web)
 
-Kompresja plików zleceń działa w osobnym kontenerze `archiver-worker` (Bun, kod archiwizatora w JS i program `projecto-compress` napisany w C++, zlinkowany statycznie z zstd 1.5.7 i brotli 1.2.1). Kontener web tylko dodaje zadanie do kolejki (`archive_jobs` w Postgresie) i odczytuje jego stan; dekompresja przy pobieraniu nadal odbywa się w procesie web. Opis protokołu i parametrów: `phases-bugfix/phase4.md` oraz `phases-bugfix/phase4-amendments.md` (poprawki mają pierwszeństwo), program: `native/compressor/README.md`.
+Jedyna wspierana forma wdrożenia to jeden kontener `web`, zbudowany z `docker/web-supervised.Dockerfile`: Next.js na Bunie, kod archiwizatora w JS (`worker/`) i program `projecto-compress` napisany w C++, zlinkowany statycznie z zstd 1.5.7 i brotli 1.2.1. Przy starcie serwer (`src/instrumentation-node.js`) uruchamia worker jako nadzorowany proces potomny (`src/app/server-functions/orders/archiverSupervisor.js`). Nie ma osobnego kontenera workera: uruchomienie obrazu web bez workera kończy się `503 ARCHIVER_WORKER_OFFLINE` na trasach kolejki archiwizacji. Dekompresja przy pobieraniu odbywa się w procesie web. Opis protokołu i parametrów: `phases-bugfix/phase4.md` oraz `phases-bugfix/phase4-amendments.md` (poprawki mają pierwszeństwo), program: `native/compressor/README.md`.
 
 Parametry kompresji zależą tylko od rozmiaru pliku, a limit pamięci nigdy ich nie obniża. Plik, który nie mieści się w limicie, kończy się błędem dla danego kodeka (kod wyjścia 4), a nie słabszą kompresją.
 
+## Uruchomienie w Dockerze
+
+Z korzenia repozytorium, z czystego checkoutu (etykieta rewizji musi odpowiadać commitowi). Sekrety runtime (`DB_URL`, `KRATOS_PUBLIC_INTERNAL_URL`, `KRATOS_ADMIN_URL`, `MINIO_*`, opcjonalnie `ALLOWED_ORIGINS`) trafiają do pliku `.env.web` obok `docker-compose.yml`; jest ignorowany przez git i nie trafia do obrazu (`.dockerignore`). Usługa `web` musi mieć dostęp do Postgresa, Kratosa i MinIO: `docker-compose.yml` podłącza ją do istniejącej sieci `backend` (inna nazwa: zmienna `BACKEND_NETWORK`).
+
+```
+GIT_SHA=$(git rev-parse HEAD) NEXT_PUBLIC_KRATOS_PUBLIC_URL=https://orto.lotar122.dev/kratos \
+  docker compose --env-file docker/versions.env up -d --build
+```
+
+`docker-compose.yml` buduje `docker/web-supervised.Dockerfile`, ustawia `ARCHIVER_MODE=embedded` i `PROJECTO_COMPRESSOR_BIN=/usr/local/bin/projecto-compress` oraz `init: true`, `stop_grace_period: 2m`, limity zasobów i wolumeny (`web-work` pod `/work/tmp`, `web-recovery` pod `/work/recovery`, tmpfs pod `/work/run` i `/app/.next/cache`). Nie uruchamiaj obrazu `projecto-web` ani żadnego innego obrazu web poza tym plikiem compose i nie buduj innych Dockerfile dla web: każdy obraz bez nadzorcy i binarki `projecto-compress` daje `503 ARCHIVER_WORKER_OFFLINE`.
+
 ## Budowanie obrazu
 
-Wersje i skróty (digesty) obrazów bazowych są w `docker/versions.env`. Obraz buduje się z korzenia repozytorium, z czystego checkoutu (etykieta rewizji musi odpowiadać commitowi):
+Wersje i skróty (digesty) obrazów bazowych są w `docker/versions.env`; `docker compose --env-file docker/versions.env` przekazuje je jako argumenty budowania. Etap `native` uruchamia `ctest`; jeśli testy nie przejdą, budowanie się przerywa. Pobiera też zstd i doctest (CMake sprawdza ich SHA256) oraz brotli (przypięty commit pobierany przez `git`, który etap instaluje), więc wymaga dostępu do sieci.
+
+Samo budowanie bez compose (te same argumenty):
 
 ```
 set -a; . docker/versions.env; set +a
 GIT_SHA=$(git rev-parse HEAD)
-docker build -f docker/archiver-worker.Dockerfile \
+docker build -f docker/web-supervised.Dockerfile \
   --build-arg BUN_VERSION --build-arg BUN_ALPINE_DIGEST \
   --build-arg ALPINE_VERSION --build-arg ALPINE_DIGEST \
+  --build-arg NEXT_PUBLIC_KRATOS_PUBLIC_URL=https://orto.lotar122.dev/kratos \
   --build-arg GIT_SHA="$GIT_SHA" \
-  -t "projecto-archiver-worker:$GIT_SHA" .
+  -t "projecto-web:$GIT_SHA" .
 ```
 
-- Etap `native` uruchamia `ctest`; jeśli testy nie przejdą, budowanie się przerywa. Pobiera też zstd i doctest (CMake sprawdza ich SHA256) oraz brotli (przypięty commit pobierany przez `git`, który etap instaluje), więc wymaga dostępu do sieci.
-- `BUN_VERSION` musi być taka sama jak w obrazie web (dekoder w workerze i w web to ten sam kod `createDecompressStream` na `node:zlib`). Sprawdź: `docker run --rm --entrypoint bun <obraz-web> --version`.
-- Obraz działa jako użytkownik `10001`, nie zawiera plików `.env`, a `.dockerignore` w korzeniu repozytorium wyklucza `.env*`, `.git`, `node_modules`, `archiver-recovery`, `graphify-out`, `.claude` i `phases-bugfix`. `.dockerignore` obowiązuje także przy budowaniu obrazu web z tego samego kontekstu.
+- `NEXT_PUBLIC_KRATOS_PUBLIC_URL` jest wkompilowany w bundle, więc musi być podany przy budowaniu (patrz tabela zmiennych).
+- Serwer web i worker działają na tym samym Bunie (`BUN_VERSION`): dekoder w workerze i w web to ten sam kod `createDecompressStream` na `node:zlib`.
+- Obraz działa jako użytkownik `10001`, nie zawiera plików `.env`, a `.dockerignore` w korzeniu repozytorium wyklucza `.env*`, `.git`, `node_modules`, `archiver-recovery`, `graphify-out`, `.claude` i `phases-bugfix`.
 - Skrót obrazu bazowego odświeżasz zapytaniem do rejestru (nagłówek `Docker-Content-Digest`), a zmianę tagu i skrótu wprowadzasz razem, w osobnym commicie:
 
 ```
@@ -182,7 +196,7 @@ curl -sI -H "Authorization: Bearer $T" \
 
 ## Zmienne środowiskowe workera
 
-Sekrety trafiają do pliku wskazanego w `env_file` na hoście (poza repozytorium i poza obrazem).
+Sekrety trafiają do pliku `.env.web` (`env_file` w `docker-compose.yml`), poza repozytorium i poza obrazem. Worker dziedziczy środowisko serwera web, więc `DB_URL` i `MINIO_*` ustawiasz raz.
 
 | Zmienna | Wymagana | Opis |
 | --- | --- | --- |
@@ -207,85 +221,29 @@ Ustawione w obrazie i zwykle bez zmian: `TMPDIR=/work/tmp`, `ARCHIVER_RECOVERY_D
 
 | Ścieżka w kontenerze | Wolumen | Uwagi |
 | --- | --- | --- |
-| `/work/tmp` | `archiver-work` | Katalog tymczasowy: pobrany oryginał i oba kandydaty (do ok. 750 MiB na plik w obróbce). Musi być wolumenem na dysku, **nie tmpfs** (tmpfs liczy się do limitu pamięci kontenera). Musi przetrwać restart, bo zachowany oryginał jest podstawą dziennika awaryjnego. |
-| `/work/recovery` | `archiver-recovery` | Katalog odzyskiwania (`ARCHIVER_RECOVERY_DIR`), patrz niżej. |
+| `/work/tmp` | `web-work` | Katalog tymczasowy: pobrany oryginał i oba kandydaty (do ok. 750 MiB na plik w obróbce). Musi być wolumenem na dysku, **nie tmpfs** (tmpfs liczy się do limitu pamięci kontenera). Musi przetrwać restart, bo zachowany oryginał jest podstawą dziennika awaryjnego. |
+| `/work/recovery` | `web-recovery` | Katalog odzyskiwania (`ARCHIVER_RECOVERY_DIR`), patrz niżej. |
 
 Nazwane wolumeny dziedziczą właściciela (`10001`) z obrazu. Przy katalogach z hosta (bind mount) ustaw właściciela ręcznie: `chown -R 10001:10001 <katalog>`.
 
 ## Compose
 
-Plik compose aplikacji web nie jest w tym repozytorium. Dodaj usługę na serwerze (`GIT_SHA` to pełny skrót commitu, taki sam jak tag obrazu):
+`docker-compose.yml` w korzeniu repozytorium to jedyny plik compose. Opisane niżej wartości zasobów są w nim ustawione i trzeba je zmieniać razem.
 
-```yaml
-services:
-  archiver-worker:
-    image: projecto-archiver-worker:${GIT_SHA}
-    restart: unless-stopped
-    init: true
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m
-      - /work/run:size=1m,uid=10001,gid=10001   # ARCHIVER_LIVENESS_FILE dla HEALTHCHECK; bez tmpfs obraz użyje anonimowego wolumenu (też zapisywalny)
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    mem_limit: 8g
-    memswap_limit: 8g          # bez swapu: kontener ma paść szybko, a nie zamulać hosta
-    cpus: "4.0"                # zstd kompresuje na PROJECTO_ZSTD_THREADS wątkach; przy "1.0" ustaw tam 1
-    pids_limit: 128            # musi objąć wątki Buna oraz do PROJECTO_ZSTD_THREADS + 3 wątków projecto-compress
-    stop_grace_period: 2m
-    env_file: /srv/projecto/secrets/archiver-worker.env   # DB_URL, MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY
-    environment:
-      COMPRESSOR_MEMORY_BUDGET_MIB: "6144"
-      COMPRESSOR_TIMEOUT_MS: "10800000"
-      PROJECTO_ZSTD_THREADS: "4"
-      DB_POOL_MAX: "3"
-    volumes:
-      - archiver-work:/work/tmp
-      - archiver-recovery:/work/recovery
-    networks: [backend]        # tylko Postgres i MinIO, bez publikowanych portów
+- `mem_limit` kontenera web to budżet kompresora (`COMPRESSOR_MEMORY_BUDGET_MIB`, domyślnie 6144 MiB) plus pamięć Next.js i procesu Bun workera (ok. 350 do 600 MiB) i zapas jądra; nie zmniejszaj go bez obniżenia budżetu. `memswap_limit` równy `mem_limit` wyłącza swap: kontener ma paść szybko, a nie zamulać hosta.
+- Z 4 wątkami zstd szczyt rośnie ok. 4 razy względem jednego wątku: ok. 550 MiB dla pliku 8 MiB, 2,8 GiB dla 64 MiB, 4,9 GiB dla 128 MiB; dla plików większych niż 128 MiB (okno 2^28) budżet 6144 MiB mieści już tylko 2 wątki (ok. 4,8 GiB). Program zawsze trzyma się budżetu. Archiwizator kompresuje naraz tylko jeden plik w całym klastrze (zadania biegną pod jedną blokadą doradczą Postgresa, pliki i kodeki po kolei), więc to jest cały szczyt.
+- `cpus` i `PROJECTO_ZSTD_THREADS`: ustaw wątki zstd nie wyżej niż `cpus`; przy `cpus: "1.0"` ustaw `1`.
+- `pids_limit` musi objąć wątki Buna serwera web oraz do `PROJECTO_ZSTD_THREADS` + 3 wątków kompresora (z domyślnymi 4 wątkami do 7).
+- `init: true` (tini jako PID 1) sprząta procesy potomne, a `stop_grace_period: 2m` (przy `docker stop`: `-t 120`) daje workerowi czas na zakończenie zadania jako `interrupted` i zwolnienie blokady. Nie nadpisuj `entrypoint`.
+- Wartość `DOWNLOAD_DECODE_BUDGET_MIB` sprawdź względem limitu pamięci kontenera.
 
-volumes:
-  archiver-work:
-  archiver-recovery:
+## Nadzorca workera i zatrzymywanie
 
-networks:
-  backend:
-    external: true   # istniejąca sieć kontenera web, z Postgresem i MinIO
-```
+Przy starcie serwer (`src/instrumentation-node.js`) tworzy nadzorowany proces potomny Buna z `worker/archiver/main.js` (`src/app/server-functions/orders/archiverSupervisor.js`). To zwykły proces potomny, a nie Bun FFI: awaria lub OOM kompresora zabija tylko worker, a przerwanie zadania nadal działa (`SIGTERM`, potem `SIGKILL`).
 
-`mem_limit` to pułap, a nie rezerwacja: między zadaniami worker zajmuje dobrze poniżej 100 MiB. Z 4 wątkami zstd szczyt rośnie ok. 4 razy względem jednego wątku: ok. 550 MiB dla pliku 8 MiB, 2,8 GiB dla 64 MiB, 4,9 GiB dla 128 MiB; dla plików większych niż 128 MiB (okno 2^28) budżet 6144 MiB mieści już tylko 2 wątki (ok. 4,8 GiB). Program zawsze trzyma się budżetu, więc budżet 6144 MiB, proces Bun (ok. 350 do 600 MiB) i zapas jądra mieszczą się w 8 GiB; nie zmniejszaj `mem_limit` bez obniżenia budżetu. Archiwizator kompresuje naraz tylko jeden plik w całym klastrze (zadania biegną pod jedną blokadą doradczą Postgresa, pliki i kodeki po kolei), więc to jest cały szczyt. Limit `pids_limit: 128` musi objąć wątki Buna oraz wątki `projecto-compress`: każdy wątek zstd i dwa wątki nadzoru też się liczą, razem do `PROJECTO_ZSTD_THREADS` + 3 w czasie kompresji (z domyślnymi 4 wątkami do 7). Pomiar W27 ma potwierdzić, że 128 wystarcza. Gdy zmniejszasz `cpus`, zmniejsz też `PROJECTO_ZSTD_THREADS`: przy `cpus: "1.0"` ustaw `1`. Wartość `DOWNLOAD_DECODE_BUDGET_MIB` w kontenerze web sprawdź względem limitu pamięci tego kontenera.
+Obraz (i `docker-compose.yml`) ustawia `ARCHIVER_MODE=embedded`, `ARCHIVER_RECOVERY_DIR=/work/recovery`, `ARCHIVER_LIVENESS_FILE=/work/run/archiver-alive`, `PROJECTO_COMPRESSOR_BIN`, `TMPDIR=/work/tmp` (zadeklarowany jako `VOLUME`; w produkcji zamontuj tam nazwany wolumen, żeby oryginały z dziennika awaryjnego przetrwały wymianę kontenera) i działa jako użytkownik `10001`. `HEALTHCHECK` (`docker/web-healthcheck.js`) wymaga odpowiedzi 2xx z `/api/ping` oraz, gdy działa nadzorca (`ARCHIVER_MODE` nieustawiona, pusta lub `embedded`; przy `off` lub innej wartości pomija to sprawdzenie), świeżego pliku z `ARCHIVER_LIVENESS_FILE` (starszego niż `ARCHIVER_LIVENESS_MAX_AGE_MS` nie uznaje); zawieszony lub restartujący się w pętli worker robi więc kontener niezdrowym. Sprawdzenie odpytuje `http://127.0.0.1:$PORT/api/ping` (`PORT`, domyślnie `3000`), więc przekazanie `-p` lub `-H` w argumentach uruchomienia (trafiają do `next start`, np. `-p 8080`, `-H 10.0.0.5`) sprawia, że sprawdza złe miejsce i kontener zostanie uznany za niezdrowy; ustaw wtedy `PORT` zgodnie z faktycznym portem (adres nasłuchu musi obejmować `127.0.0.1`) albo nadpisz `HEALTHCHECK`. Mapowanie portów Dockera (`docker run -p 8080:3000`) niczego nie psuje.
 
-## Tryb wbudowany (`ARCHIVER_MODE=embedded`)
-
-Zamiast osobnego kontenera serwer web może sam uruchomić worker: przy starcie (`src/instrumentation-node.js`) tworzy nadzorowany proces potomny Buna z `worker/archiver/main.js` (`src/app/server-functions/orders/archiverSupervisor.js`). To zwykły proces potomny, a nie Bun FFI: awaria lub OOM kompresora zabija tylko worker, a przerwanie zadania nadal działa (`SIGTERM`, potem `SIGKILL`). Domyślnie `ARCHIVER_MODE=off`, więc dotychczasowy kontener `archiver-worker` (`docker/archiver-worker.Dockerfile`) działa bez zmian.
-
-Gotowy obraz web z wbudowanym workerem to `docker/web-supervised.Dockerfile` (Next.js na Bunie, katalog `worker/`, `src/` i statycznie zlinkowany `projecto-compress` z etapu `native`, który uruchamia `ctest`). Buduje się go z korzenia repozytorium, z czystego checkoutu, tak samo jak obraz workera, z dodatkowym wymaganym argumentem `NEXT_PUBLIC_KRATOS_PUBLIC_URL` (wkompilowanym w bundle, patrz tabela zmiennych):
-
-```
-set -a; . docker/versions.env; set +a
-GIT_SHA=$(git rev-parse HEAD)
-docker build -f docker/web-supervised.Dockerfile \
-  --build-arg BUN_VERSION --build-arg BUN_ALPINE_DIGEST \
-  --build-arg ALPINE_VERSION --build-arg ALPINE_DIGEST \
-  --build-arg NEXT_PUBLIC_KRATOS_PUBLIC_URL=https://orto.lotar122.dev/kratos \
-  --build-arg GIT_SHA="$GIT_SHA" \
-  -t "projecto-web:$GIT_SHA" .
-```
-
-Obraz ustawia `ARCHIVER_MODE=embedded`, `ARCHIVER_RECOVERY_DIR=/work/recovery`, `ARCHIVER_LIVENESS_FILE=/work/run/archiver-alive`, `PROJECTO_COMPRESSOR_BIN`, `TMPDIR=/work/tmp` (zadeklarowany jako `VOLUME`; w produkcji zamontuj tam nazwany wolumen, żeby oryginały z dziennika awaryjnego przetrwały wymianę kontenera) i działa jako użytkownik `10001`. `HEALTHCHECK` (`docker/web-healthcheck.js`) wymaga odpowiedzi 2xx z `/api/ping` oraz, w trybie `embedded`, świeżego pliku z `ARCHIVER_LIVENESS_FILE` (starszego niż `ARCHIVER_LIVENESS_MAX_AGE_MS` nie uznaje); zawieszony lub restartujący się w pętli worker robi więc kontener niezdrowym. Sprawdzenie odpytuje `http://127.0.0.1:$PORT/api/ping` (`PORT`, domyślnie `3000`), więc przekazanie `-p` lub `-H` w argumentach uruchomienia (trafiają do `next start`, np. `-p 8080`, `-H 10.0.0.5`) sprawia, że sprawdza złe miejsce i kontener zostanie uznany za niezdrowy; ustaw wtedy `PORT` zgodnie z faktycznym portem (adres nasłuchu musi obejmować `127.0.0.1`) albo nadpisz `HEALTHCHECK`. Mapowanie portów Dockera (`docker run -p 8080:3000`) niczego nie psuje.
-
-Entrypoint to `/bin/sh -c`, który przy `ARCHIVER_MODE=embedded` eksportuje `NEXT_MANUAL_SIG_HANDLE=1` i przez `exec` uruchamia `bun --bun node_modules/next/dist/bin/next start`; argumenty uruchomienia trafiają do `next start`, a `-e ARCHIVER_MODE=off` wyłącza zarówno worker, jak i tę zmienną. Dzięki temu `SIGTERM` i `SIGINT` obsługuje nadzorca (patrz `NEXT_MANUAL_SIG_HANDLE` w tabeli), który kończy proces dopiero po zatrzymaniu workera. Zatrzymuj kontener z limitem wyższym niż `ARCHIVER_STOP_GRACE_MS`, czyli `docker stop -t 120` albo `stop_grace_period: 2m`, i **zawsze uruchamiaj go z initem jako PID 1** (`docker run --init` albo `init: true`; oba używają tini): Bun jako PID 1 nie zbiera osieroconych procesów, więc `projecto-compress` pozostawiony po zabitym przez `SIGKILL` workerze zostałby zombie. Obraz deklaruje jako `VOLUME` wszystkie ścieżki zapisu (`/work/tmp`, `/work/recovery`, `/work/run`, `/app/.next/cache`), więc powinien działać z `read_only: true` przy zamontowanych wolumenach i tmpfs opisanych niżej (nie było to testowane; Bun i Next.js mogą potrzebować dodatkowych zapisywalnych ścieżek, np. `/tmp`). Zalecane: tmpfs z `uid=10001,gid=10001` pod `/work/run` i `/app/.next/cache` (pliki jednorazowe), nazwane wolumeny na dysku pod `/work/tmp` i `/work/recovery`, a `tmpfs: /tmp` dla Buna. Bez montowania zapis trafia do anonimowych wolumenów. Przy `docker run` bez `--rm` (i po `docker rm` bez `-v`) zostają one na hoście po usunięciu kontenera; `/work/tmp` może zawierać wiele GiB (pobrane oryginały i kandydaci), więc sprzątaj je (`docker volume ls -f dangling=true`, `docker volume prune`) albo uruchamiaj z `--rm`. Zmiana `entrypoint` w compose nadpisuje opisane zachowanie; zostaw domyślny.
-
-Uruchomienie z innego, własnego obrazu web opisują poniższe punkty.
-
-- Ustaw `ARCHIVER_MODE=embedded` w kontenerze web. Worker potrzebuje tych samych zmiennych co w tabeli powyżej (`DB_URL`, `MINIO_*` web już ma; `COMPRESSOR_MEMORY_BUDGET_MIB`, `COMPRESSOR_TIMEOUT_MS`, `PROJECTO_ZSTD_THREADS`, `ARCHIVER_WORKER_ID`, `ARCHIVER_LIVENESS_FILE` dziedziczy ze środowiska web). W trybie `embedded` kontener web współdzieli też limit `pids_limit` i `cpus` z workerem: ustaw `PROJECTO_ZSTD_THREADS` nie wyżej niż liczba CPU dostępnych kontenerowi, w `pids_limit` uwzględnij wątki Buna serwera web oraz do `PROJECTO_ZSTD_THREADS` + 3 wątków kompresora.
-- Obraz web musi zawierać program `projecto-compress` pod ścieżką `PROJECTO_COMPRESSOR_BIN` oraz katalog `worker/` (a także `src/`, z którego worker importuje kod). Skopiuj binarkę z etapu `native` z `docker/archiver-worker.Dockerfile` (`COPY --from=native ... /usr/local/bin/projecto-compress`) i ustaw `PROJECTO_COMPRESSOR_BIN=/usr/local/bin/projecto-compress`. Obraz web musi mieć też Buna (jeśli serwer działa na Node.js, wskaż go przez `ARCHIVER_BUN_BIN`).
-- `TMPDIR` i `ARCHIVER_RECOVERY_DIR` muszą wskazywać wolumeny na dysku, **nie tmpfs**, tak jak w tabeli "Wolumeny".
-- Podnieś `mem_limit` kontenera web o budżet kompresora (`COMPRESSOR_MEMORY_BUDGET_MIB`, domyślnie 6144 MiB) plus ok. 1 GiB zapasu na proces Bun workera.
-- Ustaw `init: true` (sprzątanie procesów potomnych) i `stop_grace_period: 2m` (przy `docker stop`: `-t 120`), żeby worker zdążył zakończyć zadanie jako `interrupted` i zwolnić blokadę. Z własnym entrypointem ustaw też `NEXT_MANUAL_SIG_HANDLE=1`, w przeciwnym razie Next.js zakończy proces od razu po `SIGTERM`, bez czekania na worker.
-- Po zatrzymaniu serwera web worker kończy się także sam: gdy potok stdin od procesu web się zamknie, robi to samo co po `SIGTERM`. Zerwany serwer nie zostawia więc sieroty trzymającej blokadę.
-- Worker uruchamia się ponownie po każdym zakończeniu (opóźnienie 1 s, podwajane do 60 s, zerowane po 5 minutach pracy).
-- Przy przejściu na ten tryb usuń usługę `archiver-worker`. Uruchomienie obu naraz jest bezpieczne (blokada doradcza `ARCHIVE_LOCK_KEY` i indeks `archive_jobs_one_active_idx` dopuszczają jedno aktywne zadanie), ale bezcelowe. Tak samo kilka replik web z `embedded`.
+Entrypoint to `/bin/sh -c`, który gdy `ARCHIVER_MODE` jest nieustawiona, pusta lub `embedded` eksportuje `NEXT_MANUAL_SIG_HANDLE=1` i przez `exec` uruchamia `bun --bun node_modules/next/dist/bin/next start`; argumenty uruchomienia trafiają do `next start`, a `-e ARCHIVER_MODE=off` (niewspierane) wyłącza zarówno worker, jak i tę zmienną. Dzięki temu `SIGTERM` i `SIGINT` obsługuje nadzorca (patrz `NEXT_MANUAL_SIG_HANDLE` w tabeli), który kończy proces dopiero po zatrzymaniu workera. Zatrzymuj kontener z limitem wyższym niż `ARCHIVER_STOP_GRACE_MS`, czyli `docker stop -t 120` albo `stop_grace_period: 2m`, i **zawsze uruchamiaj go z initem jako PID 1** (`docker run --init` albo `init: true`; oba używają tini): Bun jako PID 1 nie zbiera osieroconych procesów, więc `projecto-compress` pozostawiony po zabitym przez `SIGKILL` workerze zostałby zombie. Obraz deklaruje jako `VOLUME` wszystkie ścieżki zapisu (`/work/tmp`, `/work/recovery`, `/work/run`, `/app/.next/cache`), więc powinien działać z `read_only: true` przy zamontowanych wolumenach i tmpfs opisanych niżej (nie było to testowane; Bun i Next.js mogą potrzebować dodatkowych zapisywalnych ścieżek, np. `/tmp`). Zalecane: tmpfs z `uid=10001,gid=10001` pod `/work/run` i `/app/.next/cache` (pliki jednorazowe), nazwane wolumeny na dysku pod `/work/tmp` i `/work/recovery`, a `tmpfs: /tmp` dla Buna. Bez montowania zapis trafia do anonimowych wolumenów. Przy `docker run` bez `--rm` (i po `docker rm` bez `-v`) zostają one na hoście po usunięciu kontenera; `/work/tmp` może zawierać wiele GiB (pobrane oryginały i kandydaci), więc sprzątaj je (`docker volume ls -f dangling=true`, `docker volume prune`) albo uruchamiaj z `--rm`. Zmiana `entrypoint` w compose nadpisuje opisane zachowanie; zostaw domyślny.
 
 ## Kolejność wdrożenia
 
@@ -293,23 +251,23 @@ Obraz web ze zmienionym dekoderem (`createDecompressStream`: okno zstd 28 i brot
 
 1. **R0**: wydanie samego web z nowym dekoderem. Nadal kompresuje w procesie, starymi ustawieniami; jego wynik dekoduje się bez problemu.
 2. Migracje bazy (sekcje "Migracja zadań archiwizacji" i "Migracja znacznika usuwania zleceń"). Są addytywne, stary kod ignoruje nowe tabele i kolumnę. Plik `2026-11-20_orders_deleting_at.sql` musi być wykonany przed wdrożeniem nowego kodu.
-3. Uruchom `archiver-worker`. Czeka na zadania i wysyła heartbeat.
-4. Skopiuj istniejące pliki z katalogu odzyskiwania kontenera web do wolumenu `archiver-recovery` (patrz niżej). Nie usuwaj oryginałów.
-5. Wdróż web z nowymi trasami kolejki. Jeśli stary proces web wykonuje w tej chwili zadanie, nadal trzyma blokadę (`ARCHIVE_LOCK_KEY`), więc worker poczeka, aż ono się skończy.
+3. Uruchom nowy obraz web (`docker compose up -d --build`): wbudowany worker czeka na zadania i wysyła heartbeat.
+4. Skopiuj istniejące pliki z katalogu odzyskiwania dotychczasowego kontenera web do wolumenu `web-recovery` (patrz niżej). Nie usuwaj oryginałów.
+5. Wdróż web z nowymi trasami kolejki (ten sam obraz). Jeśli stary proces web wykonuje w tej chwili zadanie, nadal trzyma blokadę (`ARCHIVE_LOCK_KEY`), więc worker poczeka, aż ono się skończy.
 6. Sprawdź rewizję uruchomionych obrazów (patrz niżej).
 
 ## Katalog odzyskiwania (przeniesienie)
 
-Do tej pory `ARCHIVER_RECOVERY_DIR` był katalogiem kontenera web; teraz używa go worker (`/work/recovery`). Skopiuj dotychczasowe pliki `<id>.orig` i `<id>.json` do wolumenu `archiver-recovery`, a oryginały zostaw na miejscu:
+Do tej pory `ARCHIVER_RECOVERY_DIR` był katalogiem kontenera web; teraz używa go worker (`/work/recovery`). Skopiuj dotychczasowe pliki `<id>.orig` i `<id>.json` do wolumenu `web-recovery`, a oryginały zostaw na miejscu:
 
 ```
 # kopia z kontenera web na hosta
 docker cp <kontener-web>:<ARCHIVER_RECOVERY_DIR>/. ./archiver-recovery-copy
 
-# z hosta do wolumenu (ten sam obraz co worker, jako root tylko na czas kopiowania)
+# z hosta do wolumenu (ten sam obraz web, jako root tylko na czas kopiowania)
 docker run --rm --user 0 --entrypoint sh \
-  -v "$PWD/archiver-recovery-copy:/from:ro" -v archiver-recovery:/to \
-  "projecto-archiver-worker:$GIT_SHA" -c 'cp -a /from/. /to/ && chown -R 10001:10001 /to'
+  -v "$PWD/archiver-recovery-copy:/from:ro" -v projecto_web-recovery:/to \
+  "projecto-web:$GIT_SHA" -c 'cp -a /from/. /to/ && chown -R 10001:10001 /to'
 ```
 
 Jeśli katalog web był wolumenem, zamiast `docker cp` zamontuj ten wolumen jako `/from:ro`. Nazwy wolumenów compose mają zwykle prefiks projektu (`docker volume ls`). Pliki nie są usuwane automatycznie. Wpisy, które wymagają ręcznego sprawdzenia, panel administratora pokazuje jako licznik.
@@ -336,8 +294,8 @@ Po każdym wdrożeniu sprawdź, że kontenery działają z obrazów zbudowanych 
 
 ```
 git rev-parse HEAD
-docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' <kontener-archiver-worker>
-docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "projecto-archiver-worker:$GIT_SHA"
+docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' <kontener-web>
+docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "projecto-web:$GIT_SHA"
 ```
 
 Wszystkie trzy wartości muszą być równe. Ten sam skrót widać w bazie: `SELECT worker_id, version, heartbeat_at FROM archive_workers;` (kolumna `version` ma postać `<skrót> / projecto-compress 1.0.0 zstd 1.5.7 brotli 1.2.1`).
@@ -345,16 +303,16 @@ Wszystkie trzy wartości muszą być równe. Ten sam skrót widać w bazie: `SEL
 Sprawdzenia samego obrazu:
 
 ```
-docker run --rm --entrypoint id "projecto-archiver-worker:$GIT_SHA"           # uid=10001
-docker run --rm --entrypoint projecto-compress "projecto-archiver-worker:$GIT_SHA" --version
-docker run --rm --entrypoint sh "projecto-archiver-worker:$GIT_SHA" -c 'ls -a /app'   # bez plików .env
+docker run --rm --entrypoint id "projecto-web:$GIT_SHA"           # uid=10001
+docker run --rm --entrypoint projecto-compress "projecto-web:$GIT_SHA" --version
+docker run --rm --entrypoint sh "projecto-web:$GIT_SHA" -c 'ls -a /app'   # bez plików .env
 ```
 
 ## Wycofanie zmian
 
 1. Zanim cokolwiek wycofasz, rozstrzygnij wpisy `archive_pending_verify`: uruchom workera jeszcze raz (dokończy przerwane sprawdzenia i w razie potrzeby przywróci oryginał) albo sprawdź wiersze ręcznie.
 2. Wdróż poprzedni obraz web, ale **nigdy starszy niż R0**. Od chwili, gdy worker zarchiwizował pierwszy plik, obiekty w koszyku mogą mieć okno zstd 28 lub brotli large-window, a obrazy starsze niż R0 ich nie pobiorą.
-3. Zatrzymaj `archiver-worker`. Tabele `archive_*` są nieszkodliwe i można je zostawić; usunięcie opisuje komentarz `rollback` w pliku SQL migracji.
+3. Zatrzymaj web (worker jest jego częścią). Tabele `archive_*` są nieszkodliwe i można je zostawić; usunięcie opisuje komentarz `rollback` w pliku SQL migracji.
 
 # Technologie użyte
 
