@@ -4,6 +4,8 @@ import { v7 as uuid7 } from "uuid";
 import { DB } from "@/app/lib/db";
 import { describeDbError } from "@/app/lib/dbError";
 import { getUserAuthSession } from "@/app/server-functions/getUserAuthSession";
+import { KRATOS_TIMEOUT_MS } from "@/app/lib/kratos";
+import { KRATOS_ADMIN_URL } from "@/app/lib/kratosServer";
 import { isAdminSession } from "@/app/server-functions/isAdminSession";
 import { MAX_ORDERING_PARTY_NAME_LENGTH, isUuid, readText } from "@/app/lib/validate";
 import { withRequestLogging } from "@/app/lib/withRequestLogging";
@@ -13,6 +15,7 @@ const log = createLogger("admin");
 
 const UNIQUE_VIOLATION = "23505";
 const FORBIDDEN_MESSAGE = "Admin access required";
+const ADMIN_PARTY_MESSAGE = "Konta administratora nie mają zleceniodawców.";
 
 // Returns the session when the caller is an admin, otherwise null.
 async function getAdminSession()
@@ -55,6 +58,53 @@ function notFoundResponse()
 function invalidNameResponse()
 {
 	return Response.json({ error: `Nazwa zleceniodawcy musi mieć od 1 do ${MAX_ORDERING_PARTY_NAME_LENGTH} znaków.` }, { status: 400 });
+}
+
+// Admin accounts place no orders for third parties, so they must not own ordering parties.
+// Reads the role the way isAdminSession does (metadata_public, never the user-editable traits).
+// Returns an error response when the target is an admin or cannot be checked, otherwise null.
+async function rejectUnlessPartyOwner(userId)
+{
+	let response;
+
+	try
+	{
+		response = await fetch(`${KRATOS_ADMIN_URL}/admin/identities/${encodeURIComponent(userId)}`, { cache: "no-store", signal: AbortSignal.timeout(KRATOS_TIMEOUT_MS) });
+	}
+	catch (error)
+	{
+		log.error(`Kratos lookup for identity ${userId} failed: ${error?.name ?? "error"}`);
+		return Response.json({ error: "Nie udało się połączyć z Ory Kratos." }, { status: 502 });
+	}
+
+	if (!response.ok)
+	{
+		log.warn(`Kratos lookup for identity ${userId} returned ${response.status}`);
+		// Unread bodies keep the connection busy until they are garbage collected.
+		await response.body?.cancel();
+
+		return response.status === 404
+			? Response.json({ error: "Nie znaleziono użytkownika." }, { status: 404 })
+			: Response.json({ error: "Nie udało się połączyć z Ory Kratos." }, { status: 502 });
+	}
+
+	let identity;
+
+	try
+	{
+		identity = await response.json();
+	}
+	catch
+	{
+		return Response.json({ error: "Nie udało się połączyć z Ory Kratos." }, { status: 502 });
+	}
+
+	if (identity?.metadata_public?.role === "admin")
+	{
+		return Response.json({ error: ADMIN_PARTY_MESSAGE }, { status: 403 });
+	}
+
+	return null;
 }
 
 async function handleGet(request)
@@ -119,6 +169,13 @@ async function handlePost(request)
 			return invalidNameResponse();
 		}
 
+		const rejection = await rejectUnlessPartyOwner(userId);
+
+		if (rejection)
+		{
+			return rejection;
+		}
+
 		const id = uuid7();
 
 		await DB`
@@ -170,6 +227,24 @@ async function handlePut(request)
 		if (!name)
 		{
 			return invalidNameResponse();
+		}
+
+		const owners = await DB`
+			SELECT user_id
+			FROM ordering_parties
+			WHERE id = ${id}
+		`;
+
+		if (owners.length === 0)
+		{
+			return notFoundResponse();
+		}
+
+		const rejection = await rejectUnlessPartyOwner(owners[0].user_id);
+
+		if (rejection)
+		{
+			return rejection;
 		}
 
 		const rows = await DB`

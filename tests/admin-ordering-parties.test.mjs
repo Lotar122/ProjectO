@@ -14,6 +14,28 @@ const PARTY_ID = "33333333-3333-4333-8333-333333333333";
 const COLLECTION = "/api/admin/orderingParties";
 const realFetch = globalThis.fetch;
 
+const ADMIN_PARTY_ERROR = "Konta administratora nie mają zleceniodawców.";
+
+// Stubs the Kratos admin lookup; `calls` records the requested URLs.
+function stubKratos(identity = { metadata_public: { role: "user" } }, { status = 200, fail = false } = {})
+{
+	const calls = [];
+
+	globalThis.fetch = async (url) =>
+	{
+		calls.push(String(url));
+
+		if (fail)
+		{
+			throw new Error("connect ECONNREFUSED");
+		}
+
+		return status === 200 ? Response.json(identity) : new Response(null, { status });
+	};
+
+	return calls;
+}
+
 const uniqueViolation = () => Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" });
 
 const send = (handler, { method = "GET", query = "", body } = {}) =>
@@ -35,6 +57,7 @@ beforeEach(() =>
 	harness.session.loggedIn = true;
 	harness.session.userId = ADMIN_ID;
 	harness.session.role = "admin";
+	stubKratos();
 });
 
 describe("admin ordering parties: access", () =>
@@ -187,14 +210,14 @@ describe("PUT /api/admin/orderingParties", () =>
 {
 	test("renames the party and returns it", async () =>
 	{
-		harness.db.queue([{ id: PARTY_ID, name: "Beta" }]);
+		harness.db.queue([{ user_id: USER_ID }], [{ id: PARTY_ID, name: "Beta" }]);
 
 		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: " Beta " } });
 
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ orderingParty: { id: PARTY_ID, name: "Beta" } });
-		expect(harness.db.queries[0].text).toContain("UPDATE ordering_parties");
-		expect(harness.db.queries[0].values).toEqual(["Beta", PARTY_ID]);
+		expect(harness.db.queries[1].text).toContain("UPDATE ordering_parties");
+		expect(harness.db.queries[1].values).toEqual(["Beta", PARTY_ID]);
 	});
 
 	test("returns 400 for a malformed id", async () =>
@@ -229,12 +252,138 @@ describe("PUT /api/admin/orderingParties", () =>
 
 	test("returns 409 when renaming onto a name the account already uses", async () =>
 	{
-		harness.db.queue(uniqueViolation());
+		harness.db.queue([{ user_id: USER_ID }], uniqueViolation());
 
 		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
 
 		expect(res.status).toBe(409);
 		expect(await res.json()).toEqual({ error: "Ten zleceniodawca już istnieje." });
+	});
+});
+
+describe("admin accounts cannot own ordering parties", () =>
+{
+	const ADMIN_TARGET = { metadata_public: { role: "admin" } };
+
+	test("POST returns 403 for an admin target and writes nothing", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+		expect(res.status).toBe(403);
+		expect(await res.json()).toEqual({ error: ADMIN_PARTY_ERROR });
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain(`/admin/identities/${USER_ID}`);
+		expect(harness.db.queries).toEqual([]);
+	});
+
+	test("POST still creates a party for a user target after the role check", async () =>
+	{
+		const calls = stubKratos({ metadata_public: { role: "user" } });
+
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+		expect(res.status).toBe(201);
+		expect(calls).toHaveLength(1);
+	});
+
+	test("POST ignores a role that only appears in the user-editable traits", async () =>
+	{
+		stubKratos({ traits: { role: "admin" }, metadata_public: {} });
+
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+		expect(res.status).toBe(201);
+	});
+
+	test("POST validates input before calling Kratos", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "  " } });
+
+		expect(res.status).toBe(400);
+		expect(calls).toEqual([]);
+	});
+
+	test("POST returns 404 when Kratos does not know the target", async () =>
+	{
+		stubKratos(undefined, { status: 404 });
+
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+		expect(res.status).toBe(404);
+		expect(await res.json()).toEqual({ error: "Nie znaleziono użytkownika." });
+		expect(harness.db.queries).toEqual([]);
+	});
+
+	test("POST fails closed with 502 when Kratos errors or is unreachable", async () =>
+	{
+		for (const options of [{ status: 500 }, { fail: true }])
+		{
+			harness.reset();
+			harness.session.loggedIn = true;
+			harness.session.role = "admin";
+			stubKratos(undefined, options);
+
+			const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+			expect(res.status).toBe(502);
+			expect(await res.json()).toEqual({ error: "Nie udało się połączyć z Ory Kratos." });
+			expect(harness.db.queries).toEqual([]);
+		}
+	});
+
+	test("PUT returns 403 when the party belongs to an admin and updates nothing", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		harness.db.queue([{ user_id: USER_ID }]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(403);
+		expect(await res.json()).toEqual({ error: ADMIN_PARTY_ERROR });
+		expect(calls[0]).toContain(`/admin/identities/${USER_ID}`);
+		expect(harness.db.queries).toHaveLength(1);
+		expect(harness.db.queries[0].text).toContain("SELECT user_id");
+	});
+
+	test("PUT fails closed with 502 when Kratos is unreachable", async () =>
+	{
+		stubKratos(undefined, { fail: true });
+		harness.db.queue([{ user_id: USER_ID }]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(502);
+		expect(harness.db.queries).toHaveLength(1);
+	});
+
+	test("DELETE of a stale row still works for an admin-owned party without asking Kratos", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		harness.db.queue([{ id: PARTY_ID }]);
+
+		const res = await send(DELETE, { method: "DELETE", query: `?id=${PARTY_ID}` });
+
+		expect(res.status).toBe(200);
+		expect(calls).toEqual([]);
+	});
+
+	test("GET still lists stale rows of an admin target so they can be cleaned up", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		harness.db.queue([{ id: PARTY_ID, name: "Alfa" }]);
+
+		const res = await send(GET, { query: `?userId=${USER_ID}` });
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ orderingParties: [{ id: PARTY_ID, name: "Alfa" }] });
+		expect(calls).toEqual([]);
 	});
 });
 

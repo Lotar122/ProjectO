@@ -2,7 +2,7 @@
 
 import http from "@/app/lib/http";
 import { m } from "framer-motion";
-import { Building2, Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
+import { Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import Alert from "../../components/Alert";
@@ -121,18 +121,16 @@ const IdentityRow = memo(function IdentityRow({
 	isDeleteLocked,
 	isDeleting,
 	isEditing,
-	isShowingParties,
 	onClearMessages,
 	onDelete,
 	onError,
 	onSaved,
 	onStartEditing,
 	onStopEditing,
-	onToggleParties,
 })
 {
+	const isAdmin = identity.traits?.role === "admin";
 	const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-	const partiesButtonRef = useRef(null);
 	const editButtonRef = useRef(null);
 	const deleteButtonRef = useRef(null);
 	const confirmButtonRef = useRef(null);
@@ -180,12 +178,6 @@ const IdentityRow = memo(function IdentityRow({
 		editButtonRef.current?.focus();
 	};
 
-	const closeParties = () =>
-	{
-		onToggleParties(identity);
-		partiesButtonRef.current?.focus();
-	};
-
 	return (
 		<div className="overflow-hidden rounded-xl border border-line bg-surface">
 			<div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -196,18 +188,14 @@ const IdentityRow = memo(function IdentityRow({
 					<div className="min-w-0">
 						<div className="flex flex-wrap items-center gap-2">
 							<h3 className="min-w-0 max-w-full truncate font-semibold text-foreground">{getIdentityName(identity)}</h3>
-							<span className={`rounded-full px-2.5 py-1 text-xs font-medium ${identity.traits?.role === "admin" ? "bg-accent-soft text-accent-text" : "bg-surface-raised text-muted"}`}>
-								{identity.traits?.role === "admin" ? "Administrator" : "Użytkownik"}
+							<span className={`rounded-full px-2.5 py-1 text-xs font-medium ${isAdmin ? "bg-accent-soft text-accent-text" : "bg-surface-raised text-muted"}`}>
+								{isAdmin ? "Administrator" : "Użytkownik"}
 							</span>
 						</div>
 						<p className="truncate text-sm text-muted">{identity.traits?.email}</p>
 					</div>
 				</div>
 				<div data-identity-actions={identity.id} className="flex shrink-0 flex-wrap gap-2">
-					<button type="button" ref={partiesButtonRef} onClick={() => onToggleParties(identity)} aria-expanded={isShowingParties} className="btn btn-secondary">
-						<Building2 className="h-4 w-4" aria-hidden="true" />
-						Zleceniodawcy
-					</button>
 					<button type="button" ref={editButtonRef} onClick={() => onStartEditing(identity)} aria-expanded={isEditing} className="btn btn-secondary">
 						<Pencil className="h-4 w-4" aria-hidden="true" />
 						Edytuj
@@ -247,20 +235,21 @@ const IdentityRow = memo(function IdentityRow({
 			)}
 
 			{isEditing && (
-				<IdentityEditForm
-					identity={identity}
-					onClearMessages={onClearMessages}
-					onClose={closeEditing}
-					onError={onError}
-					onSaved={handleSaved} />
-			)}
+				<>
+					<IdentityEditForm
+						identity={identity}
+						onClearMessages={onClearMessages}
+						onClose={closeEditing}
+						onError={onError}
+						onSaved={handleSaved} />
 
-			{isShowingParties && (
-				<OrderingPartiesPanel
-					userId={identity.id}
-					onClearMessages={onClearMessages}
-					onClose={closeParties}
-					onError={onError} />
+					{!isAdmin && (
+						<OrderingPartiesPanel
+							userId={identity.id}
+							onClearMessages={onClearMessages}
+							onError={onError} />
+					)}
+				</>
 			)}
 		</div>
 	);
@@ -271,7 +260,6 @@ export default function ManageUsers({ refreshToken, onUserAction })
 	// null until the first response; the spinner is only for that case.
 	const [identities, setIdentities] = useState(null);
 	const [editingId, setEditingId] = useState(null);
-	const [partiesId, setPartiesId] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [deletingId, setDeletingId] = useState(null);
 	const [errorMessage, setErrorMessage] = useState("");
@@ -379,12 +367,6 @@ export default function ManageUsers({ refreshToken, onUserAction })
 		setEditingId(null);
 	}, []);
 
-	const toggleParties = useCallback((identity) =>
-	{
-		setPartiesId((current) => (current === identity.id ? null : identity.id));
-		clearMessages();
-	}, [clearMessages]);
-
 	const handleSaved = useCallback((updated) =>
 	{
 		setIdentities((current) =>
@@ -408,7 +390,6 @@ export default function ManageUsers({ refreshToken, onUserAction })
 			};
 			setIdentities((current) => current.filter((item) => item.id !== identity.id));
 			setEditingId((current) => (current === identity.id ? null : current));
-			setPartiesId((current) => (current === identity.id ? null : current));
 			setSuccessMessage("Konto zostało usunięte.");
 		}
 		catch (error)
@@ -458,14 +439,12 @@ export default function ManageUsers({ refreshToken, onUserAction })
 							isDeleteLocked={deletingId !== null}
 							isDeleting={deletingId === identity.id}
 							isEditing={editingId === identity.id}
-							isShowingParties={partiesId === identity.id}
 							onClearMessages={clearMessages}
 							onDelete={deleteIdentity}
 							onError={setErrorMessage}
 							onSaved={handleSaved}
 							onStartEditing={startEditing}
-							onStopEditing={stopEditing}
-							onToggleParties={toggleParties} />,
+							onStopEditing={stopEditing} />,
 					)}
 				</div>
 			)}

@@ -160,7 +160,7 @@ const OrderingPartyRow = memo(function OrderingPartyRow({
 /**
  * Admin panel listing and managing one account's ordering parties (zleceniodawcy).
  * Mount it when the panel is opened; it loads the list on mount.
- * @param {{ userId: string, onClearMessages: () => void, onError: (message: string) => void, onClose: () => void }} props
+ * @param {{ userId: string, onClearMessages: () => void, onError: (message: string) => void, onClose?: () => void }} props
  */
 export default function OrderingPartiesPanel({ userId, onClearMessages, onError, onClose })
 {
@@ -321,9 +321,11 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 		<section aria-label="Zleceniodawcy" className="space-y-4 border-t border-line bg-background p-5">
 			<div className="flex items-center justify-between">
 				<h3 ref={headingRef} tabIndex={-1} className="font-semibold text-foreground outline-none">Zleceniodawcy</h3>
-				<button type="button" onClick={onClose} className="btn btn-ghost -my-1.5 -mr-1.5 size-10 min-h-0 px-0" aria-label="Zamknij zleceniodawców">
-					<X className="h-5 w-5" aria-hidden="true" />
-				</button>
+				{onClose && (
+					<button type="button" onClick={onClose} className="btn btn-ghost -my-1.5 -mr-1.5 size-10 min-h-0 px-0" aria-label="Zamknij zleceniodawców">
+						<X className="h-5 w-5" aria-hidden="true" />
+					</button>
+				)}
 			</div>
 
 			{parties === null ? (
