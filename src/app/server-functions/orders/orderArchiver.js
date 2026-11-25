@@ -21,6 +21,7 @@ import { createDbClient } from "@/app/lib/db";
 import { createLogger } from "@/app/lib/logger";
 import { DELETION_STALE_INTERVAL } from "@/app/server-functions/orders/orderRowLock";
 import { isUuid } from "@/app/lib/validate";
+import { isTempOriginal, recoveryDir, recoveryPaths } from "@/app/server-functions/orders/archiverRecovery";
 import {
 	ChecksumMismatchError,
 	assertChecksum,
@@ -82,8 +83,6 @@ const TEMP_CANDIDATE_PATTERN = /\.(zst|br)$/;
 // belong to an archive still in flight (an orphaned compressor still writing
 // its candidate after the worker was killed, or a download in progress).
 export const TEMP_SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
-// The exact name createTempFilePath() gives a downloaded original.
-const TEMP_ORIGINAL_NAME_PATTERN = /^projecto-archive-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Downloaded originals and recovery copies hold patient data: owner only.
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIR_MODE = 0o700;
@@ -509,20 +508,13 @@ async function tightenIfExists(filePath)
 	}
 }
 
-function recoveryDir()
-{
-	return process.env.ARCHIVER_RECOVERY_DIR || path.join(process.cwd(), "archiver-recovery");
-}
-
 // Copies the verified original out of the temp directory (which is often
 // ephemeral in containers) when it is the only good copy left, next to a JSON
 // file with what is needed to put it back. Resolves to the copy's path.
 async function saveForRecovery({ fileId, originalPath, contentType, metadata, original, reason })
 {
 	const dir = recoveryDir();
-	const baseName = encodeURIComponent(fileId);
-	const filePath = path.join(dir, `${baseName}.orig`);
-	const infoPath = path.join(dir, `${baseName}.json`);
+	const { filePath, infoPath } = recoveryPaths(fileId);
 
 	await mkdir(dir, { recursive: true, mode: PRIVATE_DIR_MODE });
 
@@ -2106,21 +2098,6 @@ function parseJournalRow(row)
 		preUploadEtag: row.pre_upload_etag,
 		originalPath: row.original_path,
 	};
-}
-
-// A journal row's original_path is only ever read or removed when it is an
-// archiver original: an absolute, normalized path whose name is exactly what
-// createTempFilePath() gives one. Its folder may differ from today's
-// os.tmpdir(), so a TMPDIR change between runs does not strand the row; a
-// restore still re-hashes the file against the journal first.
-function isTempOriginal(filePath)
-{
-	if (typeof filePath !== "string" || !path.isAbsolute(filePath) || path.normalize(filePath) !== filePath)
-	{
-		return false;
-	}
-
-	return TEMP_ORIGINAL_NAME_PATTERN.test(path.basename(filePath));
 }
 
 async function removeJournalOriginal(filePath, fileId)

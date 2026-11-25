@@ -1,8 +1,10 @@
 "use client";
 
 import http from "@/app/lib/http";
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, CircleAlert, Pencil, Plus, RotateCw, Trash2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+
+import Alert from "../../components/Alert";
 
 const API_URL = "/api/admin/orderingParties";
 const MAX_NAME_LENGTH = 200;
@@ -10,8 +12,24 @@ const DANGER_HOVER = "enabled:hover:border-danger-line enabled:hover:bg-danger-s
 
 const sortByName = (parties) => [...parties].sort((a, b) => a.name.localeCompare(b.name, "pl"));
 
+function RowError({ message })
+{
+	if (!message)
+	{
+		return null;
+	}
+
+	return (
+		<p role="alert" className="flex items-start gap-2 pb-3 text-sm text-danger-text">
+			<CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+			<span className="min-w-0 wrap-break-word">{message}</span>
+		</p>
+	);
+}
+
 const OrderingPartyRow = memo(function OrderingPartyRow({
 	party,
+	errorMessage,
 	isBusy,
 	onDelete,
 	onRename,
@@ -108,6 +126,7 @@ const OrderingPartyRow = memo(function OrderingPartyRow({
 						</button>
 					</div>
 				</form>
+				<RowError message={errorMessage} />
 			</li>
 		);
 	}
@@ -122,37 +141,42 @@ const OrderingPartyRow = memo(function OrderingPartyRow({
 					{
 						setMode("view");
 					}
-				}}
-				className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-				<p className="min-w-0 wrap-break-word text-sm text-foreground">
-					Usunąć zleceniodawcę <span className="font-semibold">{party.name}</span>?
-				</p>
-				<div className="flex shrink-0 gap-2">
-					<button type="button" ref={confirmButtonRef} onClick={confirmDelete} disabled={isBusy} className="btn btn-danger">
-						<Trash2 className="h-4 w-4" aria-hidden="true" />
-						{isBusy ? "Usuwanie..." : "Usuń"}
-					</button>
-					<button type="button" onClick={() => setMode("view")} disabled={isBusy} className="btn btn-secondary">
-						Anuluj
-					</button>
+				}}>
+				<div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="min-w-0 wrap-break-word text-sm text-foreground">
+						Usunąć zleceniodawcę <span className="font-semibold">{party.name}</span>?
+					</p>
+					<div className="flex shrink-0 gap-2">
+						<button type="button" ref={confirmButtonRef} onClick={confirmDelete} disabled={isBusy} className="btn btn-danger">
+							<Trash2 className="h-4 w-4" aria-hidden="true" />
+							{isBusy ? "Usuwanie..." : "Usuń"}
+						</button>
+						<button type="button" onClick={() => setMode("view")} disabled={isBusy} className="btn btn-secondary">
+							Anuluj
+						</button>
+					</div>
 				</div>
+				<RowError message={errorMessage} />
 			</li>
 		);
 	}
 
 	return (
-		<li data-party-id={party.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-			<span className="min-w-0 wrap-break-word text-foreground">{party.name}</span>
-			<div className="flex shrink-0 gap-2">
-				<button type="button" ref={editButtonRef} onClick={startEditing} className="btn btn-secondary">
-					<Pencil className="h-4 w-4" aria-hidden="true" />
-					Edytuj
-				</button>
-				<button type="button" ref={deleteButtonRef} onClick={startDeleting} className={`btn btn-secondary ${DANGER_HOVER}`}>
-					<Trash2 className="h-4 w-4" aria-hidden="true" />
-					Usuń
-				</button>
+		<li data-party-id={party.id}>
+			<div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+				<span className="min-w-0 wrap-break-word text-foreground">{party.name}</span>
+				<div className="flex shrink-0 gap-2">
+					<button type="button" ref={editButtonRef} onClick={startEditing} className="btn btn-secondary">
+						<Pencil className="h-4 w-4" aria-hidden="true" />
+						Edytuj
+					</button>
+					<button type="button" ref={deleteButtonRef} onClick={startDeleting} className={`btn btn-secondary ${DANGER_HOVER}`}>
+						<Trash2 className="h-4 w-4" aria-hidden="true" />
+						Usuń
+					</button>
+				</div>
 			</div>
+			<RowError message={errorMessage} />
 		</li>
 	);
 });
@@ -160,12 +184,20 @@ const OrderingPartyRow = memo(function OrderingPartyRow({
 /**
  * Admin panel listing and managing one account's ordering parties (zleceniodawcy).
  * Mount it when the panel is opened; it loads the list on mount.
- * @param {{ userId: string, onClearMessages: () => void, onError: (message: string) => void, onClose?: () => void }} props
+ * Errors from the panel's own actions are shown inside it, not through the list-level alert:
+ * next to the affected row, or in a panel-level alert when no row is involved.
+ * `clearSignal` is any value that changes whenever the parent clears its messages; the panel then drops its action error.
+ * @param {{ userId: string, onClearMessages: () => void, clearSignal?: number, onClose?: () => void }} props
  */
-export default function OrderingPartiesPanel({ userId, onClearMessages, onError, onClose })
+export default function OrderingPartiesPanel({ userId, onClearMessages, clearSignal = 0, onClose })
 {
 	// null until the first response.
 	const [parties, setParties] = useState(null);
+	// Failed add, rename or delete: { message, partyId } with partyId null when no row is involved.
+	const [error, setError] = useState(null);
+	const [loadFailed, setLoadFailed] = useState(false);
+	const [loadErrorMessage, setLoadErrorMessage] = useState("");
+	const [reloadKey, setReloadKey] = useState(0);
 	const [newName, setNewName] = useState("");
 	const [isAdding, setIsAdding] = useState(false);
 	const [busyId, setBusyId] = useState(null);
@@ -176,6 +208,11 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 	const focusAfterDeleteRef = useRef(null);
 
 	partiesRef.current = parties;
+
+	useEffect(() =>
+	{
+		setError(null);
+	}, [clearSignal]);
 
 	useEffect(() =>
 	{
@@ -218,14 +255,16 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 				if (!controller.signal.aborted)
 				{
 					setParties(sortByName(response.data.orderingParties || []));
+					setLoadFailed(false);
 				}
 			}
-			catch (error)
+			catch (err)
 			{
 				if (!controller.signal.aborted)
 				{
 					setParties([]);
-					onError(error.response?.data?.error || "Nie udało się pobrać zleceniodawców.");
+					setLoadFailed(true);
+					setLoadErrorMessage(err.response?.data?.error || "Nie udało się pobrać zleceniodawców.");
 				}
 			}
 		};
@@ -236,20 +275,32 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 		{
 			controller.abort();
 		};
-	}, [userId, onError]);
+	}, [userId, reloadKey]);
+
+	// Adding is blocked until the list is known, otherwise a new party would look like the whole list.
+	const isFormLocked = loadFailed || parties === null;
+
+	const retryLoad = () =>
+	{
+		setParties(null);
+		setLoadFailed(false);
+		setReloadKey((key) => key + 1);
+		headingRef.current?.focus();
+	};
 
 	const addParty = async (event) =>
 	{
 		event.preventDefault();
 		const name = newName.trim();
 
-		if (!name)
+		if (!name || isFormLocked)
 		{
 			return;
 		}
 
 		setIsAdding(true);
 		onClearMessages();
+		setError(null);
 
 		try
 		{
@@ -257,9 +308,9 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 			setParties((current) => sortByName([...(current || []), response.data.orderingParty]));
 			setNewName("");
 		}
-		catch (error)
+		catch (err)
 		{
-			onError(error.response?.data?.error || "Nie udało się dodać zleceniodawcy.");
+			setError({ message: err.response?.data?.error || "Nie udało się dodać zleceniodawcy.", partyId: null });
 		}
 		finally
 		{
@@ -272,6 +323,7 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 	{
 		setBusyId(party.id);
 		onClearMessages();
+		setError(null);
 
 		try
 		{
@@ -281,21 +333,22 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 			);
 			return true;
 		}
-		catch (error)
+		catch (err)
 		{
-			onError(error.response?.data?.error || "Nie udało się zapisać zleceniodawcy.");
+			setError({ message: err.response?.data?.error || "Nie udało się zapisać zleceniodawcy.", partyId: party.id });
 			return false;
 		}
 		finally
 		{
 			setBusyId(null);
 		}
-	}, [onClearMessages, onError]);
+	}, [onClearMessages]);
 
 	const deleteParty = useCallback(async (party) =>
 	{
 		setBusyId(party.id);
 		onClearMessages();
+		setError(null);
 
 		try
 		{
@@ -306,16 +359,16 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 			setParties((current) => current.filter((item) => item.id !== party.id));
 			return true;
 		}
-		catch (error)
+		catch (err)
 		{
-			onError(error.response?.data?.error || "Nie udało się usunąć zleceniodawcy.");
+			setError({ message: err.response?.data?.error || "Nie udało się usunąć zleceniodawcy.", partyId: party.id });
 			return false;
 		}
 		finally
 		{
 			setBusyId(null);
 		}
-	}, [onClearMessages, onError]);
+	}, [onClearMessages]);
 
 	return (
 		<section aria-label="Zleceniodawcy" className="space-y-4 border-t border-line bg-background p-5">
@@ -331,19 +384,35 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 			{parties === null ? (
 				<p role="status" className="text-sm text-muted">Wczytywanie zleceniodawców...</p>
 			) : parties.length === 0 ? (
-				<p className="text-sm text-muted">Brak zleceniodawców. Dodaj pierwszego poniżej.</p>
+				!loadFailed && <p className="text-sm text-muted">Brak zleceniodawców. Dodaj pierwszego poniżej.</p>
 			) : (
 				<ul ref={listRef} className="divide-y divide-line">
 					{parties.map((party) =>
 						<OrderingPartyRow
 							key={party.id}
 							party={party}
+							errorMessage={error?.partyId === party.id ? error.message : ""}
 							isBusy={busyId === party.id}
 							onDelete={deleteParty}
 							onRename={renameParty} />,
 					)}
 				</ul>
 			)}
+
+			{loadFailed && (
+				<Alert
+					tone="danger"
+					action={(
+						<button type="button" onClick={retryLoad} className="btn btn-secondary">
+							<RotateCw className="h-4 w-4" aria-hidden="true" />
+							Spróbuj ponownie
+						</button>
+					)}>
+					{loadErrorMessage}
+				</Alert>
+			)}
+
+			{error && !error.partyId && <Alert tone="danger">{error.message}</Alert>}
 
 			<form onSubmit={addParty} className="flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-end">
 				<label className="block min-w-0 flex-1 text-sm font-medium text-foreground">
@@ -353,10 +422,11 @@ export default function OrderingPartiesPanel({ userId, onClearMessages, onError,
 						maxLength={MAX_NAME_LENGTH}
 						value={newName}
 						onChange={(event) => setNewName(event.target.value)}
+						disabled={isFormLocked}
 						placeholder="Nazwa zleceniodawcy"
 						className="field mt-2" />
 				</label>
-				<button type="submit" disabled={isAdding || !newName.trim()} className="btn btn-primary shrink-0">
+				<button type="submit" disabled={isFormLocked || isAdding || !newName.trim()} className="btn btn-primary shrink-0">
 					<Plus className="h-4 w-4" aria-hidden="true" />
 					{isAdding ? "Dodawanie..." : "Dodaj"}
 				</button>

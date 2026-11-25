@@ -1,6 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import http, { isAbortError } from "@/app/lib/http";
@@ -306,6 +307,13 @@ const KratosLogin = () =>
 						{isSubmitting ? "Logowanie..." : "Zaloguj się"}
 					</button>
 				</form>
+
+				<p className="mt-6 text-center text-xs text-muted">
+					Serwis używa wyłącznie niezbędnych plików cookie.{" "}
+					<Link href="/cookies" className="underline hover:text-foreground">Polityka cookies</Link>
+					{" · "}
+					<Link href="/privacy" className="underline hover:text-foreground">Polityka prywatności</Link>
+				</p>
 			</m.div>
 		</div>
 	);

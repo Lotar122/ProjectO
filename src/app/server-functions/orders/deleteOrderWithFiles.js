@@ -141,6 +141,10 @@ function finishDeletion(orderID, ownerId, deletedFileIds, marker)
  * @param {(row: { status: string | null }) => boolean} [options.assertDeletable] Returns false when the
  *   locked order may not be deleted; checked once, before the marker is set and any file is
  *   touched. Omitted for admins.
+ * @param {(fileIds: string[]) => Promise<string[]>} [options.cleanupDeletedFiles] Runs after the files
+ *   are gone from S3 and before the order row is finalised, with the ids deleted (read under the
+ *   lock, so they are complete). Returns the ids it could not clean up; those stay on the order
+ *   like undeleted files, so a later delete finds them again. A throw counts as all ids failed.
  * @returns {Promise<
  *   { result: "ok", fileCount: number } |
  *   { result: "not_found" } |
@@ -150,7 +154,7 @@ function finishDeletion(orderID, ownerId, deletedFileIds, marker)
  * >} "deleting" when another delete of the order is still running, or took over
  *   this one's expired marker before step 3.
  */
-export async function deleteOrderWithFiles({ s3, orderID, ownerId, assertDeletable })
+export async function deleteOrderWithFiles({ s3, orderID, ownerId, assertDeletable, cleanupDeletedFiles })
 {
 	if (!s3 || typeof s3.send !== "function")
 	{
@@ -170,6 +174,11 @@ export async function deleteOrderWithFiles({ s3, orderID, ownerId, assertDeletab
 	if (assertDeletable !== undefined && typeof assertDeletable !== "function")
 	{
 		throw new TypeError("deleteOrderWithFiles: assertDeletable must be a function");
+	}
+
+	if (cleanupDeletedFiles !== undefined && typeof cleanupDeletedFiles !== "function")
+	{
+		throw new TypeError("deleteOrderWithFiles: cleanupDeletedFiles must be a function");
 	}
 
 	const snapshot = await DB.begin(async (sql) =>
@@ -212,6 +221,23 @@ export async function deleteOrderWithFiles({ s3, orderID, ownerId, assertDeletab
 	}
 
 	const deletedFileIds = await deleteFilesReportingSuccess(s3, orderID, snapshot.fileIds);
+
+	if (cleanupDeletedFiles && deletedFileIds.size > 0)
+	{
+		let uncleaned;
+
+		try
+		{
+			uncleaned = await cleanupDeletedFiles([...deletedFileIds]);
+		}
+		catch (err)
+		{
+			log.error(`Order ${orderID}: cleaning up after the deleted files failed: ${err?.message}`);
+			uncleaned = [...deletedFileIds];
+		}
+
+		uncleaned.forEach((fileId) => deletedFileIds.delete(fileId));
+	}
 
 	try
 	{

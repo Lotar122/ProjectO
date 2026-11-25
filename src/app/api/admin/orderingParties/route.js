@@ -96,6 +96,8 @@ async function rejectUnlessPartyOwner(userId)
 	}
 	catch
 	{
+		// The body is not logged: an identity response holds personal data.
+		log.error(`Kratos lookup for identity ${userId} returned an unreadable body`);
 		return Response.json({ error: "Nie udało się połączyć z Ory Kratos." }, { status: 502 });
 	}
 

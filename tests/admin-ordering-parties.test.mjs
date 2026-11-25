@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { inspect } from "node:util";
 import { callRoute, harness, installRouteHarness, uninstallRouteHarness } from "./helpers/routeHarness.mjs";
 
 // Run with `bun test --conditions react-server` so `server-only` resolves.
@@ -7,6 +8,7 @@ await installRouteHarness();
 const { GET, POST, PUT, DELETE } = await import("../src/app/api/admin/orderingParties/route.js");
 const { DELETE: DELETE_IDENTITY } = await import("../src/app/api/admin/deleteIdentity/route.js");
 const { isUuid } = await import("../src/app/lib/validate.js");
+const { KRATOS_TIMEOUT_MS } = await import("../src/app/lib/kratos.js");
 
 const ADMIN_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -16,21 +18,35 @@ const realFetch = globalThis.fetch;
 
 const ADMIN_PARTY_ERROR = "Konta administratora nie mają zleceniodawców.";
 
-// Stubs the Kratos admin lookup; `calls` records the requested URLs.
-function stubKratos(identity = { metadata_public: { role: "user" } }, { status = 200, fail = false } = {})
+// Stubs the Kratos admin lookup; `calls` records the requested URLs and `calls.signals` the abort signals.
+// `rawBody` replaces the JSON body, `error` is thrown by the fetch (an abort or timeout).
+function stubKratos(identity = { metadata_public: { role: "user" } }, { status = 200, fail = false, rawBody, error } = {})
 {
 	const calls = [];
 
-	globalThis.fetch = async (url) =>
+	calls.signals = [];
+
+	globalThis.fetch = async (url, init) =>
 	{
 		calls.push(String(url));
+		calls.signals.push(init?.signal);
+
+		if (error)
+		{
+			throw error;
+		}
 
 		if (fail)
 		{
 			throw new Error("connect ECONNREFUSED");
 		}
 
-		return status === 200 ? Response.json(identity) : new Response(null, { status });
+		if (status !== 200)
+		{
+			return new Response(null, { status });
+		}
+
+		return rawBody === undefined ? Response.json(identity) : new Response(rawBody, { status: 200 });
 	};
 
 	return calls;
@@ -359,6 +375,193 @@ describe("admin accounts cannot own ordering parties", () =>
 
 		expect(res.status).toBe(502);
 		expect(harness.db.queries).toHaveLength(1);
+	});
+
+	test("POST fails closed with 502 when Kratos returns a body that is not JSON", async () =>
+	{
+		stubKratos(undefined, { rawBody: "<html>bad gateway</html>" });
+
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+		expect(res.status).toBe(502);
+		expect(await res.json()).toEqual({ error: "Nie udało się połączyć z Ory Kratos." });
+		expect(harness.db.queries).toEqual([]);
+	});
+
+	test("POST fails closed with 502 when the Kratos request times out or is aborted", async () =>
+	{
+		for (const name of ["TimeoutError", "AbortError"])
+		{
+			harness.reset();
+			harness.session.loggedIn = true;
+			harness.session.role = "admin";
+
+			const calls = stubKratos(undefined, { error: new DOMException("The operation timed out.", name) });
+			const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+			expect(res.status).toBe(502);
+			expect(await res.json()).toEqual({ error: "Nie udało się połączyć z Ory Kratos." });
+			expect(calls).toHaveLength(1);
+			expect(harness.db.queries).toEqual([]);
+		}
+	});
+
+	test("the Kratos lookup is aborted by the configured timeout and fails closed with 502", async () =>
+	{
+		const signals = [];
+
+		globalThis.fetch = (_url, init) =>
+		{
+			signals.push(init.signal);
+
+			return new Promise((_resolve, reject) =>
+			{
+				init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+			});
+		};
+
+		const startedAt = performance.now();
+		const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+		const elapsedMs = performance.now() - startedAt;
+
+		expect(res.status).toBe(502);
+		expect(await res.json()).toEqual({ error: "Nie udało się połączyć z Ory Kratos." });
+		expect(signals).toHaveLength(1);
+		expect(signals[0]).toBeInstanceOf(AbortSignal);
+		expect(signals[0].aborted).toBe(true);
+		expect(signals[0].reason.name).toBe("TimeoutError");
+		expect(elapsedMs).toBeGreaterThanOrEqual(KRATOS_TIMEOUT_MS - 50);
+		expect(harness.db.queries).toEqual([]);
+	}, KRATOS_TIMEOUT_MS + 5000);
+
+	test("POST with a malformed userId never reaches Kratos", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		for (const userId of ["not-a-uuid", "../admin/identities", "", undefined])
+		{
+			const res = await send(POST, { method: "POST", body: { userId, name: "Alfa" } });
+
+			expect(res.status).toBe(400);
+		}
+		expect(calls).toEqual([]);
+		expect(harness.db.queries).toEqual([]);
+	});
+
+	test("an unreadable Kratos body is logged without the body or the error object", async () =>
+	{
+		const MARKER = "SECRET-MARKER-BODY";
+		const logged = [];
+		const realConsole = { log: console.log, warn: console.warn, error: console.error };
+		const capture = (...args) => logged.push(args);
+
+		console.log = capture;
+		console.warn = capture;
+		console.error = capture;
+
+		try
+		{
+			stubKratos(undefined, { rawBody: `${MARKER} <html>not json</html>` });
+
+			const res = await send(POST, { method: "POST", body: { userId: USER_ID, name: "Alfa" } });
+
+			expect(res.status).toBe(502);
+		}
+		finally
+		{
+			console.log = realConsole.log;
+			console.warn = realConsole.warn;
+			console.error = realConsole.error;
+		}
+
+		const errorLines = logged.filter((args) => typeof args[0] === "string" && args[0].startsWith("ERROR [admin]"));
+
+		expect(errorLines.length).toBeGreaterThan(0);
+
+		const allArgs = logged.flat();
+
+		expect(allArgs.some((arg) => arg instanceof Error)).toBe(false);
+		expect(allArgs.some((arg) => inspect(arg).includes(MARKER))).toBe(false);
+	});
+
+	test("PUT fails closed with 502 when Kratos returns a body that is not JSON", async () =>
+	{
+		stubKratos(undefined, { rawBody: "not json" });
+		harness.db.queue([{ user_id: USER_ID }]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(502);
+		expect(await res.json()).toEqual({ error: "Nie udało się połączyć z Ory Kratos." });
+		expect(harness.db.queries).toHaveLength(1);
+		expect(harness.db.queries[0].text).toContain("SELECT user_id");
+	});
+
+	test("PUT returns 404 when Kratos does not know the owner and updates nothing", async () =>
+	{
+		stubKratos(undefined, { status: 404 });
+		harness.db.queue([{ user_id: USER_ID }]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(404);
+		expect(await res.json()).toEqual({ error: "Nie znaleziono użytkownika." });
+		expect(harness.db.queries).toHaveLength(1);
+		expect(harness.db.queries[0].text).toContain("SELECT user_id");
+	});
+
+	test("PUT fails closed with 502 when the Kratos request times out", async () =>
+	{
+		stubKratos(undefined, { error: new DOMException("The operation timed out.", "TimeoutError") });
+		harness.db.queue([{ user_id: USER_ID }]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(502);
+		expect(harness.db.queries).toHaveLength(1);
+	});
+
+	test("PUT for an unknown party never calls Kratos", async () =>
+	{
+		const calls = stubKratos(ADMIN_TARGET);
+
+		harness.db.queue([]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(404);
+		expect(calls).toEqual([]);
+		expect(harness.db.queries).toHaveLength(1);
+	});
+
+	test("PUT asks Kratos about the owner stored in the database, not an id from the request", async () =>
+	{
+		const OWNER_ID = "44444444-4444-4444-8444-444444444444";
+		const calls = stubKratos();
+
+		harness.db.queue([{ user_id: OWNER_ID }], [{ id: PARTY_ID, name: "Beta" }]);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, userId: USER_ID, name: "Beta" } });
+
+		expect(res.status).toBe(200);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain(`/admin/identities/${encodeURIComponent(OWNER_ID)}`);
+		expect(calls[0]).not.toContain(USER_ID);
+	});
+
+	test("PUT returns 404 when the party is deleted between the owner lookup and the update", async () =>
+	{
+		const calls = stubKratos();
+
+		harness.db.queue([{ user_id: USER_ID }], []);
+
+		const res = await send(PUT, { method: "PUT", body: { id: PARTY_ID, name: "Beta" } });
+
+		expect(res.status).toBe(404);
+		expect(await res.json()).toEqual({ error: "Nie znaleziono zleceniodawcy." });
+		expect(calls).toHaveLength(1);
+		expect(harness.db.queries).toHaveLength(2);
+		expect(harness.db.queries[1].text).toContain("UPDATE ordering_parties");
 	});
 
 	test("DELETE of a stale row still works for an admin-owned party without asking Kratos", async () =>

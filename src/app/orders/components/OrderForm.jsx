@@ -56,7 +56,7 @@ export default function OrderForm({
 				<form onSubmit={onSubmit} className="space-y-6">
 					<div>
 						<label htmlFor={`${id}-patient`} className="field-label">
-							Imię i nazwisko pacjenta
+							Pacjent
 						</label>
 						<input
 							id={`${id}-patient`}
@@ -64,9 +64,13 @@ export default function OrderForm({
 							value={patient}
 							onChange={(event) => onPatientChange(event.target.value)}
 							className="field"
-							placeholder="np. Jan Kowalski"
+							placeholder="np. J.K. lub numer sprawy"
+							aria-describedby={`${id}-patient-hint`}
 							required
 						/>
+						<p id={`${id}-patient-hint`} className="mt-1.5 text-xs text-muted">
+							Zalecamy wpisać inicjały lub numer sprawy zamiast pełnego imienia i nazwiska.
+						</p>
 					</div>
 
 					{showOrderingParty && (

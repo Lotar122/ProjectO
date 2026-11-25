@@ -2,13 +2,14 @@
 
 import http from "@/app/lib/http";
 import { m } from "framer-motion";
-import { Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
+import { FolderX, Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import Alert from "../../components/Alert";
 import { SECTION_ENTER } from "../../components/motion";
 import PasswordField from "../../components/passwordField";
 import { pluralPl } from "../../lib/pluralPl";
+import DeleteAccountDataModal from "./DeleteAccountDataModal";
 import OrderingPartiesPanel from "./OrderingPartiesPanel";
 
 const getIdentityName = (identity) =>
@@ -121,9 +122,11 @@ const IdentityRow = memo(function IdentityRow({
 	isDeleteLocked,
 	isDeleting,
 	isEditing,
+	messagesVersion,
 	onClearMessages,
 	onDelete,
 	onError,
+	onRemoved,
 	onSaved,
 	onStartEditing,
 	onStopEditing,
@@ -131,8 +134,10 @@ const IdentityRow = memo(function IdentityRow({
 {
 	const isAdmin = identity.traits?.role === "admin";
 	const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+	const [isDataModalOpen, setIsDataModalOpen] = useState(false);
 	const editButtonRef = useRef(null);
 	const deleteButtonRef = useRef(null);
+	const deleteDataButtonRef = useRef(null);
 	const confirmButtonRef = useRef(null);
 	const returnFocusTo = useRef(null);
 
@@ -204,8 +209,30 @@ const IdentityRow = memo(function IdentityRow({
 						<Trash2 className="h-4 w-4" aria-hidden="true" />
 						Usuń
 					</button>
+					{!isAdmin && (
+						<button type="button" ref={deleteDataButtonRef} onClick={() => setIsDataModalOpen(true)} disabled={isDeleteLocked} className={`btn btn-secondary ${DANGER_HOVER}`}>
+							<FolderX className="h-4 w-4" aria-hidden="true" />
+							Usuń wraz z danymi
+						</button>
+					)}
 				</div>
 			</div>
+
+			{!isAdmin && (
+				<DeleteAccountDataModal
+					isOpen={isDataModalOpen}
+					identity={identity}
+					returnFocusRef={deleteDataButtonRef}
+					onClose={({ deleted }) =>
+					{
+						setIsDataModalOpen(false);
+
+						if (deleted)
+						{
+							onRemoved(identity);
+						}
+					}} />
+			)}
 
 			{isConfirmingDelete && (
 				<div
@@ -246,8 +273,8 @@ const IdentityRow = memo(function IdentityRow({
 					{!isAdmin && (
 						<OrderingPartiesPanel
 							userId={identity.id}
-							onClearMessages={onClearMessages}
-							onError={onError} />
+							clearSignal={messagesVersion}
+							onClearMessages={onClearMessages} />
 					)}
 				</>
 			)}
@@ -265,6 +292,7 @@ export default function ManageUsers({ refreshToken, onUserAction })
 	const [errorMessage, setErrorMessage] = useState("");
 	const [successMessage, setSuccessMessage] = useState("");
 	const [reloadKey, setReloadKey] = useState(0);
+	const [messagesVersion, setMessagesVersion] = useState(0);
 	const headingRef = useRef(null);
 	const listRef = useRef(null);
 	const identitiesRef = useRef(null);
@@ -352,6 +380,7 @@ export default function ManageUsers({ refreshToken, onUserAction })
 	const clearMessages = useCallback(() =>
 	{
 		onUserAction?.();
+		setMessagesVersion((version) => version + 1);
 		setErrorMessage("");
 		setSuccessMessage("");
 	}, [onUserAction]);
@@ -375,6 +404,16 @@ export default function ManageUsers({ refreshToken, onUserAction })
 		setSuccessMessage("Dane użytkownika zostały zapisane.");
 	}, []);
 
+	const removeFromList = useCallback((identity) =>
+	{
+		focusAfterDeleteRef.current = {
+			index: identitiesRef.current?.findIndex((item) => item.id === identity.id) ?? 0,
+		};
+		setIdentities((current) => current.filter((item) => item.id !== identity.id));
+		setEditingId((current) => (current === identity.id ? null : current));
+		setSuccessMessage("Konto zostało usunięte.");
+	}, []);
+
 	const deleteIdentity = useCallback(async (identity) =>
 	{
 		setDeletingId(identity.id);
@@ -385,12 +424,7 @@ export default function ManageUsers({ refreshToken, onUserAction })
 			await http.delete(`/api/admin/deleteIdentity?id=${encodeURIComponent(identity.id)}`, {
 				withCredentials: true,
 			});
-			focusAfterDeleteRef.current = {
-				index: identitiesRef.current?.findIndex((item) => item.id === identity.id) ?? 0,
-			};
-			setIdentities((current) => current.filter((item) => item.id !== identity.id));
-			setEditingId((current) => (current === identity.id ? null : current));
-			setSuccessMessage("Konto zostało usunięte.");
+			removeFromList(identity);
 		}
 		catch (error)
 		{
@@ -400,7 +434,7 @@ export default function ManageUsers({ refreshToken, onUserAction })
 		{
 			setDeletingId(null);
 		}
-	}, [clearMessages]);
+	}, [clearMessages, removeFromList]);
 
 	return (
 		<m.section {...SECTION_ENTER} className="space-y-5">
@@ -439,9 +473,11 @@ export default function ManageUsers({ refreshToken, onUserAction })
 							isDeleteLocked={deletingId !== null}
 							isDeleting={deletingId === identity.id}
 							isEditing={editingId === identity.id}
+							messagesVersion={editingId === identity.id ? messagesVersion : 0}
 							onClearMessages={clearMessages}
 							onDelete={deleteIdentity}
 							onError={setErrorMessage}
+							onRemoved={removeFromList}
 							onSaved={handleSaved}
 							onStartEditing={startEditing}
 							onStopEditing={stopEditing} />,
