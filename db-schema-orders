@@ -1,0 +1,64 @@
+-- Inferred from the INSERT, SELECT, UPDATE, DELETE, and ANY(files) queries
+-- in src/app/api and src/app/server-functions.
+-- Verify exact nullability, indexes, and foreign-key actions against PostgreSQL.
+
+CREATE TYPE order_status AS ENUM (
+  'pending',
+  'in-progress',
+  'shipped',
+  'completed'
+);
+
+CREATE TABLE orders (
+  order_id  uuid PRIMARY KEY,
+  user_id   uuid NOT NULL,
+  patient   text NOT NULL,
+  details   text,
+  status    order_status NOT NULL,
+  progress  integer NOT NULL,
+  issue_date date NOT NULL,
+  due_date   date,
+  files      text[] NOT NULL DEFAULT '{}'
+);
+
+-- Added by db/migrations/2026-11-20_orders_deleting_at.sql.
+-- deleting_at is the "deletion in progress" marker, set by deleteOrderWithFiles
+-- in the transaction that checks the order may be deleted. While it is set,
+-- edits, admin status changes and further deletes are refused (409
+-- ORDER_LOCKED) and the archiver skips the order. NULL means not being deleted.
+-- A marker older than DELETION_STALE_AFTER_MS (15 minutes, orderRowLock.js) is
+-- stale (a crashed delete): a new delete may take it over. No index.
+ALTER TABLE orders ADD COLUMN deleting_at timestamptz NULL;
+
+-- The application sorts by issue_date and then order_id, filters by patient/status,
+-- and joins this table to users when displaying the admin order list.
+CREATE INDEX orders_issue_date_order_id_idx
+  ON orders (issue_date DESC, order_id DESC);
+
+CREATE INDEX orders_user_id_idx ON orders (user_id);
+
+-- Added by db/migrations/2026-11-25_ordering_parties.sql.
+-- ordering_parties ("zleceniodawcy") is a per-account list of names an order can
+-- be assigned to; an account may have many. user_id is the Kratos identity id,
+-- with no foreign key (accounts live in Kratos). Names are unique per user,
+-- ignoring case.
+CREATE TABLE ordering_parties (
+  id          uuid PRIMARY KEY,
+  user_id     uuid NOT NULL,
+  name        text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX ordering_parties_user_name_idx
+  ON ordering_parties (user_id, lower(name));
+
+-- Added by db/migrations/2026-11-25_ordering_parties.sql.
+-- ordering_party_id is the assigned party (ON DELETE SET NULL). ordering_party_name
+-- is a copy of the party's name at the time of assignment. Both NULL when unassigned.
+ALTER TABLE orders ADD COLUMN ordering_party_id uuid NULL
+  REFERENCES ordering_parties(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN ordering_party_name text NULL;
+
+-- Added by db/migrations/2026-11-25_ordering_parties.sql.
+-- Lookups by party, and the ON DELETE SET NULL check on ordering_parties.
+CREATE INDEX orders_ordering_party_id_idx ON orders (ordering_party_id);

@@ -1,0 +1,11 @@
+-- Inferred from getUserAuthSession.js and the admin orders join.
+-- user_id is the Kratos identity id; verify its exact PostgreSQL type locally.
+
+CREATE TABLE users (
+  user_id   uuid PRIMARY KEY,
+  email     text NOT NULL,
+  name      text,
+  last_name text
+);
+
+CREATE UNIQUE INDEX users_email_idx ON users (email);

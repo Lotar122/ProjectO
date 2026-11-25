@@ -1,0 +1,56 @@
+# The only supported way to run the app: one web container with the embedded archiver worker
+# (ARCHIVER_MODE=embedded) and the projecto-compress binary, built from docker/web-supervised.Dockerfile.
+# There is no separate archiver-worker container.
+#
+# Start (from the repo root, from a clean checkout; see README, "Uruchomienie w Dockerze"):
+#
+#   GIT_SHA=$(git rev-parse HEAD) NEXT_PUBLIC_KRATOS_PUBLIC_URL=https://example.com/kratos \
+#     docker compose --env-file docker/versions.env up -d --build
+#
+# Runtime secrets (DB_URL, KRATOS_*, MINIO_*) go in .env.web next to this file (not committed, not in the image).
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web-supervised.Dockerfile
+      args:
+        BUN_VERSION: ${BUN_VERSION:?load docker/versions.env with --env-file}
+        BUN_ALPINE_DIGEST: ${BUN_ALPINE_DIGEST:?}
+        ALPINE_VERSION: ${ALPINE_VERSION:?}
+        ALPINE_DIGEST: ${ALPINE_DIGEST:?}
+        NEXT_PUBLIC_KRATOS_PUBLIC_URL: ${NEXT_PUBLIC_KRATOS_PUBLIC_URL:?set the public Kratos URL}
+        GIT_SHA: ${GIT_SHA:?set GIT_SHA=$(git rev-parse HEAD)}
+    image: projecto-web:${GIT_SHA}
+    restart: unless-stopped
+    init: true                 # tini as PID 1: reaps a projecto-compress left behind by a killed worker
+    stop_grace_period: 2m      # above ARCHIVER_STOP_GRACE_MS (100 s), so the worker can finish its job
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 9g              # COMPRESSOR_MEMORY_BUDGET_MIB (6144) + Next.js + Bun worker + headroom
+    memswap_limit: 9g
+    cpus: "4.0"                # PROJECTO_ZSTD_THREADS must not exceed this
+    pids_limit: 256
+    env_file: .env.web         # DB_URL, KRATOS_PUBLIC_INTERNAL_URL, KRATOS_ADMIN_URL, MINIO_*
+    environment:
+      ARCHIVER_MODE: embedded
+      PROJECTO_COMPRESSOR_BIN: /usr/local/bin/projecto-compress
+      COMPRESSOR_MEMORY_BUDGET_MIB: "6144"
+      PROJECTO_ZSTD_THREADS: "4"
+    ports:
+      - "3000:3000"
+    networks: [backend]        # the network with Postgres, Kratos and MinIO
+    volumes:
+      - web-work:/work/tmp             # on disk, not tmpfs
+      - web-recovery:/work/recovery    # on disk, not tmpfs
+    tmpfs:
+      - /work/run:size=1m,uid=10001,gid=10001
+      - /app/.next/cache:uid=10001,gid=10001
+
+volumes:
+  web-work:
+  web-recovery:
+
+networks:
+  backend:
+    name: ${BACKEND_NETWORK:-backend}
+    external: true
