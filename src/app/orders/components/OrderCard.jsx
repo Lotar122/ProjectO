@@ -19,6 +19,7 @@ import {
 	ARCHIVED_LABEL,
 	getArchivedTitle,
 	getDisplayDate,
+	getIssueDate,
 	getOrderFiles,
 	getStatusTheme,
 	isOrderArchived,
@@ -68,6 +69,18 @@ function OrderCardDetails({
 								Pacjent
 							</p>
 							<p className="mt-1 text-sm text-foreground wrap-break-word">{order.patient}</p>
+						</div>
+						<div>
+							<p className="text-xs uppercase tracking-[0.2em] text-muted">
+								Data wystawienia
+							</p>
+							<p className="mt-1 text-sm text-foreground">{getIssueDate(order) || "-"}</p>
+						</div>
+						<div>
+							<p className="text-xs uppercase tracking-[0.2em] text-muted">
+								Termin realizacji
+							</p>
+							<p className="mt-1 text-sm text-foreground">{getDisplayDate(order) || "-"}</p>
 						</div>
 						<div>
 							<p className="text-xs uppercase tracking-[0.2em] text-muted">

@@ -227,6 +227,9 @@ export const normalizeOrderStatus = (value) =>
 export const getDisplayDate = (order) =>
 	order.due_date?.slice(0, 10) || order.dueDate?.slice(0, 10) || "";
 
+export const getIssueDate = (order) =>
+	order.issue_date?.slice(0, 10) || order.issueDate?.slice(0, 10) || "";
+
 export const getOrderFiles = (order, fileNamesById) =>
 {
 	if (Array.isArray(order.frontendFiles))
