@@ -88,8 +88,8 @@ export const COOKIES = {
 			table: {
 				head: ["Nazwa", "Cel", "Ważność"],
 				rows: [
-					["ory_kratos_session", "Utrzymuje zalogowaną sesję użytkownika.", "Do wylogowania lub wygaśnięcia sesji [UZUPEŁNIJ wg konfiguracji Kratos]"],
-					["csrf_token_*", "Chroni formularz logowania przed fałszywymi żądaniami (CSRF).", "Czas trwania sesji przeglądarki [ZWERYFIKUJ]"],
+					["ory_kratos_session", "Utrzymuje zalogowaną sesję użytkownika.", "Do wylogowania lub do 24 godzin od zalogowania"],
+					["csrf_token_*", "Chroni formularz logowania przed fałszywymi żądaniami (CSRF).", "Czas trwania sesji przeglądarki"],
 				],
 			},
 			paras: [

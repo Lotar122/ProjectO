@@ -49,6 +49,7 @@ Adresy Kratosa i bazy pochodzą ze środowiska. Domyślne wartości (`http://kra
 | `PROJECTO_COMPRESSOR_BIN` | tak (w produkcji) | Bezwzględna ścieżka wykonywalnego programu `projecto-compress`. Bez niej (lub ze ścieżką, której nie da się uruchomić) serwer w produkcji kończy start kodem 1. Obraz web ustawia `/usr/local/bin/projecto-compress`. |
 | `DOWNLOAD_DECODE_BUDGET_MIB` | nie | Budżet pamięci naraz dekompresowanych pobrań w procesie web (jedno okno na pobranie). Domyślnie `768`, minimum `272` (największe okno zstd 2^28 plus 16 MiB narzutu). Zła wartość powoduje błąd 500 przy każdym pobraniu, dopóki jej nie poprawisz. |
 | `ALLOWED_ORIGINS` | nie | Lista dozwolonych źródeł (`Origin`) oddzielonych przecinkami, dla ochrony CSRF tras zapisujących dane. |
+| `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS`, `LEGAL_OPERATOR_TAX_ID`, `LEGAL_OPERATOR_EMAIL` | tak | Dane operatora w politykach prywatności i cookies (`/privacy`, `/cookies`), czytane przy każdym żądaniu. Niewypełniona zmienna zostawia w treści widoczny placeholder w nawiasach kwadratowych. |
 | `KRATOS_IDENTITY_SCHEMA_ID` | nie | Identyfikator schematu tożsamości Kratosa używany przy tworzeniu użytkowników w panelu administratora, domyślnie `default`. |
 
 # Rola administratora (jednorazowa migracja)
