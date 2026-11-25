@@ -103,7 +103,7 @@ export const getChecksumMismatchError = async (err) =>
 /**
  * Empty create-form state with today's local date (YYYY-MM-DD) as the due date.
  * Computed on every call, so a tab left open past midnight does not reuse an old date.
- * @returns {{ patient: string, details: string, dueDate: string }}
+ * @returns {{ patient: string, details: string, dueDate: string, orderingPartyId: string }}
  */
 export const createInitialOrder = () =>
 {
@@ -115,6 +115,7 @@ export const createInitialOrder = () =>
 		patient: "",
 		details: "",
 		dueDate: `${now.getFullYear()}-${month}-${day}`,
+		orderingPartyId: "",
 	};
 };
 

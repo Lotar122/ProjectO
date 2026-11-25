@@ -1,7 +1,7 @@
 "use client";
 
-import { LogOut, Package, Plus, Settings, UserCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { KeyRound, LogOut, Package, Plus, Settings, UserCircle } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 
 const mobileNavItemClassName = "nav-link min-w-0 flex-1 flex-col justify-center gap-1 px-2 text-xs font-medium sm:flex-row sm:gap-2 sm:px-3 sm:text-sm";
 
@@ -22,8 +22,9 @@ export default function OrdersHeader({
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const settingsRef = useRef(null);
 	const triggerRef = useRef(null);
+		const menuId = useId();
 	const displayName = userLastName || userName;
-	const userLabel = isAdmin ? "Admin" : displayName ? `Dr. ${displayName}` : "Moje konto";
+	const userLabel = isAdmin ? "Admin" : displayName ? `dr ${displayName}` : "Moje konto";
 
 	useEffect(() =>
 	{
@@ -32,8 +33,6 @@ export default function OrdersHeader({
 		{
 			return;
 		}
-
-		settingsRef.current?.querySelector('[role="menuitem"]')?.focus();
 
 		const handlePointerDown = (event) =>
 		{
@@ -65,7 +64,7 @@ export default function OrdersHeader({
 	return (
 		<>
 			<header
-				className="relative z-30 border-b border-line bg-surface">
+				className="relative z-header border-b border-line bg-surface">
 				<div className="container mx-auto px-4 py-4">
 					<div className="flex items-center justify-between gap-3">
 						<div className="flex min-w-0 items-center gap-3">
@@ -104,15 +103,14 @@ export default function OrdersHeader({
 									onClick={() => setIsSettingsOpen((current) => !current)}
 									className="btn btn-secondary w-11 px-0 aria-expanded:bg-surface-hover"
 									aria-expanded={isSettingsOpen}
-									aria-haspopup="menu"
-									aria-label="Otwórz ustawienia">
+									aria-controls={menuId}
+									aria-label="Ustawienia konta">
 									<Settings className="h-4 w-4" aria-hidden="true" />
 								</button>
 								{isSettingsOpen && (
 									<div
-										role="menu"
-										aria-label="Ustawienia konta"
-										className="absolute right-0 top-full z-20 mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-xl">
+										id={menuId}
+										className="menu absolute right-0 top-full z-dropdown mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)]">
 										<div className="flex items-center gap-3 border-b border-line px-4 py-3 text-sm text-muted xl:hidden">
 											<UserCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
 											<span className="min-w-0 wrap-break-word">{userLabel}</span>
@@ -124,9 +122,8 @@ export default function OrdersHeader({
 												setIsSettingsOpen(false);
 												onShowChangePassword();
 											}}
-											className="focus-ring flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-hover active:bg-surface-active"
-											role="menuitem">
-											<Settings className="h-4 w-4 shrink-0" aria-hidden="true" />
+											className="menu-item">
+											<KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
 											Zmień hasło
 										</button>
 									</div>
@@ -143,28 +140,26 @@ export default function OrdersHeader({
 					</div>
 				</div>
 			</header>
-			<div className="border-b border-line bg-surface lg:hidden">
-				<div className="container mx-auto px-4 py-3">
-					<div className="flex gap-2">
-						<button
-							type="button"
-							onClick={onShowOrders}
-							aria-current={currentPage === "orders" ? "page" : undefined}
-							className={mobileNavItemClassName}>
-							<Package className={mobileNavIconClassName} aria-hidden="true" />
-							<span className={mobileNavLabelClassName}>Zlecenia</span>
-						</button>
-						<button
-							type="button"
-							onClick={onShowCreateOrder}
-							aria-current={currentPage === "create-order" ? "page" : undefined}
-							className={mobileNavItemClassName}>
-							<Plus className={mobileNavIconClassName} aria-hidden="true" />
-							<span className={mobileNavLabelClassName}>Nowe</span>
-						</button>
-					</div>
+			<nav aria-label="Nawigacja mobilna" className="border-b border-line bg-surface lg:hidden">
+				<div className="container mx-auto flex gap-2 px-4 py-3">
+					<button
+						type="button"
+						onClick={onShowOrders}
+						aria-current={currentPage === "orders" ? "page" : undefined}
+						className={mobileNavItemClassName}>
+						<Package className={mobileNavIconClassName} aria-hidden="true" />
+						<span className={mobileNavLabelClassName}>Zlecenia</span>
+					</button>
+					<button
+						type="button"
+						onClick={onShowCreateOrder}
+						aria-current={currentPage === "create-order" ? "page" : undefined}
+						className={mobileNavItemClassName}>
+						<Plus className={mobileNavIconClassName} aria-hidden="true" />
+						<span className={mobileNavLabelClassName}>Nowe zlecenie</span>
+					</button>
 				</div>
-			</div>
+			</nav>
 		</>
 	);
 }

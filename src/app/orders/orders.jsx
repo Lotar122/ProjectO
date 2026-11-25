@@ -164,6 +164,7 @@ export default function Orders({
 	initialOrdersPayload = null,
 	initialPage = "orders",
 	isAdmin = false,
+	orderingParties = [],
 	userEmail,
 	userName,
 	userLastName,
@@ -752,6 +753,7 @@ export default function Orders({
 			patient: newOrder.patient,
 			details: newOrder.details,
 			dueDate: newOrder.dueDate,
+			orderingPartyId: newOrder.orderingPartyId,
 		};
 		const actionId = startBackgroundAction("Tworzenie zlecenia", order.patient, {
 			timeoutMs: TRANSFER_ACTION_TIMEOUT_MS,
@@ -774,6 +776,7 @@ export default function Orders({
 				formData.append("patient", order.patient);
 				formData.append("details", order.details);
 				formData.append("dueDate", order.dueDate);
+				formData.append("orderingPartyId", order.orderingPartyId);
 				appendUploadFiles(
 					formData,
 					selectedFiles.map((file) => ({ file, name: file.name })),
@@ -1418,8 +1421,22 @@ export default function Orders({
 	const ContentTag = adminMode ? "div" : "main";
 	const HeadingTag = adminMode ? "h1" : "h2";
 
+	const isOrdersFiltered = orderSearchValue !== "" || orderStatusValue !== ALL_STATUSES_LABEL;
+
+	const clearOrderFilters = () =>
+	{
+		handleSearchChange("");
+		handleOrderStatusFilterChange(ALL_STATUSES_LABEL);
+	};
+
 	return (
 		<div className={adminMode ? "text-foreground" : "min-h-dvh bg-transparent text-foreground"}>
+			{!adminMode && (
+				<a href="#orders-main" className="skip-link">
+					Przejdź do treści
+				</a>
+			)}
+
 			<DeleteOrderModal
 				isOpen={Boolean(deleteOrderId)}
 				onCancel={() => setDeleteOrderId(null)}
@@ -1445,13 +1462,17 @@ export default function Orders({
 				/>
 			)}
 
-			<ContentTag className={adminMode ? undefined : "container mx-auto px-4 py-6 sm:py-8"}>
+			<ContentTag
+				id={adminMode ? undefined : "orders-main"}
+				tabIndex={adminMode ? undefined : -1}
+				className={adminMode ? undefined : "container mx-auto px-4 py-6 focus:outline-none sm:py-8"}>
 				{currentPage === "orders" && (
 					<m.div
+						className="flex flex-col gap-4"
 						variants={sectionTransition}
 						initial="initial"
 						animate="animate">
-						<div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+						<div className="mb-2 flex flex-col gap-4 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
 							<div className="min-w-0">
 								<HeadingTag
 									ref={ordersHeadingRef}
@@ -1462,7 +1483,7 @@ export default function Orders({
 								<p className={adminMode ? "mt-2 text-muted" : "text-muted"}>
 									{adminMode
 										? "Przeglądaj i zarządzaj zleceniami wszystkich użytkowników."
-										: "Zarządzaj i śledź wszystkie zlecenia ortodontyczne"}
+										: "Zarządzaj i śledź wszystkie zlecenia ortodontyczne."}
 								</p>
 							</div>
 							{!adminMode && <button
@@ -1484,7 +1505,7 @@ export default function Orders({
 
 						{/* Fixed height, so showing and hiding the message doesn't move the list. */}
 						<p
-							className="mb-4 h-5 text-sm text-muted"
+							className="h-5 text-sm text-muted"
 							aria-live="polite">
 							{isOrdersLoading ? "Wczytywanie zleceń..." : ""}
 						</p>
@@ -1492,7 +1513,6 @@ export default function Orders({
 						{ordersError && (
 							<Alert
 								tone="danger"
-								className="mb-6"
 								action={
 									<button
 										type="button"
@@ -1535,8 +1555,31 @@ export default function Orders({
 						</div>
 
 						{!isOrdersLoading && !ordersError && orders.length === 0 && (
-							<div className="rounded-xl border border-dashed border-line-control bg-surface px-6 py-12 text-center text-muted">
-								Nie znaleziono zleceń dla tej strony lub filtra.
+							<div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-line-control bg-surface px-6 py-12 text-center text-muted">
+								<p>
+									{isOrdersFiltered
+										? "Brak zleceń pasujących do wyszukiwania lub filtra."
+										: adminMode
+											? "Brak zleceń."
+											: "Nie masz jeszcze żadnych zleceń."}
+								</p>
+								{isOrdersFiltered && (
+									<button
+										type="button"
+										onClick={clearOrderFilters}
+										className="btn btn-secondary">
+										Wyczyść filtry
+									</button>
+								)}
+								{!isOrdersFiltered && !adminMode && (
+									<button
+										type="button"
+										onClick={openCreateOrder}
+										className="btn btn-primary">
+										<Plus className="h-5 w-5" aria-hidden="true" />
+										Nowe zlecenie
+									</button>
+								)}
 							</div>
 						)}
 
@@ -1576,6 +1619,12 @@ export default function Orders({
 									dueDate,
 								}))
 							}
+							onOrderingPartyChange={(orderingPartyId) =>
+								setNewOrder((current) => ({
+									...current,
+									orderingPartyId,
+								}))
+							}
 							onFilesSelected={(selectedFiles) =>
 								setFiles((previous) => [
 									...previous,
@@ -1596,6 +1645,8 @@ export default function Orders({
 								)
 							}
 							onSubmit={handleCreateOrder}
+							orderingPartyId={newOrder.orderingPartyId}
+							orderingParties={orderingParties}
 							patient={newOrder.patient}
 							submitLabel="Utwórz zlecenie"
 							title="Utwórz nowe zlecenie"

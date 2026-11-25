@@ -26,6 +26,16 @@ export default function OrdersToolbar({
 		onSearchChangeRef.current = onSearchChange;
 	}, [onSearchChange]);
 
+	// The page can reset the search (clear filters); typing keeps the ref in step before it commits.
+	useEffect(() =>
+	{
+		if (initialSearchValue !== committedSearchRef.current)
+		{
+			committedSearchRef.current = initialSearchValue;
+			setSearchValue(initialSearchValue);
+		}
+	}, [initialSearchValue]);
+
 	useEffect(() =>
 	{
 		if (searchValue === committedSearchRef.current)
@@ -46,35 +56,30 @@ export default function OrdersToolbar({
 	}, [searchValue]);
 
 	return (
-		<div className="mb-6 rounded-xl border border-line bg-surface p-4 sm:mb-8 sm:p-6">
+		<div className="rounded-xl border border-line bg-surface p-4 sm:p-6">
 			<div className="flex flex-col gap-4 md:flex-row">
 				<div className="relative flex-1">
 					<Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" aria-hidden="true" />
 					<input
 						value={searchValue}
 						onChange={(event) => setSearchValue(event.target.value)}
-						type="text"
+						type="search"
 						aria-label={isAdmin ? "Szukaj zleceń lub lekarza" : "Szukaj zleceń"}
 						placeholder={isAdmin ? "Szukaj zleceń lub lekarza..." : "Szukaj zleceń..."}
 						className="field pl-10"
 					/>
 				</div>
-				<div className="flex gap-2">
-					<select
-						value={statusValue}
-						onChange={(event) => onStatusChange(event.target.value)}
-						aria-label="Filtruj według statusu"
-						className="field md:w-auto">
-						{ORDER_STATUS_OPTIONS.map((status) => (
-							<option
-								key={status}
-								value={status}
-								className="bg-surface-sunken text-foreground">
-								{status}
-							</option>
-						))}
-					</select>
-				</div>
+				<select
+					value={statusValue}
+					onChange={(event) => onStatusChange(event.target.value)}
+					aria-label="Filtruj według statusu"
+					className="field md:w-auto">
+					{ORDER_STATUS_OPTIONS.map((status) => (
+						<option key={status} value={status}>
+							{status}
+						</option>
+					))}
+				</select>
 			</div>
 		</div>
 	);

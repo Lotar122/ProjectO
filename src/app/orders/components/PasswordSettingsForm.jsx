@@ -4,6 +4,7 @@ import { m } from "framer-motion";
 import { KeyRound, ShieldCheck } from "lucide-react";
 
 import Alert from "@/app/components/Alert";
+import { SECTION_ENTER } from "@/app/components/motion";
 import PasswordField from "@/app/components/passwordField";
 
 export default function PasswordSettingsForm({
@@ -23,9 +24,7 @@ export default function PasswordSettingsForm({
 {
 	return (
 		<m.div
-			initial={{ opacity: 0, y: 24 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.45 }}
+			{...SECTION_ENTER}
 			className={hideHeader ? "max-w-2xl" : "mx-auto max-w-2xl"}>
 			<div className="overflow-hidden rounded-xl border border-line bg-surface">
 				{!hideHeader && <div className="border-b border-line bg-surface-raised px-5 py-5 sm:px-8">
@@ -37,7 +36,7 @@ export default function PasswordSettingsForm({
 							<h2 className="text-2xl font-bold text-foreground">Zmień hasło</h2>
 							<p className="mt-2 max-w-xl text-sm text-muted">
 								Najpierw potwierdź obecne hasło, a następnie ustaw nowe hasło do
-								konta Ory.
+								konta.
 							</p>
 						</div>
 					</div>
@@ -45,7 +44,7 @@ export default function PasswordSettingsForm({
 
 				<form onSubmit={onSubmit} className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
 					<Alert tone="info" icon={ShieldCheck} announce={false}>
-						Przed zmianą hasła sesja zostanie ponownie zweryfikowana przez Ory.
+						Przed zmianą hasła sesja zostanie ponownie zweryfikowana.
 					</Alert>
 
 					{successMessage && <Alert tone="success">{successMessage}</Alert>}
@@ -66,6 +65,7 @@ export default function PasswordSettingsForm({
 						autoComplete="new-password"
 						id="new-password"
 						label="Nowe hasło"
+						hint="Co najmniej 8 znaków."
 						name="new-password"
 						password={newPassword}
 						placeholder="Wybierz nowe hasło"

@@ -2,18 +2,20 @@
 
 import http from "@/app/lib/http";
 import { m } from "framer-motion";
-import { Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { Building2, Pencil, RefreshCw, Save, Trash2, UserCircle, X } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import Alert from "../../components/Alert";
+import { SECTION_ENTER } from "../../components/motion";
 import PasswordField from "../../components/passwordField";
+import { pluralPl } from "../../lib/pluralPl";
+import OrderingPartiesPanel from "./OrderingPartiesPanel";
 
 const getIdentityName = (identity) =>
 	[identity?.traits?.name?.first, identity?.traits?.name?.last].filter(Boolean).join(" ") ||
 	"Bez imienia i nazwiska";
 
-const FIELD_CLASS = "field mt-2";
-const FIELD_LABEL_CLASS = "block text-sm font-medium text-foreground";
+const DANGER_HOVER = "enabled:hover:border-danger-line enabled:hover:bg-danger-soft enabled:hover:text-danger-text enabled:active:bg-danger-soft";
 
 // Owns the form state so typing re-renders this form only, not the whole list.
 const IdentityEditForm = memo(function IdentityEditForm({
@@ -32,6 +34,12 @@ const IdentityEditForm = memo(function IdentityEditForm({
 		password: "",
 	}));
 	const [isSaving, setIsSaving] = useState(false);
+	const firstFieldRef = useRef(null);
+
+	useEffect(() =>
+	{
+		firstFieldRef.current?.focus();
+	}, []);
 
 	const updateField = (field, value) =>
 	{
@@ -74,28 +82,28 @@ const IdentityEditForm = memo(function IdentityEditForm({
 				</button>
 			</div>
 			<div className="grid gap-4 md:grid-cols-2">
-				<label className={FIELD_LABEL_CLASS}>
-					Adres e-mail
-					<input type="email" required value={form.email} onChange={(event) => updateField("email", event.target.value)} className={FIELD_CLASS} />
-				</label>
-				<label className={FIELD_LABEL_CLASS}>
-					Rola
-					<select value={form.role} onChange={(event) => updateField("role", event.target.value)} className={FIELD_CLASS}>
+				<div>
+					<label htmlFor={`identity-email-${identity.id}`} className="field-label">Adres e-mail</label>
+					<input ref={firstFieldRef} id={`identity-email-${identity.id}`} type="email" required value={form.email} onChange={(event) => updateField("email", event.target.value)} className="field" />
+				</div>
+				<div>
+					<label htmlFor={`identity-role-${identity.id}`} className="field-label">Rola</label>
+					<select id={`identity-role-${identity.id}`} value={form.role} onChange={(event) => updateField("role", event.target.value)} className="field">
 						<option value="user">Użytkownik</option>
 						<option value="admin">Administrator</option>
 					</select>
-				</label>
-				<label className={FIELD_LABEL_CLASS}>
-					Imię
-					<input type="text" value={form.firstName} onChange={(event) => updateField("firstName", event.target.value)} className={FIELD_CLASS} />
-				</label>
-				<label className={FIELD_LABEL_CLASS}>
-					Nazwisko
-					<input type="text" value={form.lastName} onChange={(event) => updateField("lastName", event.target.value)} className={FIELD_CLASS} />
-				</label>
+				</div>
+				<div>
+					<label htmlFor={`identity-first-name-${identity.id}`} className="field-label">Imię</label>
+					<input id={`identity-first-name-${identity.id}`} type="text" value={form.firstName} onChange={(event) => updateField("firstName", event.target.value)} className="field" />
+				</div>
+				<div>
+					<label htmlFor={`identity-last-name-${identity.id}`} className="field-label">Nazwisko</label>
+					<input id={`identity-last-name-${identity.id}`} type="text" value={form.lastName} onChange={(event) => updateField("lastName", event.target.value)} className="field" />
+				</div>
 			</div>
 			<div className="max-w-md">
-				<PasswordField id={`identity-password-${identity.id}`} name="password" label="Nowe hasło (opcjonalnie)" autoComplete="new-password" password={form.password} placeholder="Pozostaw puste, aby nie zmieniać" required={false} setPassword={(value) => updateField("password", value)} />
+				<PasswordField id={`identity-password-${identity.id}`} name="password" label="Nowe hasło (opcjonalnie)" hint="Co najmniej 8 znaków." autoComplete="new-password" password={form.password} placeholder="Pozostaw puste, aby nie zmieniać" required={false} setPassword={(value) => updateField("password", value)} />
 			</div>
 			<div className="flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end">
 				<button type="button" onClick={onClose} className="btn btn-secondary px-5">Anuluj</button>
@@ -110,16 +118,74 @@ const IdentityEditForm = memo(function IdentityEditForm({
 
 const IdentityRow = memo(function IdentityRow({
 	identity,
+	isDeleteLocked,
 	isDeleting,
 	isEditing,
+	isShowingParties,
 	onClearMessages,
 	onDelete,
 	onError,
 	onSaved,
 	onStartEditing,
 	onStopEditing,
+	onToggleParties,
 })
 {
+	const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+	const partiesButtonRef = useRef(null);
+	const editButtonRef = useRef(null);
+	const deleteButtonRef = useRef(null);
+	const confirmButtonRef = useRef(null);
+	const returnFocusTo = useRef(null);
+
+	useEffect(() =>
+	{
+		if (isConfirmingDelete)
+		{
+			confirmButtonRef.current?.focus();
+		}
+		else if (returnFocusTo.current === "delete")
+		{
+			returnFocusTo.current = null;
+			deleteButtonRef.current?.focus();
+		}
+	}, [isConfirmingDelete]);
+
+	const startConfirmingDelete = () =>
+	{
+		returnFocusTo.current = "delete";
+		setIsConfirmingDelete(true);
+	};
+
+	const cancelDelete = () =>
+	{
+		setIsConfirmingDelete(false);
+	};
+
+	const confirmDelete = async () =>
+	{
+		await onDelete(identity);
+		setIsConfirmingDelete(false);
+	};
+
+	const closeEditing = () =>
+	{
+		onStopEditing();
+		editButtonRef.current?.focus();
+	};
+
+	const handleSaved = (updated) =>
+	{
+		onSaved(updated);
+		editButtonRef.current?.focus();
+	};
+
+	const closeParties = () =>
+	{
+		onToggleParties(identity);
+		partiesButtonRef.current?.focus();
+	};
+
 	return (
 		<div className="overflow-hidden rounded-xl border border-line bg-surface">
 			<div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -137,25 +203,64 @@ const IdentityRow = memo(function IdentityRow({
 						<p className="truncate text-sm text-muted">{identity.traits?.email}</p>
 					</div>
 				</div>
-				<div className="flex shrink-0 gap-2">
-					<button type="button" onClick={() => onStartEditing(identity)} className="btn btn-secondary">
+				<div data-identity-actions={identity.id} className="flex shrink-0 flex-wrap gap-2">
+					<button type="button" ref={partiesButtonRef} onClick={() => onToggleParties(identity)} aria-expanded={isShowingParties} className="btn btn-secondary">
+						<Building2 className="h-4 w-4" aria-hidden="true" />
+						Zleceniodawcy
+					</button>
+					<button type="button" ref={editButtonRef} onClick={() => onStartEditing(identity)} aria-expanded={isEditing} className="btn btn-secondary">
 						<Pencil className="h-4 w-4" aria-hidden="true" />
 						Edytuj
 					</button>
-					<button type="button" onClick={() => onDelete(identity)} disabled={isDeleting} className="btn btn-danger">
+					<button type="button" ref={deleteButtonRef} onClick={startConfirmingDelete} disabled={isDeleteLocked} className={`btn btn-secondary ${DANGER_HOVER}`}>
 						<Trash2 className="h-4 w-4" aria-hidden="true" />
-						{isDeleting ? "Usuwanie..." : "Usuń"}
+						Usuń
 					</button>
 				</div>
 			</div>
+
+			{isConfirmingDelete && (
+				<div
+					role="group"
+					aria-label="Potwierdzenie usunięcia konta"
+					onKeyDown={(event) =>
+					{
+						if (event.key === "Escape" && !isDeleting)
+						{
+							cancelDelete();
+						}
+					}}
+					className="flex flex-col gap-3 border-t border-line bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+					<p className="min-w-0 wrap-break-word text-sm text-foreground">
+						Usunąć konto <span className="font-semibold">{identity.traits?.email || "użytkownika"}</span>? Tej operacji nie można cofnąć.
+					</p>
+					<div className="flex shrink-0 gap-2">
+						<button type="button" ref={confirmButtonRef} onClick={confirmDelete} disabled={isDeleteLocked} className="btn btn-danger">
+							<Trash2 className="h-4 w-4" aria-hidden="true" />
+							{isDeleting ? "Usuwanie..." : "Usuń konto"}
+						</button>
+						<button type="button" onClick={cancelDelete} disabled={isDeleting} className="btn btn-secondary">
+							Anuluj
+						</button>
+					</div>
+				</div>
+			)}
 
 			{isEditing && (
 				<IdentityEditForm
 					identity={identity}
 					onClearMessages={onClearMessages}
-					onClose={onStopEditing}
+					onClose={closeEditing}
 					onError={onError}
-					onSaved={onSaved} />
+					onSaved={handleSaved} />
+			)}
+
+			{isShowingParties && (
+				<OrderingPartiesPanel
+					userId={identity.id}
+					onClearMessages={onClearMessages}
+					onClose={closeParties}
+					onError={onError} />
 			)}
 		</div>
 	);
@@ -166,11 +271,44 @@ export default function ManageUsers({ refreshToken, onUserAction })
 	// null until the first response; the spinner is only for that case.
 	const [identities, setIdentities] = useState(null);
 	const [editingId, setEditingId] = useState(null);
+	const [partiesId, setPartiesId] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [deletingId, setDeletingId] = useState(null);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [successMessage, setSuccessMessage] = useState("");
 	const [reloadKey, setReloadKey] = useState(0);
+	const headingRef = useRef(null);
+	const listRef = useRef(null);
+	const identitiesRef = useRef(null);
+	// Position of the row just deleted, so focus can move to its neighbour once the list updates.
+	const focusAfterDeleteRef = useRef(null);
+
+	identitiesRef.current = identities;
+
+	useEffect(() =>
+	{
+		const pending = focusAfterDeleteRef.current;
+
+		if (!pending || deletingId !== null || !identities)
+		{
+			return;
+		}
+
+		focusAfterDeleteRef.current = null;
+
+		// The user already moved focus somewhere real while the request ran: leave it.
+		if (document.activeElement && document.activeElement !== document.body)
+		{
+			return;
+		}
+
+		const neighbour = identities[Math.min(pending.index, identities.length - 1)];
+		const button = neighbour
+			? listRef.current?.querySelector(`[data-identity-actions="${CSS.escape(neighbour.id)}"] button`)
+			: null;
+
+		(button ?? headingRef.current)?.focus();
+	}, [identities, deletingId]);
 
 	useEffect(() =>
 	{
@@ -241,6 +379,12 @@ export default function ManageUsers({ refreshToken, onUserAction })
 		setEditingId(null);
 	}, []);
 
+	const toggleParties = useCallback((identity) =>
+	{
+		setPartiesId((current) => (current === identity.id ? null : identity.id));
+		clearMessages();
+	}, [clearMessages]);
+
 	const handleSaved = useCallback((updated) =>
 	{
 		setIdentities((current) =>
@@ -251,11 +395,6 @@ export default function ManageUsers({ refreshToken, onUserAction })
 
 	const deleteIdentity = useCallback(async (identity) =>
 	{
-		if (!window.confirm(`Czy na pewno usunąć konto ${identity.traits?.email || "użytkownika"}?`))
-		{
-			return;
-		}
-
 		setDeletingId(identity.id);
 		clearMessages();
 
@@ -264,8 +403,12 @@ export default function ManageUsers({ refreshToken, onUserAction })
 			await http.delete(`/api/admin/deleteIdentity?id=${encodeURIComponent(identity.id)}`, {
 				withCredentials: true,
 			});
+			focusAfterDeleteRef.current = {
+				index: identitiesRef.current?.findIndex((item) => item.id === identity.id) ?? 0,
+			};
 			setIdentities((current) => current.filter((item) => item.id !== identity.id));
 			setEditingId((current) => (current === identity.id ? null : current));
+			setPartiesId((current) => (current === identity.id ? null : current));
 			setSuccessMessage("Konto zostało usunięte.");
 		}
 		catch (error)
@@ -279,14 +422,15 @@ export default function ManageUsers({ refreshToken, onUserAction })
 	}, [clearMessages]);
 
 	return (
-		<m.section
-			initial={{ opacity: 0, y: 18 }}
-			animate={{ opacity: 1, y: 0 }}
-			className="space-y-5">
+		<m.section {...SECTION_ENTER} className="space-y-5">
 			<div className="flex flex-col justify-between gap-4 rounded-xl border border-line bg-surface px-5 py-4 sm:flex-row sm:items-center">
 				<div>
-					<h2 className="text-lg font-semibold text-foreground">Konta użytkowników</h2>
-					<p className="mt-1 text-sm text-muted">{identities?.length ?? 0} kont w systemie</p>
+					<h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-foreground outline-none">Konta użytkowników</h2>
+					{identities && (
+						<p className="mt-1 text-sm text-muted">
+							<span className="tabular-nums">{identities.length}</span> {pluralPl(identities.length, ["konto", "konta", "kont"])} w systemie
+						</p>
+					)}
 				</div>
 				<button
 					type="button"
@@ -306,19 +450,22 @@ export default function ManageUsers({ refreshToken, onUserAction })
 			) : !identities?.length ? (
 				<div className="rounded-xl border border-dashed border-line-control bg-surface px-6 py-12 text-center text-muted">Nie znaleziono użytkowników.</div>
 			) : (
-				<div className="grid gap-4">
+				<div ref={listRef} className="grid gap-4">
 					{identities.map((identity) =>
 						<IdentityRow
 							key={identity.id}
 							identity={identity}
+							isDeleteLocked={deletingId !== null}
 							isDeleting={deletingId === identity.id}
 							isEditing={editingId === identity.id}
+							isShowingParties={partiesId === identity.id}
 							onClearMessages={clearMessages}
 							onDelete={deleteIdentity}
 							onError={setErrorMessage}
 							onSaved={handleSaved}
 							onStartEditing={startEditing}
-							onStopEditing={stopEditing} />,
+							onStopEditing={stopEditing}
+							onToggleParties={toggleParties} />,
 					)}
 				</div>
 			)}

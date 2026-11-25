@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 
+import { pluralPl } from "@/app/lib/pluralPl";
+
 function hasFiles(event)
 {
 	return Array.from(event.dataTransfer?.types ?? []).includes("Files");
@@ -49,16 +51,7 @@ function readDroppedFiles(dataTransfer)
 
 function describeAdded(count)
 {
-	if (count === 1)
-	{
-		return "Dodano 1 plik.";
-	}
-
-	const lastDigit = count % 10;
-	const lastTwoDigits = count % 100;
-	const isFew = lastDigit >= 2 && lastDigit <= 4 && (lastTwoDigits < 12 || lastTwoDigits > 14);
-
-	return `Dodano ${count} ${isFew ? "pliki" : "plików"}.`;
+	return `Dodano ${count} ${pluralPl(count, ["plik", "pliki", "plików"])}.`;
 }
 
 export default function FileDropzone({

@@ -17,6 +17,7 @@ export const OWNER_EDITABLE_STATUSES = ["pending", "in-progress"];
 export const MAX_PATIENT_LENGTH = 200;
 export const MAX_DETAILS_LENGTH = 5000;
 export const MAX_SEARCH_LENGTH = 100;
+export const MAX_ORDERING_PARTY_NAME_LENGTH = 200;
 
 export function isUuid(value)
 {

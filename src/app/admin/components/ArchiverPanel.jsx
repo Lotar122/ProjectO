@@ -6,6 +6,7 @@ import { Archive, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import Alert from "@/app/components/Alert";
+import { DIALOG_BACKDROP, DIALOG_PANEL } from "@/app/components/motion";
 import useModalA11y from "@/app/components/useModalA11y";
 import { getArchiverErrorText } from "./archiverErrors";
 import { describeStartError, isActiveState } from "./archiverPanelCopy";
@@ -22,9 +23,7 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 		<AnimatePresence>
 			{isOpen && (
 				<m.div
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1, pointerEvents: "auto" }}
-					exit={{ opacity: 0, pointerEvents: "none" }}
+					{...DIALOG_BACKDROP}
 					onClick={(event) =>
 					{
 						if (event.target === event.currentTarget)
@@ -32,17 +31,15 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 							onCancel();
 						}
 					}}
-					className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+					className="fixed inset-0 z-overlay flex items-center justify-center bg-overlay p-4">
 					<m.div
 						ref={dialogRef}
-						initial={{ opacity: 0, scale: 0.94, y: 18 }}
-						animate={{ opacity: 1, scale: 1, y: 0, pointerEvents: "auto" }}
-						exit={{ opacity: 0, scale: 0.96, pointerEvents: "none" }}
+						{...DIALOG_PANEL}
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby={titleId}
 						tabIndex={-1}
-						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6 outline-none">
+						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6 shadow-overlay outline-none">
 						<h2 id={titleId} className="mb-4 text-lg font-semibold text-foreground">
 							Uruchomić archiwizację?
 						</h2>
@@ -62,7 +59,7 @@ function ConfirmArchiveModal({ isOpen, onCancel, onConfirm })
 								type="button"
 								onClick={onConfirm}
 								className="btn btn-primary min-w-24">
-								Uruchom
+								Uruchom archiwizację
 							</button>
 						</div>
 					</m.div>
@@ -91,6 +88,7 @@ export default function ArchiverPanel()
 
 	// Mirrors isActive for the polling loop, which must not depend on render timing.
 	const activeRef = useRef(false);
+	const startingRef = useRef(false);
 	const pollerRef = useRef(null);
 	const workerLineId = useId();
 
@@ -150,6 +148,14 @@ export default function ArchiverPanel()
 
 	const startArchiver = async () =>
 	{
+		// The confirm dialog stays clickable while it animates out, so a second click
+		// must not start a second run.
+		if (startingRef.current)
+		{
+			return;
+		}
+		startingRef.current = true;
+
 		// The status the start returned can be missing (the read after enqueue failed),
 		// so the panel then asks for a fresh one.
 		let needsRefresh = false;
@@ -208,6 +214,7 @@ export default function ArchiverPanel()
 		finally
 		{
 			pollerRef.current?.endMutation();
+			startingRef.current = false;
 			setIsStarting(false);
 		}
 
@@ -221,10 +228,10 @@ export default function ArchiverPanel()
 		<section className="rounded-xl border border-line bg-surface p-5 sm:p-6">
 			<div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
 				<div className="min-w-0">
-					<p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-text">
+					<p className="eyebrow mb-2 text-accent-text">
 						Konserwacja
 					</p>
-					<h3 className="text-xl font-bold text-foreground">Archiwizacja zleceń</h3>
+					<h2 className="text-xl font-bold text-foreground">Archiwizacja zleceń</h2>
 					<p className="mt-2 max-w-2xl text-sm text-muted">
 						Pliki zleceń starszych niż 30 dni są kompresowane bezstratnie (zstd / brotli, wybierany
 						jest lepszy wynik), aby oszczędzać miejsce na dysku. Pobieranie rozpakowuje pliki
@@ -233,7 +240,7 @@ export default function ArchiverPanel()
 				</div>
 
 				<div className="flex shrink-0 flex-col gap-2 sm:items-end">
-					<div className="flex gap-2">
+					<div className="flex flex-wrap gap-2">
 						<button
 							type="button"
 							onClick={() =>
@@ -268,7 +275,7 @@ export default function ArchiverPanel()
 			{info && <Alert tone="info" className="mt-4">{info}</Alert>}
 
 			{isLoading ? (
-				<p className="mt-6 text-sm text-muted">Ładowanie...</p>
+				<p className="mt-6 text-sm text-muted" role="status">Wczytywanie...</p>
 			) : status && (
 				<div className="mt-6">
 					<ArchiverStatusView

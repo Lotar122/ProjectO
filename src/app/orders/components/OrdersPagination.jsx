@@ -2,6 +2,8 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import { pluralPl } from "@/app/lib/pluralPl";
+
 export default function OrdersPagination({
 	currentPage,
 	isLoading,
@@ -20,9 +22,9 @@ export default function OrdersPagination({
 	const endItem = Math.min(currentPage * pageSize, totalCount);
 
 	return (
-		<div className="mt-8 flex flex-col gap-4 rounded-xl border border-line bg-surface px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
-			<p className="text-sm text-muted">
-				Wyświetlono {startItem}-{endItem} z {totalCount} zleceń
+		<div className="flex flex-col gap-4 rounded-xl border border-line bg-surface px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
+			<p className="text-sm tabular-nums text-muted">
+				Wyświetlono {startItem}-{endItem} z {totalCount} {pluralPl(totalCount, ["zlecenia", "zleceń", "zleceń"])}
 			</p>
 
 			<div className="flex items-center justify-between gap-3 md:justify-end">
@@ -35,7 +37,7 @@ export default function OrdersPagination({
 					<span className="sr-only sm:not-sr-only">Poprzednia</span>
 				</button>
 
-				<span className="min-w-0 text-center text-sm font-medium whitespace-nowrap text-foreground sm:min-w-28">
+				<span className="min-w-0 text-center text-sm font-medium tabular-nums whitespace-nowrap text-foreground sm:min-w-28">
 					Strona {currentPage} z {totalPages}
 				</span>
 

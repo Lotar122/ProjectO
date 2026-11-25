@@ -88,7 +88,7 @@ export default function AdminTopBar({ userLabel })
 
 	return (
 		<>
-			<header className="relative z-30 border-b border-line bg-surface">
+			<header className="relative z-header border-b border-line bg-surface">
 				<div className="container mx-auto px-4 py-4">
 					<div className="flex items-center justify-between gap-3">
 						<Link
@@ -140,7 +140,7 @@ export default function AdminTopBar({ userLabel })
 								{isSettingsOpen && (
 									<div
 										id={menuId}
-										className="absolute right-0 top-full z-20 mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)] overflow-hidden rounded-lg border border-line bg-surface-raised shadow-lg">
+										className="menu absolute right-0 top-full z-dropdown mt-2 w-max min-w-52 max-w-[calc(100vw-5rem)]">
 										<div className="flex items-center gap-3 border-b border-line px-4 py-3 text-sm text-muted xl:hidden">
 											<UserCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
 											<span className="min-w-0 wrap-break-word">{userLabel}</span>
@@ -149,7 +149,7 @@ export default function AdminTopBar({ userLabel })
 											href={passwordHref}
 											onClick={() => setIsSettingsOpen(false)}
 											aria-current={isPasswordPage ? "page" : undefined}
-											className="focus-ring flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-hover active:bg-surface-active aria-[current=page]:bg-surface-hover">
+											className="menu-item">
 											<KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
 											Zmień hasło
 										</Link>

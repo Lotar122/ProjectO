@@ -3,11 +3,13 @@
 import { AnimatePresence, m } from "framer-motion";
 import { useId, useRef } from "react";
 
+import { DIALOG_BACKDROP, DIALOG_PANEL } from "@/app/components/motion";
 import useModalA11y from "@/app/components/useModalA11y";
 
 export default function DeleteOrderModal({ isOpen, onCancel, onConfirm, returnFocusRef })
 {
 	const titleId = useId();
+	const descriptionId = useId();
 	const cancelRef = useRef(null);
 	const dialogRef = useModalA11y({
 		isOpen,
@@ -20,9 +22,7 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm, returnFo
 		<AnimatePresence>
 			{isOpen && (
 				<m.div
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1, pointerEvents: "auto" }}
-					exit={{ opacity: 0, pointerEvents: "none" }}
+					{...DIALOG_BACKDROP}
 					onClick={(event) =>
 					{
 						if (event.target === event.currentTarget)
@@ -30,23 +30,21 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm, returnFo
 							onCancel();
 						}
 					}}
-					className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+					className="fixed inset-0 z-overlay flex items-center justify-center bg-overlay p-4">
 					<m.div
 						ref={dialogRef}
-						initial={{ opacity: 0, scale: 0.94, y: 18 }}
-						animate={{ opacity: 1, scale: 1, y: 0, pointerEvents: "auto" }}
-						exit={{ opacity: 0, scale: 0.96, pointerEvents: "none" }}
+						{...DIALOG_PANEL}
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby={titleId}
+						aria-describedby={descriptionId}
 						tabIndex={-1}
-						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6 outline-none">
+						className="w-full max-w-sm rounded-xl border border-line bg-surface-raised p-6 shadow-overlay outline-none">
 						<h2 id={titleId} className="mb-4 text-lg font-semibold text-foreground">
 							Usunąć zlecenie?
 						</h2>
-						<p className="mb-6 text-muted">
-							Czy na pewno chcesz usunąć to zlecenie? Tej operacji nie można
-							cofnąć.
+						<p id={descriptionId} className="mb-6 text-muted">
+							Tej operacji nie można cofnąć.
 						</p>
 						<div className="flex justify-end gap-3">
 							<button
@@ -59,8 +57,8 @@ export default function DeleteOrderModal({ isOpen, onCancel, onConfirm, returnFo
 							<button
 								type="button"
 								onClick={onConfirm}
-								className="btn btn-danger min-w-24">
-								Usuń
+								className="btn btn-danger">
+								Usuń zlecenie
 							</button>
 						</div>
 					</m.div>

@@ -4,32 +4,11 @@ import { m } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import http, { isAbortError } from "@/app/lib/http";
+import { SECTION_ENTER } from "@/app/components/motion";
 import Alert from "../components/Alert";
 import PasswordField from "../components/passwordField";
 import Loading from "../loading";
 import { KRATOS_PUBLIC, getKratosFlowMessages, getKratosNodeValue } from "../lib/kratos";
-
-const container = {
-	hidden: {},
-	show: {
-		transition: {
-			staggerChildren: 0.08,
-			delayChildren: 0.05,
-		},
-	},
-};
-
-const item = {
-	hidden: { opacity: 0, y: 22 },
-	show: {
-		opacity: 1,
-		y: 0,
-		transition: {
-			duration: 0.5,
-			ease: [0.22, 1, 0.36, 1],
-		},
-	},
-};
 
 // The role is only trusted from metadata_public (see isAdminSession).
 const getPostLoginPath = (session) =>
@@ -257,7 +236,7 @@ const KratosLogin = () =>
 			return (
 				<div className="relative flex min-h-dvh items-center justify-center p-4">
 					<div
-						className="w-full max-w-md space-y-5 rounded-xl border border-line bg-surface p-6 shadow-lg sm:p-8">
+						className="w-full max-w-md space-y-5 rounded-xl border border-line bg-surface p-6 shadow-popover sm:p-8">
 						<Alert tone="danger">{String(error)}</Alert>
 						<button
 							type="button"
@@ -276,23 +255,20 @@ const KratosLogin = () =>
 	return (
 		<div className="relative flex min-h-dvh items-center justify-center p-4">
 			<m.div
-				variants={container}
-				initial="hidden"
-				animate="show"
-				className="relative z-10 w-full max-w-md rounded-xl border border-line bg-surface p-6 shadow-lg sm:p-8">
-				<m.div variants={item} className="mb-6 text-center sm:mb-8">
-					<h2 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Witaj ponownie</h2>
+				{...SECTION_ENTER}
+				className="relative z-10 w-full max-w-md rounded-xl border border-line bg-surface p-6 shadow-popover sm:p-8">
+				<div className="mb-6 text-center sm:mb-8">
+					<h1 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">Witaj ponownie</h1>
 					<p className="text-muted">
 						Zaloguj się do panelu
 					</p>
-				</m.div>
+				</div>
 
 				{error && (
 					<Alert tone="danger" className="mb-4">{String(error)}</Alert>
 				)}
 
-				<m.form
-					variants={item}
+				<form
 					onSubmit={handleLogin}
 					method="post"
 					autoComplete="on"
@@ -310,7 +286,7 @@ const KratosLogin = () =>
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							className="field"
-							placeholder="Wpisz adres e-mail"
+							placeholder="jan.kowalski@przyklad.pl"
 							required
 						/>
 					</div>
@@ -323,14 +299,13 @@ const KratosLogin = () =>
 						setPassword={setPassword}
 					/>
 
-					<m.button
+					<button
 						type="submit"
 						disabled={isSubmitting}
-						whileTap={{ scale: 0.985 }}
 						className="btn btn-primary w-full">
 						{isSubmitting ? "Logowanie..." : "Zaloguj się"}
-					</m.button>
-				</m.form>
+					</button>
+				</form>
 			</m.div>
 		</div>
 	);

@@ -2,7 +2,10 @@
 
 import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, CheckCircle2, LoaderCircle, X } from "lucide-react";
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
+
+import { SECTION_ENTER } from "@/app/components/motion";
+import { pluralPl } from "@/app/lib/pluralPl";
 
 const STATUS_STYLES = {
 	pending: {
@@ -25,24 +28,50 @@ const STATUS_STYLES = {
 function BackgroundActionsWidget({ actions, onDismiss })
 {
 	const pendingCount = actions.filter((action) => action.status === "pending").length;
+	const [announcement, setAnnouncement] = useState("");
+	const seenStatusesRef = useRef(new Map());
+
+	useEffect(() =>
+	{
+		const seenStatuses = seenStatusesRef.current;
+		const currentIds = new Set(actions.map((action) => action.id));
+
+		for (const action of actions)
+		{
+			if (action.status !== "pending" && seenStatuses.get(action.id) !== action.status)
+			{
+				const outcome = action.status === "success" ? "zakończone" : "nie powiodło się";
+				setAnnouncement(`${action.title}: ${outcome}`);
+			}
+			seenStatuses.set(action.id, action.status);
+		}
+
+		for (const id of seenStatuses.keys())
+		{
+			if (!currentIds.has(id))
+			{
+				seenStatuses.delete(id);
+			}
+		}
+	}, [actions]);
 
 	return (
-		<div className="pointer-events-none fixed bottom-4 right-4 z-50 w-[min(24rem,calc(100vw-2rem))]">
+		<div className="pointer-events-none fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-toast w-[min(24rem,calc(100vw-2rem))]">
+			<p className="sr-only" aria-live="polite">{announcement}</p>
 			<AnimatePresence initial={false}>
 				{actions.length > 0 && (
 					<m.div
 						key="widget"
-						initial={{ opacity: 0, y: 18 }}
-						animate={{ opacity: 1, y: 0 }}
-						exit={{ opacity: 0, y: 18 }}
-						className="pointer-events-auto overflow-hidden rounded-xl border border-line bg-surface-raised shadow-2xl">
+						{...SECTION_ENTER}
+						exit={{ opacity: 0, y: 8 }}
+						className="pointer-events-auto overflow-hidden rounded-xl border border-line bg-surface-raised shadow-overlay">
 						<div className="border-b border-line px-4 py-3">
-							<p className="text-xs uppercase tracking-[0.18em] text-muted">
+							<p className="eyebrow">
 								Działania w tle
 							</p>
 							<p className="mt-1 text-sm text-foreground">
 								{pendingCount > 0
-									? `W toku: ${pendingCount} ${pendingCount === 1 ? "działanie" : "działania"}`
+									? `W toku: ${pendingCount} ${pluralPl(pendingCount, ["działanie", "działania", "działań"])}`
 									: "Kończenie działań"}
 							</p>
 						</div>
@@ -63,7 +92,7 @@ function BackgroundActionsWidget({ actions, onDismiss })
 										</div>
 
 										<div className="min-w-0 flex-1">
-											<p className="truncate text-sm font-medium text-foreground">
+											<p className="truncate text-sm font-medium text-foreground" title={action.title}>
 												{action.title}
 											</p>
 											{action.description ? (

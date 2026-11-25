@@ -33,6 +33,7 @@ describe("createInitialOrder", () =>
 		expect(createInitialOrder()).toEqual({
 			patient: "",
 			details: "",
+			orderingPartyId: "",
 			dueDate: "2027-01-01",
 		});
 	});

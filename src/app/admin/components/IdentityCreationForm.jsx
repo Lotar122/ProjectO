@@ -6,6 +6,7 @@ import { useState } from "react";
 import http from "@/app/lib/http";
 
 import Alert from "@/app/components/Alert";
+import { SECTION_ENTER } from "@/app/components/motion";
 import PasswordField from "@/app/components/passwordField";
 
 const INITIAL_FORM = {
@@ -21,14 +22,12 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 {
 	const [form, setForm] = useState(INITIAL_FORM);
 	const [errorMessage, setErrorMessage] = useState("");
-	const [successMessage, setSuccessMessage] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	const updateField = (field, value) =>
 	{
 		setForm((current) => ({ ...current, [field]: value }));
 		setErrorMessage("");
-		setSuccessMessage("");
 	};
 
 	const handleSubmit = async (event) =>
@@ -49,7 +48,6 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 
 		setIsSubmitting(true);
 		setErrorMessage("");
-		setSuccessMessage("");
 
 		let created = false;
 
@@ -68,7 +66,6 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 			);
 
 			setForm(INITIAL_FORM);
-			setSuccessMessage("Tożsamość została utworzona. Użytkownik może się teraz zalogować.");
 			created = true;
 		}
 		catch (error)
@@ -90,11 +87,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 	};
 
 	return (
-		<m.div
-			initial={{ opacity: 0, y: 24 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.45 }}
-			className="max-w-3xl">
+		<m.div {...SECTION_ENTER} className="max-w-3xl">
 			<div className="overflow-hidden rounded-xl border border-line bg-surface">
 				<form onSubmit={handleSubmit} className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
 					<Alert tone="info" icon={ShieldCheck} announce={false}>
@@ -104,12 +97,10 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 
 					{errorMessage && <Alert tone="danger">{errorMessage}</Alert>}
 
-					{successMessage && <Alert tone="success">{successMessage}</Alert>}
-
 					<div className="grid gap-5 md:grid-cols-2">
 						<div className="md:col-span-2">
 							<label htmlFor="identity-email" className="field-label">
-								Adres e-mail <span className="text-accent-text" aria-hidden="true">*</span>
+								Adres e-mail
 							</label>
 							<input
 								type="email"
@@ -119,14 +110,14 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 								required
 								value={form.email}
 								onChange={(event) => updateField("email", event.target.value)}
-								placeholder="uzytkownik@przyklad.pl"
+								placeholder="jan.kowalski@przyklad.pl"
 								className="field"
 							/>
 						</div>
 
 						<div>
 							<label htmlFor="identity-first-name" className="field-label">
-								Imię
+								Imię <span className="font-normal text-muted">(opcjonalne)</span>
 							</label>
 							<input
 								type="text"
@@ -142,7 +133,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 
 						<div>
 							<label htmlFor="identity-last-name" className="field-label">
-								Nazwisko
+								Nazwisko <span className="font-normal text-muted">(opcjonalne)</span>
 							</label>
 							<input
 								type="text"
@@ -158,7 +149,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 
 						<div>
 							<label htmlFor="identity-role" className="field-label">
-								Rola <span className="text-accent-text" aria-hidden="true">*</span>
+								Rola
 							</label>
 							<select
 								id="identity-role"
@@ -180,7 +171,7 @@ export default function IdentityCreationForm({ onCancel, onCreated })
 							label="Hasło początkowe"
 							autoComplete="new-password"
 							password={form.password}
-							placeholder="Minimum 8 znaków"
+							hint="Co najmniej 8 znaków."
 							setPassword={(value) => updateField("password", value)}
 						/>
 						<PasswordField

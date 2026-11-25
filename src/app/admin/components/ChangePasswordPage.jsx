@@ -77,7 +77,7 @@ export default function ChangePasswordPage({ returnPath, userEmail })
 		<>
 			<AdminPageHeader
 				title="Zmień hasło"
-				description="Najpierw potwierdź obecne hasło, a następnie ustaw nowe hasło do konta Ory."
+				description="Najpierw potwierdź obecne hasło, a następnie ustaw nowe hasło."
 			/>
 			<PasswordSettingsForm
 				confirmPassword={form.confirmPassword}

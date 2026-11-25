@@ -37,7 +37,7 @@ export default function Alert({ tone, icon, announce = true, action, onDismiss, 
 					type="button"
 					onClick={onDismiss}
 					aria-label="Zamknij"
-					className="focus-ring -m-1 ml-auto shrink-0 rounded p-1 opacity-70 transition-opacity hover:opacity-100">
+					className="focus-ring -my-2 -mr-2.5 ml-auto flex size-9 shrink-0 items-center justify-center rounded-lg opacity-70 transition-opacity hover:opacity-100">
 					<X className="h-4 w-4" aria-hidden="true" />
 				</button>
 			)}

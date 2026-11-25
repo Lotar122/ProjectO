@@ -60,7 +60,7 @@ export default function OrderFilesList({
 							type="button"
 							onClick={() => onDownload?.(attachment, index)}
 							disabled={busyIds?.has(attachment.fileId)}
-							className="btn btn-primary min-w-11 shrink-0 px-2.5 sm:px-3">
+							className="btn btn-secondary min-w-11 shrink-0 px-2.5 sm:px-3">
 							<Download className="h-4 w-4" aria-hidden="true" />
 							<span className="sr-only sm:not-sr-only">
 								{busyIds?.has(attachment.fileId) ? "Pobieranie..." : "Pobierz"}

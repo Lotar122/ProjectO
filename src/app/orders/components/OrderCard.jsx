@@ -46,6 +46,7 @@ const getStatusIcon = (status) =>
 
 // Mounted only while a card is expanded, so collapsed cards don't build file lists.
 function OrderCardDetails({
+	detailsId,
 	downloadingFileIds,
 	fileNamesById,
 	onDownloadFile,
@@ -57,6 +58,7 @@ function OrderCardDetails({
 
 	return (
 		<m.div
+			id={detailsId}
 			onClick={(event) => event.stopPropagation()}
 			initial={{ opacity: 0 }}
 			animate={{ opacity: 1 }}
@@ -69,18 +71,6 @@ function OrderCardDetails({
 								Pacjent
 							</p>
 							<p className="mt-1 text-sm text-foreground wrap-break-word">{order.patient}</p>
-						</div>
-						<div>
-							<p className="text-xs uppercase tracking-[0.2em] text-muted">
-								Data wystawienia
-							</p>
-							<p className="mt-1 text-sm text-foreground">{getIssueDate(order) || "-"}</p>
-						</div>
-						<div>
-							<p className="text-xs uppercase tracking-[0.2em] text-muted">
-								Termin realizacji
-							</p>
-							<p className="mt-1 text-sm text-foreground">{getDisplayDate(order) || "-"}</p>
 						</div>
 						<div>
 							<p className="text-xs uppercase tracking-[0.2em] text-muted">
@@ -119,7 +109,7 @@ function OrderCardDetails({
 }
 
 const MENU_ITEM_CLASS =
-	"focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors";
+	"focus-ring flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors";
 const LOCKED_MENU_ITEM_CLASS = `${MENU_ITEM_CLASS} cursor-not-allowed text-muted`;
 
 function OrderCard({
@@ -144,35 +134,67 @@ function OrderCard({
 	const statusLabel = STATUS_LABELS[order.status] ?? STATUS_LABELS.completed;
 	const archived = isOrderArchived(order);
 	const lockNoteId = useId();
+	const menuId = useId();
+	const detailsId = useId();
+	const progress = Math.min(100, Math.max(0, Number(order.progress) || 0));
+	const issueDate = getIssueDate(order);
+	const dueDate = getDisplayDate(order);
+	const ownerLabel = order.owner_name || order.owner_last_name
+		? `${order.owner_name || ""} ${order.owner_last_name || ""}`.trim()
+		: order.owner_email || order.owner_user_id;
 	// Focus goes back here when the delete dialog closes; the menu item that opened it is gone by then.
 	const menuTriggerRef = useRef(null);
+	const handleKeyDown = (event) =>
+	{
+		if (event.key === "Escape" && isMenuOpen)
+		{
+			event.stopPropagation();
+			onToggleMenu(orderId);
+			menuTriggerRef.current?.focus();
+		}
+	};
 	const lockedItemProps = canModify ? {} : { "aria-disabled": "true", "aria-describedby": lockNoteId };
 
 	return (
 		<div
 			onClick={() => onToggleExpanded(orderId)}
-			className={`relative cursor-pointer rounded-xl border border-line bg-surface p-4 transition-colors duration-200 hover:border-line-control sm:p-6 ${
-				isMenuOpen ? "z-30" : "z-0"
-			}`}>
+			onKeyDown={handleKeyDown}
+			className={`relative cursor-pointer rounded-xl border bg-surface p-4 transition-colors duration-200 sm:p-6 ${
+				isExpanded ? "border-accent-line" : "border-line hover:border-line-control"
+			} ${isMenuOpen ? "z-30" : "z-0"}`}>
 			<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
-				<div className="flex min-w-0 items-start gap-3 sm:gap-4 md:items-center">
+				<div className="flex min-w-0 items-start gap-3 sm:gap-4">
 					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent sm:h-12 sm:w-12">
 						<Package className="h-5 w-5 text-accent-contrast sm:h-6 sm:w-6" aria-hidden="true" />
 					</div>
-					<div className="min-w-0">
-						<h3 className="text-lg font-semibold text-foreground wrap-break-word">{order.patient}</h3>
-						<p className="text-foreground wrap-break-word line-clamp-2 md:line-clamp-none">{order.details || order.type}</p>
+					<div className="min-w-0 flex-1">
+						<h3 className="text-lg font-semibold leading-snug text-foreground wrap-break-word sm:text-xl">
+								<span className="block text-base tabular-nums text-accent-text">Zlecenie #{order.order_id}</span>
+								<span className="mt-0.5 block">{order.patient}</span>
+							</h3>
+						<p className="mt-1 text-sm leading-6 text-muted wrap-break-word line-clamp-2 md:line-clamp-none">{order.details || order.type}</p>
+						<dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line pt-3 sm:flex sm:flex-wrap">
+							<div>
+								<dt className="text-xs text-muted">Data wystawienia</dt>
+								<dd className={`text-sm font-medium tabular-nums ${issueDate ? "text-foreground" : "text-muted"}`}>{issueDate || "brak"}</dd>
+							</div>
+							<div>
+								<dt className="text-xs text-muted">Termin realizacji</dt>
+								<dd className={`text-sm font-medium tabular-nums ${dueDate ? "text-foreground" : "text-muted"}`}>{dueDate || "brak"}</dd>
+							</div>
+							{order.ordering_party_name && (
+								<div className="col-span-2 min-w-0">
+									<dt className="text-xs text-muted">Zleceniodawca</dt>
+									<dd className="text-sm font-medium text-foreground wrap-break-word">{order.ordering_party_name}</dd>
+								</div>
+							)}
+						</dl>
 						{(order.owner_email || order.owner_user_id) && (
-							<p className="text-sm text-accent-text wrap-anywhere">
-								Złożone przez: {order.owner_name || order.owner_last_name
-									? `${order.owner_name || ""} ${order.owner_last_name || ""}`.trim()
-									: order.owner_email || order.owner_user_id}
+							<p className="mt-2 text-sm text-accent-text wrap-anywhere">
+								Złożone przez: {ownerLabel}
 								{order.owner_email ? ` (${order.owner_email})` : ""}
 							</p>
 						)}
-						<p className="text-sm text-muted">
-							Zlecenie #{order.order_id} - {getDisplayDate(order)}
-						</p>
 					</div>
 				</div>
 
@@ -187,7 +209,7 @@ function OrderCard({
 								disabled={isStatusUpdating}
 								onChange={(event) => onStatusChange?.(order, event.target.value)}
 								aria-label={`Zmień status zlecenia ${order.order_id}`}
-								className={`min-h-10 max-w-full rounded-full border-0 px-3 py-2 text-base font-medium sm:min-h-0 sm:py-1 sm:text-sm ${statusTheme.badgeClass} focus-ring disabled:cursor-wait disabled:opacity-60`}>
+								className={`min-h-11 max-w-full rounded-full border-0 px-3 py-2 text-base font-medium sm:text-sm ${statusTheme.badgeClass} focus-ring disabled:cursor-wait disabled:opacity-60`}>
 								{ORDER_STATUS_VALUES.map((status) => (
 									<option key={status} value={status} className="bg-surface-sunken text-foreground">
 										{STATUS_LABELS[status]}
@@ -196,7 +218,7 @@ function OrderCard({
 							</select>
 						) : (
 							<span
-								className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap ${statusTheme.badgeClass}`}>
+								className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold whitespace-nowrap ${statusTheme.badgeClass}`}>
 								{getStatusIcon(order.status)}
 								{statusLabel}
 							</span>
@@ -211,16 +233,23 @@ function OrderCard({
 								</span>
 							</div>
 						)}
-						<div className="mt-2 h-2 w-32 rounded-full bg-surface-raised">
+						<div
+							role="progressbar"
+							aria-label={`Postęp zlecenia ${order.order_id}`}
+							aria-valuemin={0}
+							aria-valuemax={100}
+							aria-valuenow={progress}
+							aria-valuetext={`${progress}% ukończono`}
+							className="mt-2 h-2 w-32 rounded-full bg-line md:ml-auto">
 							<div
 								className={`h-2 rounded-full transition-[width] duration-300 ${statusTheme.progressClass}`}
 								style={{
-									width: `${order.progress}%`,
+									width: `${progress}%`,
 								}}
 							/>
 						</div>
-						<p className="mt-1 text-sm text-muted">
-							{order.progress}% ukończono
+						<p className="mt-1 text-sm tabular-nums text-muted" aria-hidden="true">
+							{progress}% ukończono
 						</p>
 					</div>
 
@@ -232,11 +261,11 @@ function OrderCard({
 								event.stopPropagation();
 								onToggleExpanded(orderId);
 							}}
+							aria-label={`Szczegóły zlecenia ${order.order_id}`}
 							aria-expanded={isExpanded}
+							aria-controls={isExpanded ? detailsId : undefined}
 							className="btn btn-secondary min-w-11 px-2.5 sm:px-4">
-							<span className="sr-only sm:not-sr-only">
-								{isExpanded ? "Ukryj szczegóły" : "Zobacz szczegóły"}
-							</span>
+								<span className="sr-only sm:not-sr-only">Szczegóły</span>
 							<ChevronDown
 								className={`h-4 w-4 transition-transform ${
 									isExpanded ? "rotate-180" : ""
@@ -251,6 +280,8 @@ function OrderCard({
 								type="button"
 								onClick={() => onToggleMenu(orderId)}
 								className="btn btn-secondary w-11 px-0"
+								aria-expanded={isMenuOpen}
+								aria-controls={isMenuOpen ? menuId : undefined}
 								aria-label={`Otwórz działania dla zlecenia ${order.order_id}`}>
 								<Ellipsis className="h-4 w-4" aria-hidden="true" />
 							</button>
@@ -258,6 +289,7 @@ function OrderCard({
 							<AnimatePresence>
 								{isMenuOpen && (
 									<m.div
+										id={menuId}
 										initial={{ opacity: 0, y: 8, scale: 0.98 }}
 										animate={{ opacity: 1, y: 0, scale: 1 }}
 										exit={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -306,6 +338,7 @@ function OrderCard({
 
 			{isExpanded && (
 				<OrderCardDetails
+					detailsId={detailsId}
 					downloadingFileIds={downloadingFileIds}
 					fileNamesById={fileNamesById}
 					onDownloadFile={onDownloadFile}

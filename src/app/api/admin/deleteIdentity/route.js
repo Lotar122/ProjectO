@@ -45,16 +45,17 @@ async function handleDelete(request)
 			return Response.json({ error: response.status === 404 ? "Nie znaleziono użytkownika." : "Nie udało się usunąć użytkownika z Ory Kratos." }, { status: response.status === 404 ? 404 : 502 });
 		}
 
-		// The application user row is no longer needed after the Kratos identity is gone.
+		// The application user row and the account's ordering parties are no longer needed after the Kratos identity is gone.
 		// Orders are intentionally retained and become unassigned in the admin order view.
 		try
 		{
 			await DB`DELETE FROM users WHERE user_id = ${id}`;
+			await DB`DELETE FROM ordering_parties WHERE user_id = ${id}`;
 		}
 		catch (err)
 		{
-			// The Kratos identity is already gone; report success and leave the row for cleanup.
-			log.error(`Identity ${id} deleted in Kratos but its user row could not be removed`, err);
+			// The Kratos identity is already gone; report success and leave the rows for cleanup.
+			log.error(`Identity ${id} deleted in Kratos but its user rows could not be removed`, err);
 		}
 
 		log.info(`Identity ${id} deleted by admin ${session.data.identity.id}`);

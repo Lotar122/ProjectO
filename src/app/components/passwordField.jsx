@@ -1,11 +1,13 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 export default function PasswordField({
 	autoComplete = "current-password",
+	hint,
 	id,
+	invalid = false,
 	label = "Hasło",
 	name,
 	password,
@@ -15,6 +17,7 @@ export default function PasswordField({
 })
 {
 	const [showPassword, setShowPassword] = useState(false);
+	const hintId = `${useId()}-hint`;
 
 	return (
 		<div>
@@ -32,6 +35,8 @@ export default function PasswordField({
 					className="field pr-12"
 					placeholder={placeholder}
 					required={required}
+					aria-invalid={invalid || undefined}
+					aria-describedby={hint ? hintId : undefined}
 				/>
 				<button
 					type="button"
@@ -45,6 +50,11 @@ export default function PasswordField({
 					)}
 				</button>
 			</div>
+			{hint && (
+				<p id={hintId} className="field-hint">
+					{hint}
+				</p>
+			)}
 		</div>
 	);
 }

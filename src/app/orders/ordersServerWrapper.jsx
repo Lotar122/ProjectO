@@ -9,6 +9,7 @@ import { getUserAuthSession } from "../server-functions/getUserAuthSession";
 import { getIdentityName } from "../server-functions/getUserName";
 import { isAdminSession } from "../server-functions/isAdminSession";
 import { listOrders } from "../server-functions/orders/listOrders";
+import { listOrderingParties } from "../server-functions/orderingParties";
 import { createLogger } from "../lib/logger";
 
 const log = createLogger("orders");
@@ -36,10 +37,22 @@ export default async function ProtectedPage()
 			log.warn(`Could not prefetch orders: ${err.message}`);
 		}
 
+		let orderingParties = [];
+
+		try
+		{
+			orderingParties = await listOrderingParties(userAuthSession.data.identity.id);
+		}
+		catch (err)
+		{
+			log.warn(`Could not load ordering parties: ${err.message}`);
+		}
+
 		return (
 			<Orders
 				initialOrdersPayload={initialOrdersPayload}
 				isAdmin={isAdminSession(userAuthSession)}
+				orderingParties={orderingParties}
 				userEmail={userAuthSession.data.identity.traits.email}
 				userName={name.first}
 				userLastName={name.last}

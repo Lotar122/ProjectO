@@ -148,6 +148,21 @@ docker exec -i <kontener-postgres> psql -U <użytkownik> -d <baza> < db/migratio
 
 Plik ustawia `lock_timeout` na 5 s, żeby `ALTER TABLE` nie czekał w kolejce za długą transakcją i nie wstrzymał wszystkich zapytań do `orders`. Jeśli upłynie limit, uruchom plik ponownie. Wycofanie opisuje komentarz `rollback` na końcu pliku.
 
+# Migracja zleceniodawców (ordering_parties)
+
+- `db/migrations/2026-11-25_ordering_parties.sql`: tabela `ordering_parties` (zleceniodawcy przypisani do konta; wiele na konto, `user_id` to identyfikator z Kratos, bez klucza obcego), unikalny indeks `ordering_parties_user_name_idx` na `(user_id, lower(name))` oraz dwie nullable kolumny w `orders`: `ordering_party_id` (klucz obcy, `ON DELETE SET NULL`) i `ordering_party_name` (kopia nazwy z chwili przypisania).
+
+**Migrację trzeba wykonać przed wdrożeniem nowego kodu web i workera.** Kod korzysta z tabeli i nowych kolumn, więc bez nich zapytania do zleceń i zleceniodawców kończą się błędem. Migracja jest addytywna, więc stary kod ją ignoruje. Dla tej migracji nie ma skryptu `bun`, tylko sam SQL. Jest idempotentna (można ją powtarzać):
+
+```
+psql "$DB_URL" -f db/migrations/2026-11-25_ordering_parties.sql
+
+# jeśli Postgres działa w Dockerze
+docker exec -i <kontener-postgres> psql -U <użytkownik> -d <baza> < db/migrations/2026-11-25_ordering_parties.sql
+```
+
+Plik ustawia `lock_timeout` na 5 s, żeby `ALTER TABLE orders` nie czekał w kolejce za długą transakcją i nie wstrzymał zapytań do `orders`. Jeśli upłynie limit, uruchom plik ponownie. Wycofanie opisuje komentarz `rollback` na końcu pliku.
+
 # Worker archiwizacji (wbudowany w obraz web)
 
 Jedyna wspierana forma wdrożenia to jeden kontener `web`, zbudowany z `docker/web-supervised.Dockerfile`: Next.js na Bunie, kod archiwizatora w JS (`worker/`) i program `projecto-compress` napisany w C++, zlinkowany statycznie z zstd 1.5.7 i brotli 1.2.1. Przy starcie serwer (`src/instrumentation-node.js`) uruchamia worker jako nadzorowany proces potomny (`src/app/server-functions/orders/archiverSupervisor.js`). Nie ma osobnego kontenera workera: uruchomienie obrazu web bez workera kończy się `503 ARCHIVER_WORKER_OFFLINE` na trasach kolejki archiwizacji. Dekompresja przy pobieraniu odbywa się w procesie web. Opis protokołu i parametrów: `phases-bugfix/phase4.md` oraz `phases-bugfix/phase4-amendments.md` (poprawki mają pierwszeństwo), program: `native/compressor/README.md`.

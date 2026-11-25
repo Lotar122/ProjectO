@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { getLocalFileKey } from "../orderUtils";
 import FileDropzone from "./FileDropzone";
 import OrderFilesList from "./OrderFilesList";
@@ -18,11 +18,14 @@ export default function OrderForm({
 	onDetailsChange,
 	onDueDateChange,
 	onFilesSelected,
+	onOrderingPartyChange,
 	onPatientChange,
 	onRemoveAttachment,
 	onAttachmentNameChange,
 	onRemoveFile,
 	onSubmit,
+	orderingParties,
+	orderingPartyId = "",
 	patient,
 	submitLabel,
 	title,
@@ -30,15 +33,26 @@ export default function OrderForm({
 {
 	const id = useId();
 	const isCreate = fileSectionMode === "create";
+	const showOrderingParty = Boolean(orderingParties?.length);
+	const singleOrderingPartyId = orderingParties?.length === 1 ? orderingParties[0].id : "";
+
+	// A lone zleceniodawca is selected for the user; the field stays visible and required.
+	useEffect(() =>
+	{
+		if (singleOrderingPartyId && !orderingPartyId)
+		{
+			onOrderingPartyChange?.(singleOrderingPartyId);
+		}
+	}, [singleOrderingPartyId, orderingPartyId, onOrderingPartyChange]);
 
 	return (
-		<>
+		<div className="mx-auto max-w-2xl">
 			<div className="mb-6 sm:mb-8">
 				<h2 className="mb-2 text-2xl font-bold text-foreground sm:text-3xl">{title}</h2>
 				<p className="text-muted">{description}</p>
 			</div>
 
-			<div className="mx-auto max-w-2xl rounded-xl border border-line bg-surface p-4 sm:p-8">
+			<div className="rounded-xl border border-line bg-surface p-4 sm:p-8">
 				<form onSubmit={onSubmit} className="space-y-6">
 					<div>
 						<label htmlFor={`${id}-patient`} className="field-label">
@@ -50,14 +64,41 @@ export default function OrderForm({
 							value={patient}
 							onChange={(event) => onPatientChange(event.target.value)}
 							className="field"
-							placeholder="Wpisz imię i nazwisko pacjenta"
+							placeholder="np. Jan Kowalski"
 							required
 						/>
 					</div>
 
+					{showOrderingParty && (
+						<div>
+							<label htmlFor={`${id}-orderingParty`} className="field-label">
+								Zleceniodawca
+							</label>
+							<select
+								id={`${id}-orderingParty`}
+								value={orderingPartyId}
+								onChange={(event) => onOrderingPartyChange?.(event.target.value)}
+								className="field"
+								required>
+								<option value="" className="bg-surface-sunken text-foreground">
+									Wybierz zleceniodawcę
+								</option>
+								{orderingParties.map((party) => (
+									<option
+										key={party.id}
+										value={party.id}
+										className="bg-surface-sunken text-foreground">
+										{party.name}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
+
 					<div>
 						<label htmlFor={`${id}-details`} className="field-label">
 							Szczegóły
+							{!detailsRequired && <span className="font-normal text-muted"> (opcjonalne)</span>}
 						</label>
 						<textarea
 							id={`${id}-details`}
@@ -65,7 +106,7 @@ export default function OrderForm({
 							onChange={(event) => onDetailsChange(event.target.value)}
 							rows={5}
 							className="field resize-y"
-							placeholder="Wpisz szczegóły zlecenia"
+							placeholder="np. rodzaj pracy, wymagania, uwagi"
 							required={detailsRequired}
 						/>
 					</div>
@@ -118,21 +159,21 @@ export default function OrderForm({
 						</div>
 					</div>
 
-					<div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+					<div className="flex flex-col gap-3 sm:flex-row-reverse sm:justify-end">
 						<button
 							type="submit"
-							className="btn btn-primary flex-1">
+							className="btn btn-primary px-5">
 							{submitLabel}
 						</button>
 						<button
 							type="button"
 							onClick={onCancel}
-							className="btn btn-secondary flex-1">
+							className="btn btn-secondary px-5">
 							{cancelLabel}
 						</button>
 					</div>
 				</form>
 			</div>
-		</>
+		</div>
 	);
 }

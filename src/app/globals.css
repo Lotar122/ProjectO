@@ -69,6 +69,28 @@
 	--color-overlay: oklch(0 0 0 / 0.6);
 }
 
+@theme static {
+	--shadow-popover: 0 4px 16px oklch(0 0 0 / 0.35);
+	--shadow-overlay: 0 16px 48px oklch(0 0 0 / 0.5);
+}
+
+/* Stacking scale: header < dropdown < overlay (dialogs) < toast. */
+@utility z-header {
+	z-index: 30;
+}
+
+@utility z-dropdown {
+	z-index: 40;
+}
+
+@utility z-overlay {
+	z-index: 50;
+}
+
+@utility z-toast {
+	z-index: 60;
+}
+
 @utility focus-ring {
 	&:focus-visible {
 		outline: 2px solid var(--color-focus);
@@ -113,6 +135,35 @@
 	.field {
 		@apply focus-ring w-full rounded-lg border border-line-control bg-surface-sunken px-4 py-3 text-base text-foreground transition-colors placeholder:text-muted;
 		@apply focus-visible:border-focus disabled:cursor-not-allowed disabled:bg-disabled disabled:text-disabled-text;
+	}
+
+	.field[aria-invalid="true"] {
+		@apply border-danger-line;
+	}
+
+	select.field option {
+		@apply bg-surface-sunken;
+	}
+
+	.field-hint {
+		@apply mt-2 text-sm text-muted;
+	}
+
+	.eyebrow {
+		@apply text-xs font-semibold uppercase text-muted;
+		letter-spacing: 0.06em;
+	}
+
+	.menu {
+		@apply overflow-hidden rounded-lg border border-line bg-surface-raised shadow-popover;
+	}
+
+	.menu-item {
+		@apply focus-ring flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-hover active:bg-surface-active aria-[current=page]:bg-surface-hover;
+	}
+
+	.skip-link {
+		@apply sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-overlay focus:rounded-lg focus:bg-accent focus:px-4 focus:py-2 focus:font-semibold focus:text-accent-contrast;
 	}
 }
 
@@ -172,20 +223,4 @@ body::-webkit-scrollbar-corner {
 		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
 	}
-}
-
-@keyframes fade-in-up {
-	from {
-		opacity: 0;
-		transform: translateY(12px);
-	}
-
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-.animate-fade-in-up {
-	animation: fade-in-up 0.5s ease-out both;
 }

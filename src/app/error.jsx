@@ -27,14 +27,14 @@ export default function Error({ error, reset })
 	return (
 		<div className="flex min-h-dvh items-center justify-center bg-transparent p-4">
 			<div className="text-center">
-				<h1 className="mb-2 text-3xl font-bold text-foreground">Wystąpił błąd.</h1>
-				<p className="mb-6 text-muted">
+				<h1 className="mb-2 text-3xl font-bold text-balance text-foreground">Wystąpił błąd.</h1>
+				<p className="mb-6 text-pretty text-muted">
 					Nie udało się załadować strony. Spróbuj ponownie za chwilę.
 				</p>
 				<button
 					type="button"
 					onClick={retry}
-					className="btn btn-secondary px-5 font-semibold">
+					className="btn btn-primary px-5">
 					Spróbuj ponownie
 				</button>
 			</div>

@@ -67,11 +67,11 @@ const formatTime = (value) =>
 	return Number.isNaN(date.getTime()) ? "brak" : date.toLocaleString("pl-PL");
 };
 
-function Stat({ label, value })
+function Stat({ label, value, className = "" })
 {
 	return (
-		<div className="rounded-lg border border-line bg-background p-4">
-			<p className="text-xs uppercase tracking-[0.18em] text-muted">{label}</p>
+		<div className={`min-w-0 rounded-lg border border-line bg-background p-4 ${className}`}>
+			<p className="eyebrow wrap-break-word">{label}</p>
 			<p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
 		</div>
 	);
@@ -231,13 +231,13 @@ export default function ArchiverStatusView({ status, candidates, worker, needsAt
 
 			{hasRun && (
 				<>
-					<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-						<Stat label="Zlecenia" value={`${done} / ${status.ordersFailed ?? 0}`} />
+					<div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+						<Stat label="Przetworzone" value={done} />
+						<Stat label="Z błędem" value={status.ordersFailed ?? 0} />
 						<Stat label="Pliki skompresowane" value={status.filesCompressed ?? 0} />
 						<Stat label="Pliki pominięte" value={status.filesSkipped ?? 0} />
-						<Stat label="Pliki z błędem" value={status.filesFailed ?? 0} />
+						<Stat label="Pliki z błędem" value={status.filesFailed ?? 0} className="col-span-2 lg:col-span-1" />
 					</div>
-					<p className="text-xs text-muted">Zlecenia: przetworzone / z błędem.</p>
 
 					<Stat label="Zaoszczędzone miejsce" value={`${formatBytes(saved)} (${savedPercent}%)`} />
 
